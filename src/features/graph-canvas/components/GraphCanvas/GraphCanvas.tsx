@@ -52,7 +52,11 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
       const single = evt.target as cytoscape.NodeSingular;
       if (single.isNode()) {
         onSelect(single.id());
+        return;
       }
+      // Edge taps act as deselect to keep the callback contract consistent
+      // with background taps; consumers receive null when no node is active.
+      onSelect(null);
     };
     cy.on('tap', handleTap);
     return (): void => {

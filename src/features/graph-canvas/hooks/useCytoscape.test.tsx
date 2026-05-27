@@ -17,7 +17,7 @@ function Harness(props: Readonly<HarnessProps>): React.JSX.Element {
     if (cyRef.current !== null && onReady !== undefined) {
       onReady(cyRef.current);
     }
-  });
+  }, [cyRef, onReady]);
   return <div ref={containerRef} style={{ width: 200, height: 200 }} data-testid="container" />;
 }
 
@@ -37,7 +37,10 @@ describe('useCytoscape', () => {
     );
 
     expect(capturedCy).not.toBeNull();
-    const cy = capturedCy as unknown as cytoscape.Core;
+    const cy = capturedCy!;
+    // Spies installed post-mount only verify the unmount path; a future
+    // regression where useCytoscape calls destroy during mount would not be
+    // caught here. Acceptable trade-off vs mocking the cytoscape factory.
     const destroySpy = jest.spyOn(cy, 'destroy');
     const removeAllSpy = jest.spyOn(cy, 'removeAllListeners');
 
@@ -65,8 +68,8 @@ describe('useCytoscape', () => {
       <Harness elements={[{ group: 'nodes', data: { id: 'a' } }]} stylesheet={baseStylesheet} onReady={onReady} />
     );
 
-    const cyBefore = capturedCy;
-    expect((cyBefore as unknown as cytoscape.Core).nodes().length).toBe(1);
+    const cyBefore: cytoscape.Core | null = capturedCy;
+    expect(cyBefore!.nodes().length).toBe(1);
 
     act(() => {
       rerender(
@@ -82,7 +85,7 @@ describe('useCytoscape', () => {
     });
 
     expect(capturedCy).toBe(cyBefore); // same instance, not rebuilt
-    expect((capturedCy as unknown as cytoscape.Core).nodes().length).toBe(2);
+    expect(capturedCy!.nodes().length).toBe(2);
   });
 
   it('swaps stylesheet without rebuilding the instance', () => {
@@ -92,7 +95,7 @@ describe('useCytoscape', () => {
     };
     const { rerender } = render(<Harness elements={[]} stylesheet={baseStylesheet} onReady={onReady} />);
 
-    const cyBefore = capturedCy as unknown as cytoscape.Core;
+    const cyBefore = capturedCy!;
     const styleSpy = jest.spyOn(cyBefore, 'style');
 
     const nextStylesheet: CyStylesheet[] = [{ selector: 'node', style: { 'background-color': '#fff' } }];

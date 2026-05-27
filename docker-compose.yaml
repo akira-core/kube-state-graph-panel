@@ -5,15 +5,28 @@ services:
       service: grafana
     depends_on:
       - kube-state-graph
+    environment:
+      # Auto-install Infinity datasource plugin so the provisioned ksg-default datasource
+      # has a backing plugin. Without this, Grafana shows "Datasource ksg-default was not found".
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+    volumes:
+      # Persist installed plugins so GF_INSTALL_PLUGINS doesn't re-download them
+      # on every `docker compose up`. The dist/ bind mount from the base config
+      # targets a subdirectory of this path and is layered on top, so the local
+      # plugin still wins.
+      - ksg-grafana-plugins:/var/lib/grafana/plugins
 
   kube-state-graph:
     image: marz32one/kube-state-graph:latest
     container_name: ksg-backend
     ports:
-      - "8080:8080"
+      - '8080:8080'
     environment:
       KUBECONFIG: /root/.kube/config
     # Mount a kubeconfig from the host to point the backend at any reachable cluster.
     # Override path via KUBECONFIG_PATH env var. Defaults to ./dev/kubeconfig.
     volumes:
       - ${KUBECONFIG_PATH:-./dev/kubeconfig}:/root/.kube/config:ro
+
+volumes:
+  ksg-grafana-plugins:

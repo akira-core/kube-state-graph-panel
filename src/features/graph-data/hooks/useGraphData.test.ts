@@ -1,4 +1,4 @@
-import { dateTime, LoadingState, type DataFrame, type PanelData, type TimeRange } from '@grafana/data';
+import { dateTime, FieldType, LoadingState, type DataFrame, type PanelData, type TimeRange } from '@grafana/data';
 import { renderHook } from '@testing-library/react';
 
 import { useGraphData } from './useGraphData';
@@ -10,19 +10,18 @@ const stubTimeRange: TimeRange = {
 };
 
 function frameWithFieldValue(value: unknown): DataFrame {
-  const frame = {
+  return {
     name: 'graph',
     length: 1,
     fields: [
       {
         name: 'payload',
-        type: 'string',
+        type: FieldType.string,
         config: {},
         values: [value],
       },
     ],
   };
-  return frame as unknown as DataFrame;
 }
 
 function panelData(series: DataFrame[]): PanelData {

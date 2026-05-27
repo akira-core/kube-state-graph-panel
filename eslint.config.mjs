@@ -15,8 +15,11 @@ export default defineConfig([
       '**/.eslintcache',
       '**/coverage',
       '**/*.generated.ts',
-      // .config/ is scaffold-managed by @grafana/create-plugin; do not lint.
-      '.config/**',
+      // Narrow ignores for scaffold-managed files that produce false positives
+      // (e.g. duplicate `webpack` imports inside `declare module` blocks).
+      // Hand-written code in .config/ subdirs remains linted.
+      '.config/types/**',
+      '.config/eslint.config.mjs',
     ],
   },
 

@@ -16,7 +16,10 @@ export function useGraphLayout({ cyRef, name }: UseGraphLayoutProps): void {
     return {
       name: 'fcose',
       animate: true,
-      randomize: false,
+      // randomize: true seeds initial positions before fcose runs, avoiding the
+      // "explosion from origin" flash that happens when preset init layout
+      // leaves every node at (0,0).
+      randomize: true,
       idealEdgeLength: 100,
       nodeRepulsion: 5000,
     } as unknown as cytoscape.LayoutOptions;

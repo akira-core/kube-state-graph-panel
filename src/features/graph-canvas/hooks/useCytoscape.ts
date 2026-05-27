@@ -28,11 +28,6 @@ export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCy
     if (containerRef.current === null) {
       return;
     }
-    if (cyRef.current !== null) {
-      cyRef.current.removeAllListeners();
-      cyRef.current.destroy();
-      cyRef.current = null;
-    }
     cyRef.current = cytoscape({
       container: containerRef.current,
       elements,
