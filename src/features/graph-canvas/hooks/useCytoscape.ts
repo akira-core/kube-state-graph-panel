@@ -8,7 +8,6 @@ export type CyStylesheet = cytoscape.StylesheetStyle | cytoscape.StylesheetCSS;
 export interface UseCytoscapeProps {
   elements: cytoscape.ElementDefinition[];
   stylesheet: CyStylesheet[];
-  layout: cytoscape.LayoutOptions;
 }
 
 export interface UseCytoscapeReturn {
@@ -16,7 +15,11 @@ export interface UseCytoscapeReturn {
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
 }
 
-export function useCytoscape({ elements, stylesheet, layout }: UseCytoscapeProps): UseCytoscapeReturn {
+// Use 'preset' on init so cytoscape does not auto-run a layout.
+// useGraphLayout is the single source of layout execution.
+const INIT_LAYOUT: cytoscape.LayoutOptions = { name: 'preset' };
+
+export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCytoscapeReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
 
@@ -34,7 +37,7 @@ export function useCytoscape({ elements, stylesheet, layout }: UseCytoscapeProps
       container: containerRef.current,
       elements,
       style: stylesheet,
-      layout,
+      layout: INIT_LAYOUT,
     });
     return (): void => {
       if (cyRef.current !== null) {

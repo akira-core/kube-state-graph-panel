@@ -33,7 +33,6 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   const { containerRef, cyRef } = useCytoscape({
     elements,
     stylesheet,
-    layout: { name: layout },
   });
 
   useGraphLayout({ cyRef, name: layout });

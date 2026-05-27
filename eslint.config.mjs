@@ -15,6 +15,8 @@ export default defineConfig([
       '**/.eslintcache',
       '**/coverage',
       '**/*.generated.ts',
+      // .config/ is scaffold-managed by @grafana/create-plugin; do not lint.
+      '.config/**',
     ],
   },
 
