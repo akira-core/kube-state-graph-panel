@@ -1,0 +1,19 @@
+services:
+  grafana:
+    extends:
+      file: .config/docker-compose-base.yaml
+      service: grafana
+    depends_on:
+      - kube-state-graph
+
+  kube-state-graph:
+    image: marz32one/kube-state-graph:latest
+    container_name: ksg-backend
+    ports:
+      - "8080:8080"
+    environment:
+      KUBECONFIG: /root/.kube/config
+    # Mount a kubeconfig from the host to point the backend at any reachable cluster.
+    # Override path via KUBECONFIG_PATH env var. Defaults to ./dev/kubeconfig.
+    volumes:
+      - ${KUBECONFIG_PATH:-./dev/kubeconfig}:/root/.kube/config:ro

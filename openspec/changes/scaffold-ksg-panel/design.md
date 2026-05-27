@@ -275,6 +275,24 @@ src/
 │   │   │   └── EdgeLegend/
 │   │   └── index.ts
 │   │
+│   ├── hover-tooltip/              # Hover tooltip(固定 canvas 右上角)
+│   │   ├── components/
+│   │   │   └── HoverTooltip/
+│   │   │       ├── HoverTooltip.tsx
+│   │   │       ├── HoverTooltip.types.ts
+│   │   │       ├── HoverTooltip.test.tsx
+│   │   │       └── index.ts
+│   │   ├── hooks/
+│   │   │   └── useHoverElement.ts  # cytoscape mouseover store(useSyncExternalStore)
+│   │   └── index.ts
+│   │
+│   ├── element-filter/             # Node kind / edge type filter
+│   │   ├── hooks/
+│   │   │   └── useElementFilter.ts # apply visibility 套用
+│   │   ├── computeVisibility.ts    # pure: (elements, kinds, edgeTypes) → visible id sets
+│   │   ├── computeVisibility.test.ts
+│   │   └── index.ts
+│   │
 │   └── theme/                      # Grafana theme 適配
 │       ├── hooks/useGraphTheme.ts
 │       └── index.ts
@@ -363,6 +381,93 @@ src/
 
 **Trade-offs:** type-aware lint 較慢(每次 lint 需 `tsc --project`),但於 monorepo 規模可控,且 CI 平行化即可吸收。
 
+### Hover Tooltip:固定 canvas 右上角面板,`pointer-events: none`,內容依元素類型動態切換
+
+**Decision:** 新增 feature `src/features/hover-tooltip/`,提供 `HoverTooltip` 元件與 `useHoverElement(cy)` hook。Tooltip 於 `GraphCanvas` JSX 中作為 sibling 渲染,以 `position: absolute; top: 8px; right: 8px; pointer-events: none;` 固定於 canvas wrapper 右上角,寬度約 280px,使用 `@grafana/ui` theme tokens 與半透明背景(背景 `theme.colors.background.secondary` + `opacity: 0.92`)。
+
+`useHoverElement(cy)` 在 init 時於 cytoscape instance 註冊 `cy.on('mouseover', 'node, edge', ...)` 與對應 `mouseout`、`remove` listener,並透過 `useSyncExternalStore` 暴露目前 hovered element id(snapshot 為 `{ id, group } | null`)。React 端僅 `HoverTooltip` 訂閱該 store,**不觸發 GraphCanvas 重新 render**。
+
+Tooltip 內容依 `group`:
+- `nodes`:`name`(`data.label ?? data.id`)、`kind`、`namespace`、key labels(白名單 `app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`,缺欄位則略過)。
+- `edges`:`edgeType`、`source → target`(解析端點 node 的 `label`)、`weight`(若有)。
+
+無 hover 時不渲染 DOM(避免空 box)。Unhover 走 CSS opacity transition 150ms 淡出。觸控裝置以 cytoscape `tap` 事件觸發同一 store(`tap` 在桌面也會 fire,所以與 click 選取行為共存,但 tooltip 與 selection 為獨立 state)。
+
+**Why:**
+
+- **固定角落** vs cursor-follow:零幾何計算(無智慧避讓邏輯)、視覺位置可預測、絕對不覆蓋圖形或連線,符合「不擋圖」硬需求。
+- **`pointer-events: none`**:hover 過 tooltip 區域不會觸發 mouseout 抖動,也不阻擋下方節點點擊。
+- **`useSyncExternalStore`**:與 design.md §6 既定模式一致,cytoscape 為單一真實源,避免 effect 中 setState 引發額外 render。
+- **內容為白名單而非全 labels**:k8s labels 可能上百個,全列會超出 280px 卡片並讓 SRE 找不到重點;白名單與 `kube-state-graph` 上游輸出之常用 labels 對齊,後續可由 panel options 開放自訂。
+
+**Alternatives considered:**
+
+- *cursor-follow tooltip*:UX 直覺但會短暫覆蓋鄰近節點,需 smart placement 計算空白象限,程式碼複雜度顯著上升。
+- *Smart placement(計算節點周圍空白區域)*:最不擋圖,但需要每次 hover 計算 bounding box 與避讓向量,額外 ~150 行,scaffold 階段不值得。
+- *將 tooltip 改為 click-to-pin sidebar*:雖然提供更詳細資料,但 hover 即時回饋是 SRE 掃圖時最低成本互動,留 sidebar 給後續 change。
+- *把 hover state 放進 React state 並讓 GraphCanvas 重新 render*:每次 hover 都重渲整個 canvas wrapper,違反 design.md §1「instance 為唯一真實源」與 §6「不要每次 props 變動 on/off」。
+
+**Trade-offs:** 固定角落讓眼球需從 hover 位置移到右上角,初次使用者可能誤以為無回饋;mitigation:tooltip 出現時加入 1 條從 hovered element 到 tooltip 左下角的細虛線「leader line」(scaffold 階段先不做,留作未來增強)。
+
+### Element Filter:Panel options `MultiSelect`,`visibility: hidden`,不重跑 layout
+
+**Decision:** 新增 feature `src/features/element-filter/`,僅含 `useElementFilter(cy, options)` hook 與 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 純函式。**無 UI 元件**(過濾控制 UI 屬於 `KsgPanel.editor.tsx`)。
+
+`KsgPanelOptions` 擴充兩個欄位:
+
+```ts
+interface KsgPanelOptions {
+  layout: 'fcose' | 'dagre';
+  showLegend: boolean;
+  visibleKinds: K8sResourceKind[];   // default: Object.keys(SHAPE_BY_KIND) as K8sResourceKind[]
+  visibleEdgeTypes: EdgeType[];      // default: Object.keys(COLOR_BY_EDGE_TYPE) as EdgeType[]
+}
+```
+
+`defaultOptions` 預設全部可見。editor 以 2× `@grafana/ui` `MultiSelect` 呈現(label「Visible node types」「Visible edge types」),options 來源即 `SHAPE_BY_KIND` / `COLOR_BY_EDGE_TYPE` 的 keys —— 對應表為唯一資料源(design.md「節點形狀」「邊顏色」決策一致),確保 legend / stylesheet / filter 三者同步。
+
+`computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 純函式:
+
+- 第一遍掃 nodes:`visibleNodeIds = nodes.filter(n => visibleKinds.has(n.data.kind) || !KNOWN_KINDS.has(n.data.kind)).map(id)`。未知 kind **預設可見**(避免上游新增 kind 時無聲消失)。
+- 第二遍掃 edges:`visibleEdgeIds = edges.filter(e => visibleEdgeTypes.has(e.data.edgeType) && visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)).map(id)`。任一端點隱藏 → 邊隱藏(避免懸空線)。
+- 回傳 `{ visibleNodeIds: Set<string>, visibleEdgeIds: Set<string> }`,純 input → output,完整單測。
+
+`useElementFilter` 流程:
+
+1. `useMemo` 以 `[elements, visibleKinds, visibleEdgeTypes]` 為依賴計算 visibility sets。
+2. `useEffect` 監聽 sets reference 變動,以 `cy.batch(() => { cy.elements().forEach(el => el.style('visibility', visibleIds.has(el.id()) ? 'visible' : 'hidden')) })` 套用。
+3. **不呼叫 `cy.layout(...).run()`**(用 `visibility: hidden` 保留位置;若改用 `display: none` 會觸發 cytoscape 自動 re-layout)。
+
+與其他 feature 互動:
+
+- **Tooltip**:cytoscape `visibility: hidden` 元素不觸發 `mouseover`,tooltip 自動跳過隱藏元素,無需特例邏輯。
+- **Diff-and-patch sync**(design.md §1):filter 純改 style,不動 `cy.add/remove`,與 diff 邏輯正交。
+- **Legend**:**legend 不受 filter 影響,永遠顯示完整對應表**,使用者得以知道「目前隱藏了哪些類型」。後續 change 可加入 greyed-out 視覺提示。
+
+邊界狀況:
+
+- `visibleKinds = []`(全部過濾):canvas 內全部節點 `visibility: hidden`,`KsgPanel` 覆蓋 `EmptyState` 元件並顯示 "All node types filtered"。
+- 上游回傳 unknown kind:預設可見(避免資料黑洞);此規則寫於 `computeVisibility` 註解。
+- Panel options 升級遷移:若舊 dashboard 無 `visibleKinds` / `visibleEdgeTypes` 欄位,讀取時走 `defaultOptions` fallback(全可見),行為等同未過濾。
+
+**Why:**
+
+- **Panel options vs in-canvas chips**:Grafana 原生 UX,使用者已熟悉;chips 需自製 overlay 元件並處理位置 / 縮放衝突,scaffold 階段不需要。
+- **`visibility: hidden` vs `display: none`**:`display: none` 會把元素從 layout 圖計算中移除並觸發重新 layout,節點位置會跳動,違反「保留位置」需求;`visibility: hidden` 保留 bbox 與位置。
+- **`visibility: hidden` vs 透明度 dimming**:dimming 仍佔視覺空間且容易混淆 selection state;隱藏更符合「過濾」心智模型。
+- **`computeVisibility` 為純函式**:filter 邏輯與 cytoscape 解耦,完整單測覆蓋(輸入組合矩陣);hook 僅負責 apply。
+- **邊在端點隱藏時自動隱藏**:避免懸空線(cytoscape 預設仍渲染邊到隱藏節點),視覺乾淨。
+
+**Alternatives considered:**
+
+- *In-canvas chips overlay*:UX 較流暢可即時切換,但需自製 chip 元件、處理 zoom/pan 互動衝突、與 Grafana panel toolbar 對齊。延後到 v2。
+- *`display: none` + re-layout*:節點位置每次過濾都重排,使用者失去空間記憶,negative UX。
+- *Dim 至 15% opacity*:保留視覺脈絡,但「過濾後仍佔空間」與使用者預期不符。
+- *Datasource query 端過濾*:減少 wire bytes,但每次切換需重打 API,UX 延遲明顯,且失去客戶端 instant toggle 體驗。Query 端過濾留給未來 namespace / label selector(design.md Open Question)。
+- *Filter UI 與資料來源綁定(動態枚舉現有資料的 kinds)*:選項清單變動,使用者難以建立 muscle memory;改用固定 `SHAPE_BY_KIND` keys 作為枚舉。
+
+**Trade-offs:** `visibility: hidden` 保留位置 → 過濾後可能出現「空白區塊」(原節點位置留白),整體圖看起來鬆散。可接受 —— 換取位置穩定性與 instant toggle。若使用者要求重排,可在後續 change 加 panel option `relayoutOnFilter: boolean` 開關。
+
 ### Sample Workloads:多樣化 manifests 確保樣式覆蓋
 
 **Decision:** 在 `dev/manifests/` 維護一組涵蓋 Deployment、StatefulSet、DaemonSet、Service(ClusterIP/Headless)、Ingress、ConfigMap、Secret、Pod(獨立)、HPA 的 YAML,部署後可觸發 graph-data-integration spec 所定義的所有節點形狀與邊類型。每新增一種樣式對應,需同步新增可觸發該樣式的 manifest。
@@ -395,5 +500,5 @@ src/
 
 - 上游 `kube-state-graph` 是否已輸出 OpenAPI spec?若無,需要先協調補上 `/openapi.json` 端點,或在本 repo 維護一份手寫 spec 作為過渡。
 - panel options 是否需要支援多 backend instance(切換不同 cluster)?暫定 v1 單一 datasource,留待 specs 階段決議。
-- 是否需要 panel-level 的 namespace / label selector filter UI?或完全由 datasource query 控制?傾向後者,但需 specs 確認。
+- 是否需要 panel-level 的 namespace / label selector filter UI?或完全由 datasource query 控制?**部分解答**:node kind / edge type filter 已決定走 panel options(見「Element Filter」決策);namespace / label selector 仍待 specs 決議,傾向 datasource query 端控制。
 - E2E 在 CI 用 `ubuntu-latest` 起 kind 是否需要切換到 self-hosted runner?先試 `ubuntu-latest`,若 timeout 再評估。

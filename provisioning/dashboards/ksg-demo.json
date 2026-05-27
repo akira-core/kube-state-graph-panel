@@ -1,0 +1,61 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ksg-default" },
+      "gridPos": { "h": 18, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "layout": "fcose",
+        "showLegend": true,
+        "visibleKinds": [
+          "Pod",
+          "Service",
+          "Deployment",
+          "Ingress",
+          "Node",
+          "StatefulSet",
+          "DaemonSet",
+          "ConfigMap",
+          "Secret",
+          "HPA",
+          "Namespace",
+          "ReplicaSet",
+          "Job",
+          "CronJob"
+        ],
+        "visibleEdgeTypes": ["ownerReference", "serviceSelector", "networkTraffic", "ingressBackend"]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "/api/graph",
+          "url_options": { "method": "GET" }
+        }
+      ],
+      "title": "Cluster Topology",
+      "type": "marz32one-ksg-panel"
+    }
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["ksg", "kubernetes"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "KSG Demo",
+  "uid": "ksg-demo",
+  "version": 1,
+  "weekStart": ""
+}

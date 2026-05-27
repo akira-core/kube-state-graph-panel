@@ -120,6 +120,94 @@ Panel SHALL 提供 legend 元件,顯示當前圖中出現的節點形狀與邊�
 - **WHEN** Panel 收到含 Pod / Service / Deployment 節點與 ownerReference / serviceSelector 邊的資料
 - **THEN** Legend 區域顯示三種節點形狀與兩種邊顏色的對應說明,且形狀/顏色與 canvas 中渲染一致
 
+### Requirement: Hover Tooltip 顯示元素 metadata
+
+Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 元件;tooltip MUST 固定渲染於 cytoscape canvas wrapper 右上角(`position: absolute; top: 8px; right: 8px`),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動,且樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
+
+#### Scenario: Hover 節點顯示節點 metadata
+
+- **WHEN** 使用者滑鼠 hover 於任一節點
+- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`,以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+
+#### Scenario: Hover 邊顯示邊 metadata
+
+- **WHEN** 使用者滑鼠 hover 於任一邊
+- **THEN** `HoverTooltip` 顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id),以及 `weight`(若 `edge.data.weight` 存在)
+
+#### Scenario: Tooltip 不阻擋圖形互動
+
+- **WHEN** Tooltip 顯示中,使用者點擊 tooltip DOM 覆蓋區域底下的節點
+- **THEN** 該節點被選取(觸發既有 `:selected` 樣式與 `onSelect` callback),tooltip 不攔截 click 事件(`pointer-events: none` 生效)
+
+#### Scenario: 取消 hover 後 tooltip 淡出並從 DOM 移除
+
+- **WHEN** 使用者滑鼠移出原 hovered 元素且未進入其他元素
+- **THEN** `HoverTooltip` 以 opacity transition(≥ 100ms ≤ 200ms)淡出,動畫結束後 tooltip 不渲染任何 DOM(避免空 box 佔位)
+
+#### Scenario: Hovered 元素被移除時清空 tooltip
+
+- **WHEN** 一個元素 hover 中,該元素因 data refresh 從 cytoscape instance 中被 remove
+- **THEN** `useHoverElement` 收到 `remove` 事件後清空 store,`HoverTooltip` 立即消失,不渲染參照已不存在元素的內容
+
+#### Scenario: Hover 不觸發 GraphCanvas 重渲染
+
+- **WHEN** 連續 hover 多個元素
+- **THEN** 透過 `useSyncExternalStore` 訂閱的 `HoverTooltip` 元件重新渲染,但 `GraphCanvas` 與 cytoscape instance reference 不變(React DevTools profiler 驗證 `GraphCanvas` render count 不增加)
+
+### Requirement: Node Kind / Edge Type 過濾
+
+Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `K8sResourceKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`SHAPE_BY_KIND` / `COLOR_BY_EDGE_TYPE`)的全部 keys。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
+
+#### Scenario: 過濾節點 kind 後對應節點不可見且位置保留
+
+- **WHEN** 使用者於 panel options 將 `visibleKinds` 中的 `Pod` 取消勾選
+- **THEN** 所有 `data.kind === 'Pod'` 的節點以 `visibility: hidden` 隱藏;其餘節點位置不變(不觸發 layout 重排);cytoscape instance reference 不變
+
+#### Scenario: 過濾邊 type 後對應邊不可見
+
+- **WHEN** 使用者於 panel options 將 `visibleEdgeTypes` 中的 `serviceSelector` 取消勾選
+- **THEN** 所有 `data.edgeType === 'serviceSelector'` 的邊以 `visibility: hidden` 隱藏;節點與其他邊不受影響
+
+#### Scenario: 邊在任一端點被隱藏時自動隱藏
+
+- **WHEN** 邊的 source 或 target 節點因 `visibleKinds` 過濾而被隱藏
+- **THEN** 該邊 MUST 也被隱藏(無懸空線),即使該邊的 `edgeType` 仍在 `visibleEdgeTypes` 中
+
+#### Scenario: 過濾不重跑 layout
+
+- **WHEN** 使用者切換 `visibleKinds` 或 `visibleEdgeTypes`
+- **THEN** `useElementFilter` 透過 `cy.batch()` 套用 `style('visibility', ...)`;**不**呼叫 `cy.layout(...).run()`;節點位置保持原狀(座標不變)
+
+#### Scenario: 全部 node kind 被過濾顯示 EmptyState
+
+- **WHEN** 使用者將 `visibleKinds` 設為空陣列
+- **THEN** 所有節點隱藏,Panel 覆蓋顯示 `EmptyState` 並顯示文字「All node types filtered」,canvas 本身保留(不重建 instance)
+
+#### Scenario: 未知 kind 預設可見
+
+- **WHEN** 上游回傳節點 `data.kind` 不在 `SHAPE_BY_KIND` keys 中(例:`CustomResource`),且使用者未對該 kind 做特別設定
+- **THEN** 該節點 MUST 預設可見(`computeVisibility` 對 unknown kind 回傳可見),避免上游新增資源類型時資料無聲消失
+
+#### Scenario: Legend 不受 filter 影響
+
+- **WHEN** 使用者過濾任何 kind / edgeType
+- **THEN** `NodeLegend` 與 `EdgeLegend` 仍顯示完整對應表(讀取 `SHAPE_BY_KIND` / `COLOR_BY_EDGE_TYPE`),使用者可知曉目前隱藏了哪些類型
+
+#### Scenario: Tooltip 不會顯示被過濾元素
+
+- **WHEN** 元素已被過濾隱藏(`visibility: hidden`)
+- **THEN** cytoscape 不對該元素觸發 `mouseover`;`HoverTooltip` 不會顯示該元素 metadata
+
+#### Scenario: 缺欄位 dashboard 升級走 defaults
+
+- **WHEN** Panel 載入舊 dashboard,其 `panelOptions` 缺 `visibleKinds` / `visibleEdgeTypes` 欄位
+- **THEN** `defaultOptions` fallback 生效(全部可見),行為等同未過濾,不拋例外
+
+#### Scenario: `computeVisibility` 純函式可單測
+
+- **WHEN** CI 跑 `npm run test`
+- **THEN** `computeVisibility.test.ts` 覆蓋以下案例皆通過:全部可見、過濾單一 kind、過濾單一 edgeType、過濾節點同時造成邊端點失效、空 elements、unknown kind 預設可見
+
 ### Requirement: 空狀態與錯誤狀態渲染
 
 當資料為空、載入中、或上游 API 回傳錯誤時,Panel MUST 顯示對應狀態 UI(empty / loading / error),不可顯示空白 canvas 或拋例外到 React 樹外。

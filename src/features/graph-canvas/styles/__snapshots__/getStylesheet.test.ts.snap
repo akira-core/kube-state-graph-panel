@@ -1,0 +1,41 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`getStylesheet matches snapshot for default theme 1`] = `
+[
+  {
+    "selector": "node",
+    "style": {
+      "background-color": "#22252b",
+      "border-color": "rgba(204, 204, 220, 0.2)",
+      "border-width": 1.5,
+      "color": "rgb(204, 204, 220)",
+      "font-size": 11,
+      "height": 36,
+      "label": "data(label)",
+      "shape": [Function],
+      "text-halign": "center",
+      "text-margin-y": 4,
+      "text-valign": "bottom",
+      "width": 36,
+    },
+  },
+  {
+    "selector": "node:selected",
+    "style": {
+      "border-color": "#3d71d9",
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "edge",
+    "style": {
+      "curve-style": "bezier",
+      "line-color": [Function],
+      "line-style": [Function],
+      "target-arrow-color": [Function],
+      "target-arrow-shape": "triangle",
+      "width": 1.5,
+    },
+  },
+]
+`;

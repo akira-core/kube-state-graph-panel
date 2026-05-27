@@ -1,0 +1,1 @@
+export { EdgeLegend } from './EdgeLegend';
