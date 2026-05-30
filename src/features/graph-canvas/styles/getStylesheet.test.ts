@@ -1,5 +1,5 @@
 import { createTheme } from '@grafana/data';
-import type cytoscape from 'cytoscape';
+import cytoscape from 'cytoscape';
 
 import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
 import { FALLBACK_SHAPE, SHAPE_BY_KIND } from '../../../shared/constants/shapeByKind';
@@ -69,5 +69,29 @@ describe('getStylesheet', () => {
     expect(shapeFn(fakeEle({ kind: 'mystery' }))).toBe(FALLBACK_SHAPE);
     expect(shapeFn(fakeEle({}))).toBe(FALLBACK_SHAPE);
     expect(colorFn(fakeEle({ edgeType: 'nope' }))).toBe(FALLBACK_EDGE_STYLE.color);
+  });
+
+  it('styles compound parents as boxes and leaves by kind (headless :parent)', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cluster:demo', label: 'demo', isCluster: true, clusterColor: '#14b8a6' } },
+        { group: 'nodes', data: { id: 'demo/node-a', label: 'node-a', kind: 'node', parent: 'cluster:demo' } },
+        { group: 'nodes', data: { id: 'demo/p1', label: 'web', kind: 'pod', parent: 'demo/node-a' } },
+        { group: 'nodes', data: { id: 'leaf-node', label: 'solo', kind: 'node' } },
+      ],
+    });
+    // A node that contains pods is a compound parent → container box.
+    expect(cy.getElementById('demo/node-a').style('shape')).toBe('round-rectangle');
+    // A leaf pod keeps its kind shape.
+    expect(cy.getElementById('demo/p1').style('shape')).toBe('ellipse');
+    // A childless node falls through to its kind shape (pentagon), not a box.
+    expect(cy.getElementById('leaf-node').style('shape')).toBe('pentagon');
+    // The cluster container gets the translucent backplate opacity (not the
+    // generic node:parent 0.05), proving node[?isCluster] wins the cascade.
+    expect(Number(cy.getElementById('cluster:demo').style('background-opacity'))).toBeCloseTo(0.07);
+    cy.destroy();
   });
 });

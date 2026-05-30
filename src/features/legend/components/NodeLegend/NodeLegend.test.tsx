@@ -21,4 +21,13 @@ describe('NodeLegend', () => {
       expect(within(legend).getByText(kind)).toBeInTheDocument();
     }
   });
+
+  it('draws the matching shape glyph next to every kind', () => {
+    render(<NodeLegend />);
+    const legend = screen.getByTestId('node-legend');
+    for (const [kind, shape] of Object.entries(SHAPE_BY_KIND)) {
+      const row = within(legend).getByTestId(`node-legend-row-${kind}`);
+      expect(within(row).getByTestId(`shape-glyph-${shape}`)).toBeInTheDocument();
+    }
+  });
 });

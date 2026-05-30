@@ -36,16 +36,30 @@ CI: single GitHub Actions job (`.github/workflows/ci.yml`) runs typecheck → li
 
 ## Local demo
 
-Plugin source mounts into Grafana via `dist/` bind mount; hot-reload works without container restart.
+Plugin source mounts into Grafana via `dist/` bind mount; hot-reload works without container restart. The demo is **fully self-contained** — no real Kubernetes cluster is needed.
 
 ```bash
 npm install
-npm run dev                                      # keep running (webpack watch)
-KUBECONFIG_PATH=$HOME/.kube/config docker compose up -d
+npm run build                                    # (or `npm run dev` to keep webpack watching)
+docker compose up -d
 # Grafana → http://localhost:3000 (anonymous auth enabled in dev)
 ```
 
-The provisioned `KSG Demo` dashboard auto-loads with one panel. Backend is `marz32one/kube-state-graph` image from Docker Hub; if no kubeconfig is reachable the panel renders the EmptyState (which is also a valid demo of the mount path).
+`docker compose` brings up four services:
+
+| Service                            | Role                                                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `grafana`                          | hosts the panel (`dist/` bind mount) + provisioned `KSG Demo` dashboard + Infinity datasource                   |
+| `kube-state-graph` (`ksg-backend`) | the v0.0.13 backend; `KSG_PROM_URL` points it at VictoriaMetrics                                                |
+| `victoriametrics`                  | the backend's topology data source (PromQL)                                                                     |
+| `ksg-seeder`                       | loops `dev/victoriametrics/seed.sh`, pushing a synthetic fixture that exercises **every** node kind + edge type |
+
+**The v0.0.13 backend derives the whole graph from PromQL over a `[start,end]` window — it does NOT read the Kubernetes API.** So the demo seeds VictoriaMetrics instead of mounting a kubeconfig. Two consequences encoded in the demo:
+
+- The dashboard query is `/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}` — the backend's `start`/`end` accept Unix **seconds** or RFC 3339, not millis.
+- The seeder re-pushes the topology gauges every tick (so `last_over_time(...[window])` stays fresh) and **increments** the `traces_service_graph_request_total` counters (so `rate(...[window]) > 0`, otherwise the service-graph edges never appear).
+
+The synthetic fixture spans two clusters (`demo` + `edge`) and covers all 6 node kinds (`pod`/`node`/`pvc`/`service`/`others`/`external`) and all 4 edge types, including one cross-cluster `pod-calls-pod`. To point the demo at a real VictoriaMetrics instead, set `KSG_PROM_URL` on the `kube-state-graph` service and drop `ksg-seeder`. Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`.
 
 ## Architecture
 

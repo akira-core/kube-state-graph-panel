@@ -1,5 +1,6 @@
 import type cytoscape from 'cytoscape';
 
+import { colorForCluster } from '../../shared/constants/clusterPalette';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
 
 export interface NormalizeResult {
@@ -65,7 +66,13 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   }
 
   const nodeIds = new Set<string>();
-
+  // The compound (cluster/node) grouping STRUCTURE is owned by the backend: we
+  // pass its `parent` field through untouched. A flat payload renders flat; a
+  // nested one (cluster > node > pod, cluster > svc) renders boxes — the panel
+  // is structure-agnostic. The one presentation concern that stays here is the
+  // cluster accent COLOUR (theme/palette is a frontend decision), assigned to
+  // each `type: "cluster"` container from a stable palette (single source:
+  // data.clusterColor, which the legend swatches read back).
   for (const [index, entry] of rawNodes.entries()) {
     if (!isPlainObject(entry)) {
       errors.push(`nodes[${String(index)}] is not an object`);
@@ -82,13 +89,22 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     }
     const labels = isStringRecord(d.labels) ? d.labels : undefined;
     const namespace = labels?.namespace;
+    const label = isString(d.name) ? d.name : d.id;
+    const isCluster = d.type === 'cluster';
+    // A cluster container carries no kind (it is not a NodeKind — identified by
+    // isCluster, kept out of the kind filter / shapes) and gets a palette colour;
+    // every other node carries its kind. One branch, one place.
+    const identity = isCluster
+      ? { isCluster: true, cluster: label, clusterColor: colorForCluster(label) }
+      : { kind: d.type as NodeKind };
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
       data: {
         id: d.id,
-        kind: d.type as NodeKind,
-        label: isString(d.name) ? d.name : d.id,
+        ...identity,
+        label,
+        ...(isString(d.parent) ? { parent: d.parent } : {}),
         ...(isString(namespace) ? { namespace } : {}),
         ...(isNonEmptyStringArray(d.ipaddress) ? { ipAddress: d.ipaddress } : {}),
         ...(labels !== undefined ? { labels } : {}),

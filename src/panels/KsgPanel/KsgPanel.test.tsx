@@ -1,6 +1,22 @@
-import { dateTime, LoadingState, type PanelData, type PanelProps, type TimeRange } from '@grafana/data';
-import { render, screen } from '@testing-library/react';
+import {
+  dateTime,
+  FieldType,
+  LoadingState,
+  type DataFrame,
+  type PanelData,
+  type PanelProps,
+  type TimeRange,
+} from '@grafana/data';
+import { render, screen, within } from '@testing-library/react';
 import React from 'react';
+
+// Stub GraphCanvas: it mounts cytoscape + runs fcose, which is not registered in
+// the jest env. This lets the panel render its legend aside (the unit under test)
+// without a live graph instance. EmptyState/LoadingOverlay stay real.
+jest.mock('../../features/graph-canvas', () => {
+  const actual = jest.requireActual<typeof import('../../features/graph-canvas')>('../../features/graph-canvas');
+  return { ...actual, GraphCanvas: (): null => null };
+});
 
 import { KsgPanel } from './KsgPanel';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
@@ -33,7 +49,13 @@ function buildProps(overrides: Partial<PanelProps<KsgPanelOptions>> = {}): Panel
     onOptionsChange: jest.fn(),
     onFieldConfigChange: jest.fn(),
     onChangeTimeRange: jest.fn(),
-    eventBus: { publish: jest.fn(), getStream: jest.fn(), subscribe: jest.fn(), removeAllListeners: jest.fn(), newScopedBus: jest.fn() } as never,
+    eventBus: {
+      publish: jest.fn(),
+      getStream: jest.fn(),
+      subscribe: jest.fn(),
+      removeAllListeners: jest.fn(),
+      newScopedBus: jest.fn(),
+    } as never,
     ...overrides,
   };
 }
@@ -45,7 +67,9 @@ describe('KsgPanel', () => {
   });
 
   it('renders loading overlay while loading', () => {
-    render(<KsgPanel {...buildProps({ data: { state: LoadingState.Loading, series: [], timeRange: stubTimeRange } })} />);
+    render(
+      <KsgPanel {...buildProps({ data: { state: LoadingState.Loading, series: [], timeRange: stubTimeRange } })} />
+    );
     expect(screen.getByTestId('loading-overlay')).toBeInTheDocument();
   });
 
@@ -60,8 +84,35 @@ describe('KsgPanel', () => {
             timeRange: stubTimeRange,
           },
         })}
-      />,
+      />
     );
     expect(screen.getByRole('alert')).toHaveTextContent('boom');
+  });
+
+  it('renders cluster swatches derived from backend cluster container nodes', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/p1', type: 'pod', name: 'web', parent: 'cluster:demo', labels: { cluster: 'demo' } } },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const legend = screen.getByTestId('cluster-legend');
+    expect(within(legend).getByText('demo')).toBeInTheDocument();
   });
 });

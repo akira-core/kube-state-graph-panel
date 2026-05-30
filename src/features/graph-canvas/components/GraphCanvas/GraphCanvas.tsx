@@ -30,7 +30,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   const { elements, stylesheet, layout, visibleKinds, visibleEdgeTypes, onSelect } = props;
   const styles = useStyles2(getStyles);
 
-  const { containerRef, cyRef } = useCytoscape({
+  const { containerRef, cyRef, isReady } = useCytoscape({
     elements,
     stylesheet,
   });
@@ -62,12 +62,13 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     return (): void => {
       cy.off('tap', handleTap);
     };
-  }, [cyRef, onSelect]);
+    // isReady gates binding until the instance exists (see useCytoscape).
+  }, [cyRef, onSelect, isReady]);
 
   return (
     <div className={styles.root} data-testid="graph-canvas-root">
       <div ref={containerRef} className={styles.canvas} data-testid="graph-canvas" />
-      <HoverTooltip cyRef={cyRef} />
+      <HoverTooltip cyRef={cyRef} ready={isReady} />
     </div>
   );
 }

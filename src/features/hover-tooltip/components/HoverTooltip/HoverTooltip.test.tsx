@@ -109,6 +109,17 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('shop')).toBeInTheDocument();
   });
 
+  it('shows the cluster label for a hovered node', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-9',
+      group: 'nodes',
+      data: { id: 'pod-9', label: 'web', kind: 'pod', labels: { cluster: 'demo' } },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('cluster:')).toBeInTheDocument();
+    expect(screen.getByText('demo')).toBeInTheDocument();
+  });
+
   it('renders the cluster label for a pod-calls-pod edge', () => {
     useHoverElement.mockReturnValue({
       id: 'e3',

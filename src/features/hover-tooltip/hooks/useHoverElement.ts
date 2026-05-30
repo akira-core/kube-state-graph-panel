@@ -11,6 +11,9 @@ export interface HoveredElement {
 
 export interface UseHoverElementProps {
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
+  // Re-runs the bind effect once the instance is ready (cyRef alone is a stable
+  // ref and would not trigger a re-bind). See useCytoscape.isReady.
+  ready?: boolean;
 }
 
 function resolveLabel(cy: cytoscape.Core, id: string): string {
@@ -22,7 +25,7 @@ function resolveLabel(cy: cytoscape.Core, id: string): string {
   return typeof lbl === 'string' ? lbl : id;
 }
 
-export function useHoverElement({ cyRef }: UseHoverElementProps): HoveredElement | null {
+export function useHoverElement({ cyRef, ready }: UseHoverElementProps): HoveredElement | null {
   const [hovered, setHovered] = useState<HoveredElement | null>(null);
 
   useEffect(() => {
@@ -34,6 +37,10 @@ export function useHoverElement({ cyRef }: UseHoverElementProps): HoveredElement
     const handleOver = (evt: cytoscape.EventObject): void => {
       const target = evt.target as cytoscape.NodeSingular | cytoscape.EdgeSingular;
       if (typeof target.id !== 'function') {
+        return;
+      }
+      // Compound cluster containers are decorative — never show a tooltip for them.
+      if (target.isNode() && target.data('isCluster') === true) {
         return;
       }
       const isNode = target.isNode();
@@ -70,7 +77,8 @@ export function useHoverElement({ cyRef }: UseHoverElementProps): HoveredElement
       cy.off('mouseout', 'node, edge', handleOut);
       cy.off('remove', 'node, edge', handleRemove);
     };
-  }, [cyRef]);
+    // `ready` re-runs this once the instance is created (cyRef is a stable ref).
+  }, [cyRef, ready]);
 
   return hovered;
 }

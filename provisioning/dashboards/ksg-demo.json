@@ -23,7 +23,7 @@
           "type": "json",
           "source": "url",
           "format": "table",
-          "url": "/v1/graph",
+          "url": "/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}",
           "url_options": { "method": "GET" }
         }
       ],

@@ -1,0 +1,46 @@
+# kube-state-graph demo topology fixture (kube-state-metrics-shaped series).
+#
+# Pushed verbatim every tick by seed.sh via VictoriaMetrics /api/v1/import/prometheus,
+# which stamps each sample at ingestion time so last_over_time(...[window]) always
+# finds a fresh value. All series are gauges with value 1 (existence facts).
+#
+# This block intentionally exercises every node kind / edge type the v0.0.13
+# backend can draw. See seed.sh for the companion service-graph counters that
+# drive pod-calls-pod / service-selects-pod and the cross-cluster edge.
+#
+# Two clusters: "demo" (primary topology) and "edge" (a single remote pod used
+# only as the server side of one cross-cluster pod-calls-pod edge).
+
+# --- cluster: demo --- nodes (node kind) ------------------------------------
+kube_node_info{cluster="demo",node="node-a"} 1
+kube_node_info{cluster="demo",node="node-b"} 1
+# node labels + external IP enrich node-a (optional, but shows the IP column).
+kube_node_labels{cluster="demo",node="node-a",label_topology_kubernetes_io_zone="us-east-1a"} 1
+kube_node_status_addresses{cluster="demo",node="node-a",type="ExternalIP",address="203.0.113.10"} 1
+
+# --- cluster: demo --- pods (pod kind, + pod-runs-on-node via `node`) --------
+kube_pod_info{cluster="demo",namespace="shop",pod="frontend",uid="u-frontend",node="node-a",pod_ip="10.0.0.1"} 1
+kube_pod_info{cluster="demo",namespace="shop",pod="backend",uid="u-backend",node="node-a",pod_ip="10.0.0.2"} 1
+kube_pod_info{cluster="demo",namespace="shop",pod="postgres-0",uid="u-pg0",node="node-b",pod_ip="10.0.0.3"} 1
+kube_pod_info{cluster="demo",namespace="shop",pod="worker",uid="u-worker",node="node-b",pod_ip="10.0.0.4"} 1
+
+# --- cluster: demo --- PVC (pvc kind, + pod-mounts-pvc) ----------------------
+kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="demo",namespace="shop",pod="postgres-0",persistentvolumeclaim="postgres-data",volume="data"} 1
+
+# --- cluster: demo --- services (service kind materialised on demand) --------
+# backend: ClusterIP service. postgres: headless (cluster_ip="None").
+kube_service_info{cluster="demo",namespace="shop",service="backend",cluster_ip="10.96.0.10"} 1
+kube_service_info{cluster="demo",namespace="shop",service="postgres",cluster_ip="None"} 1
+
+# endpointslice -> owning service (kubernetes.io/service-name label).
+kube_endpointslice_labels{cluster="demo",namespace="shop",endpointslice="backend-xyz",label_kubernetes_io_service_name="backend"} 1
+kube_endpointslice_labels{cluster="demo",namespace="shop",endpointslice="postgres-abc",label_kubernetes_io_service_name="postgres"} 1
+
+# endpointslice endpoints -> backing pods (service-selects-pod targets).
+# postgres-0 carries hostname so the headless DNS conn string resolves to it.
+kube_endpointslice_endpoints{cluster="demo",namespace="shop",endpointslice="backend-xyz",targetref_kind="Pod",targetref_namespace="shop",targetref_name="backend"} 1
+kube_endpointslice_endpoints{cluster="demo",namespace="shop",endpointslice="postgres-abc",targetref_kind="Pod",targetref_namespace="shop",targetref_name="postgres-0",hostname="postgres-0"} 1
+
+# --- cluster: edge --- one remote pod (server side of the cross-cluster edge) -
+kube_node_info{cluster="edge",node="node-c"} 1
+kube_pod_info{cluster="edge",namespace="analytics",pod="analytics",uid="u-analytics",node="node-c",pod_ip="10.1.0.1"} 1

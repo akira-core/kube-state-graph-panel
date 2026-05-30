@@ -21,4 +21,14 @@ describe('EdgeLegend', () => {
       expect(within(legend).getByText(edgeType)).toBeInTheDocument();
     }
   });
+
+  it('draws a same-colour arrow glyph next to every edge type', () => {
+    render(<EdgeLegend />);
+    const legend = screen.getByTestId('edge-legend');
+    for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE)) {
+      const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
+      const glyph = within(row).getByTestId('edge-glyph');
+      expect(glyph.querySelector('polygon')?.getAttribute('fill')).toBe(style.color);
+    }
+  });
 });

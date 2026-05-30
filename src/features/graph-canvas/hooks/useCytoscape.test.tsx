@@ -106,4 +106,13 @@ describe('useCytoscape', () => {
     expect(capturedCy).toBe(cyBefore);
     expect(styleSpy).toHaveBeenCalledWith(nextStylesheet);
   });
+
+  it('flips isReady to true once the instance exists (so dependents can re-bind)', () => {
+    function ReadyHarness(): React.JSX.Element {
+      const { containerRef, isReady } = useCytoscape({ elements: [], stylesheet: baseStylesheet });
+      return <div ref={containerRef} data-testid="ready" data-ready={String(isReady)} />;
+    }
+    const { getByTestId } = render(<ReadyHarness />);
+    expect(getByTestId('ready').getAttribute('data-ready')).toBe('true');
+  });
 });

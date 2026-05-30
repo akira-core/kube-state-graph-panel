@@ -1,15 +1,12 @@
 import { css } from '@emotion/css';
 import { LoadingState, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2 } from '@grafana/ui';
-import React from 'react';
+import type cytoscape from 'cytoscape';
+import React, { useMemo } from 'react';
 
-import {
-  EmptyState,
-  GraphCanvas,
-  LoadingOverlay,
-} from '../../features/graph-canvas';
+import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
 import { useGraphData } from '../../features/graph-data';
-import { EdgeLegend, NodeLegend } from '../../features/legend';
+import { ClusterLegend, EdgeLegend, NodeLegend, type ClusterLegendEntry } from '../../features/legend';
 import { useGraphTheme } from '../../features/theme';
 
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
@@ -50,21 +47,45 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const seriesError = data.errors?.[0]?.message;
   const { elements, error: normalizeError } = useGraphData(data);
 
+  // Cluster swatches are derived from the backend's compound (cluster) container
+  // nodes, so the legend colours always match the on-canvas backplates (single
+  // source: data.clusterColor, assigned in normalize). Deduped by name so two
+  // cluster nodes that share a display name yield one stable legend row/key.
+  const clusterEntries = useMemo<ClusterLegendEntry[]>(() => {
+    const byName = new Map<string, string>();
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isCluster === true && typeof d.cluster === 'string' && typeof d.clusterColor === 'string') {
+        // Map keys dedupe; the colour is deterministic per name, so set freely.
+        byName.set(d.cluster, d.clusterColor);
+      }
+    }
+    return [...byName].map(([name, color]) => ({ name, color }));
+  }, [elements]);
+
   if (seriesError !== undefined) {
-    return <Alert severity="error" title="Graph data error">{seriesError}</Alert>;
+    return (
+      <Alert severity="error" title="Graph data error">
+        {seriesError}
+      </Alert>
+    );
   }
   if (isLoading) {
     return <LoadingOverlay />;
   }
   if (normalizeError !== undefined) {
-    return <Alert severity="error" title="Graph data malformed">{normalizeError}</Alert>;
+    return (
+      <Alert severity="error" title="Graph data malformed">
+        {normalizeError}
+      </Alert>
+    );
   }
 
-  const emptyMessage = elements.length === 0
-    ? 'No graph data'
-    : visibleKinds.length === 0
-      ? 'All node types filtered'
-      : null;
+  const emptyMessage =
+    elements.length === 0 ? 'No graph data' : visibleKinds.length === 0 ? 'All node types filtered' : null;
 
   return (
     <div className={styles.root}>
@@ -85,6 +106,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
         <aside className={styles.legendArea}>
           <NodeLegend />
           <EdgeLegend />
+          <ClusterLegend clusters={clusterEntries} />
         </aside>
       )}
     </div>

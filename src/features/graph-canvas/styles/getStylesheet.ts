@@ -69,6 +69,55 @@ export function getStylesheet({
       },
     },
     {
+      // Any compound parent (a node that has children — e.g. a K8s node boxing
+      // its pods) renders as a neutral, labelled container. cytoscape's native
+      // :parent meta-selector means the panel needs no data flag for this, and a
+      // childless node still falls through to its kind shape. Real node
+      // containers stay interactive (hover/tap) — only clusters opt out below.
+      selector: 'node:parent',
+      style: {
+        shape: 'round-rectangle',
+        'background-color': borderColor,
+        'background-opacity': 0.05,
+        'border-color': borderColor,
+        'border-width': 1,
+        'border-opacity': 0.6,
+        label: 'data(label)',
+        color: textColor,
+        'font-size': 11,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -3,
+        padding: '14px',
+      },
+    },
+    {
+      // Compound (cluster) container nodes — see normalize.ts. Each carries its
+      // own accent colour in data(clusterColor), so the box is a translucent,
+      // labelled backplate. events:'no' keeps it purely decorative (no hover/tap).
+      // Declared after node:parent so its accent colour wins for cluster boxes.
+      selector: 'node[?isCluster]',
+      style: {
+        shape: 'round-rectangle',
+        'background-color': 'data(clusterColor)',
+        'background-opacity': 0.07,
+        'border-color': 'data(clusterColor)',
+        'border-width': 1.5,
+        'border-opacity': 0.5,
+        label: 'data(label)',
+        color: 'data(clusterColor)',
+        'font-size': 12,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -4,
+        padding: '18px',
+        events: 'no',
+      },
+    },
+    {
+      // Declared AFTER the container selectors so the selection highlight wins
+      // for selected leaf nodes AND node containers (clusters are events:'no').
       selector: 'node:selected',
       style: {
         'border-color': selectedColor,

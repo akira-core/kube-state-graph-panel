@@ -105,9 +105,9 @@ function buildContent(hovered: HoveredElement): { title: string; rows: TooltipRo
 }
 
 export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Element | null {
-  const { cyRef } = props;
+  const { cyRef, ready = false } = props;
   const styles = useStyles2(getStyles);
-  const hovered = useHoverElement({ cyRef });
+  const hovered = useHoverElement({ cyRef, ready });
 
   if (hovered === null) {
     return null;

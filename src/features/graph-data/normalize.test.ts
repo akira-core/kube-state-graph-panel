@@ -333,4 +333,47 @@ describe('normalizeGraph', () => {
     expect(selectsEdge?.data.edgeType).toBe('service-selects-pod');
     expect(selectsEdge?.data.labels).toEqual({ namespace: 'shop' });
   });
+
+  it('passes backend compound parents through and colours cluster containers (no synthesis)', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'web',
+              parent: 'demo/node-a',
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+          { data: { id: 'external/ext', type: 'external', name: 'ext' } },
+        ],
+        edges: [],
+      },
+    };
+    const { elements, errors } = normalizeGraph(raw);
+    expect(errors).toEqual([]);
+
+    const byId = new Map(elements.map((e) => [e.data.id as string, e.data as Record<string, unknown>]));
+    // Cluster container is recognised and assigned a palette colour (panel concern).
+    expect(byId.get('cluster:demo')?.isCluster).toBe(true);
+    expect(typeof byId.get('cluster:demo')?.clusterColor).toBe('string');
+    // The backend's `parent` is passed through verbatim — no panel-side synthesis.
+    expect(byId.get('demo/node-a')?.parent).toBe('cluster:demo');
+    expect(byId.get('demo/p1')?.parent).toBe('demo/node-a');
+    // Top-level nodes (no parent) stay top-level.
+    expect(byId.get('external/ext')?.parent).toBeUndefined();
+    expect(byId.get('external/ext')?.isCluster).toBeUndefined();
+    // Exactly the four input nodes — nothing invented.
+    expect(elements.filter((e) => e.group === 'nodes')).toHaveLength(4);
+  });
+
+  it('renders a flat payload flat — no parents, no cluster containers', () => {
+    const { elements } = normalizeGraph(singleClusterGolden);
+    expect(elements.every((e) => e.data.parent === undefined)).toBe(true);
+    expect(elements.some((e) => (e.data as Record<string, unknown>).isCluster === true)).toBe(false);
+  });
 });

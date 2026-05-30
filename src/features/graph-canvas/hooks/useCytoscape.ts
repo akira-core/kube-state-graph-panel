@@ -1,5 +1,5 @@
 import cytoscape from 'cytoscape';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { diffElements } from '../sync/diffElements';
 
@@ -13,6 +13,11 @@ export interface UseCytoscapeProps {
 export interface UseCytoscapeReturn {
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
+  // Flips to true once the instance exists. cyRef is a ref (no re-render on set),
+  // so a child effect that binds cy listeners (e.g. hover) would run before the
+  // instance is created — children's effects fire before the parent's init
+  // effect — and never re-run. Consumers depend on isReady to (re)bind correctly.
+  isReady: boolean;
 }
 
 // Use 'preset' on init so cytoscape does not auto-run a layout.
@@ -22,6 +27,7 @@ const INIT_LAYOUT: cytoscape.LayoutOptions = { name: 'preset' };
 export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCytoscapeReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   // Init / destroy
   useEffect(() => {
@@ -34,7 +40,9 @@ export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCy
       style: stylesheet,
       layout: INIT_LAYOUT,
     });
+    setIsReady(true);
     return (): void => {
+      setIsReady(false);
       if (cyRef.current !== null) {
         cyRef.current.removeAllListeners();
         cyRef.current.destroy();
@@ -81,5 +89,5 @@ export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCy
     cy.style(stylesheet).update();
   }, [stylesheet]);
 
-  return useMemo(() => ({ containerRef, cyRef }), [containerRef, cyRef]);
+  return useMemo(() => ({ containerRef, cyRef, isReady }), [containerRef, cyRef, isReady]);
 }
