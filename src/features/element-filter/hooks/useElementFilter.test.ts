@@ -10,9 +10,9 @@ describe('useElementFilter', () => {
       headless: true,
       styleEnabled: true,
       elements: [
-        { group: 'nodes', data: { id: 'a', kind: 'Pod' } },
-        { group: 'nodes', data: { id: 'b', kind: 'Service' } },
-        { group: 'edges', data: { id: 'e', source: 'a', target: 'b', edgeType: 'serviceSelector' } },
+        { group: 'nodes', data: { id: 'a', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'b', kind: 'service' } },
+        { group: 'edges', data: { id: 'e', source: 'a', target: 'b', edgeType: 'service-selects-pod' } },
       ],
     });
     const layoutSpy = jest.spyOn(cy, 'layout');
@@ -22,9 +22,9 @@ describe('useElementFilter', () => {
       useElementFilter({
         cyRef,
         elements: cy.elements().jsons() as cytoscape.ElementDefinition[],
-        visibleKinds: ['Pod'],
-        visibleEdgeTypes: ['serviceSelector'],
-      }),
+        visibleKinds: ['pod'],
+        visibleEdgeTypes: ['service-selects-pod'],
+      })
     );
 
     expect(cy.getElementById('a').style('visibility')).toBe('visible');

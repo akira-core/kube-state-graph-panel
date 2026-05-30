@@ -1,20 +1,20 @@
 import type cytoscape from 'cytoscape';
 import { useEffect, useMemo } from 'react';
 
-import type { EdgeType, K8sResourceKind } from '../../../shared/constants/types';
+import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { computeVisibility } from '../computeVisibility';
 
 export interface UseElementFilterProps {
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
   elements: cytoscape.ElementDefinition[];
-  visibleKinds: K8sResourceKind[];
+  visibleKinds: NodeKind[];
   visibleEdgeTypes: EdgeType[];
 }
 
 export function useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes }: UseElementFilterProps): void {
   const sets = useMemo(
     () => computeVisibility(elements, visibleKinds, visibleEdgeTypes),
-    [elements, visibleKinds, visibleEdgeTypes],
+    [elements, visibleKinds, visibleEdgeTypes]
   );
 
   useEffect(() => {

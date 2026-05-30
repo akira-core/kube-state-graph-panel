@@ -1,4 +1,4 @@
-import type { K8sResourceKind } from './types';
+import type { NodeKind } from './types';
 
 export type CytoscapeNodeShape =
   | 'ellipse'
@@ -12,21 +12,15 @@ export type CytoscapeNodeShape =
   | 'cut-rectangle'
   | 'star';
 
-export const SHAPE_BY_KIND: Record<K8sResourceKind, CytoscapeNodeShape> = {
-  Pod: 'ellipse',
-  Service: 'round-rectangle',
-  Deployment: 'hexagon',
-  Ingress: 'diamond',
-  Node: 'octagon',
-  StatefulSet: 'barrel',
-  DaemonSet: 'tag',
-  ConfigMap: 'rectangle',
-  Secret: 'cut-rectangle',
-  HPA: 'star',
-  Namespace: 'rectangle',
-  ReplicaSet: 'hexagon',
-  Job: 'rectangle',
-  CronJob: 'rectangle',
+// Single source of truth: keyed by upstream node `data.type`.
+// stylesheet, legend, and the element filter's KNOWN_KINDS all derive from this.
+export const SHAPE_BY_KIND: Record<NodeKind, CytoscapeNodeShape> = {
+  pod: 'ellipse',
+  service: 'round-rectangle',
+  node: 'octagon',
+  pvc: 'barrel',
+  others: 'diamond',
+  external: 'hexagon',
 };
 
 export const FALLBACK_SHAPE: CytoscapeNodeShape = 'round-rectangle';

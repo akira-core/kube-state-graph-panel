@@ -64,17 +64,16 @@ function buildContent(hovered: HoveredElement): { title: string; rows: TooltipRo
   if (group === 'nodes') {
     const labelRaw = data.label;
     const idRaw = data.id;
-    const label = typeof labelRaw === 'string'
-      ? labelRaw
-      : typeof idRaw === 'string'
-        ? idRaw
-        : '';
+    const label = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
     const rows: TooltipRow[] = [];
     if (typeof data.kind === 'string') {
       rows.push({ key: 'kind', value: data.kind });
     }
     if (typeof data.namespace === 'string') {
       rows.push({ key: 'namespace', value: data.namespace });
+    }
+    if (Array.isArray(data.ipAddress) && data.ipAddress.length > 0) {
+      rows.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
     }
     const labels = data.labels;
     if (labels !== null && typeof labels === 'object') {
@@ -94,8 +93,13 @@ function buildContent(hovered: HoveredElement): { title: string; rows: TooltipRo
   if (typeof data.edgeType === 'string') {
     rows.push({ key: 'edgeType', value: data.edgeType });
   }
-  if (typeof data.weight === 'number') {
-    rows.push({ key: 'weight', value: String(data.weight) });
+  const labels = data.labels;
+  if (labels !== null && typeof labels === 'object') {
+    for (const [key, value] of Object.entries(labels as Record<string, unknown>)) {
+      if (typeof value === 'string') {
+        rows.push({ key, value });
+      }
+    }
   }
   return { title, rows };
 }

@@ -1,6 +1,6 @@
 ## Context
 
-本 change 為一個全新 repo 的骨架建立。上游 `Marz32onE/kube-state-graph`(`feat/build-graph-api` 分支)是 Go 撰寫的 backend service,讀取 k8s API 並輸出符合 cytoscape.js elements 規格的 JSON,同時整合 service graph metrics。本 repo 只負責 Grafana panel 端的渲染與互動,不嵌入上游原始碼,純粹透過 **OpenAPI 契約 + Docker image** 兩個窄介面整合。
+本 change 為一個全新 repo 的骨架建立。上游 `Marz32onE/kube-state-graph` 是 Go 撰寫的 backend service,讀取 k8s API 並於 `GET /v1/graph` 輸出符合 cytoscape.js elements 規格的 JSON(`{ apiVersion, clusters, elements: { nodes:[{data}], edges:[{data}] } }`),同時整合 service graph metrics。本 repo 只負責 Grafana panel 端的渲染與互動,不嵌入上游原始碼,純粹透過 **HTTP JSON 契約(cytoscape elements 形式)+ Docker image** 兩個窄介面整合。上游 node `data.type` 列舉為 `pod`/`node`/`pvc`/`service`/`others`/`external`,edge `data.type` 為 `pod-runs-on-node`/`pod-mounts-pvc`/`pod-calls-pod`/`service-selects-pod`;IP 位址自 commit `524057b` 起置於 node `data.ipaddress: string[]`(已從 labels 移出)。panel 的 normalize 層為 anti-corruption boundary,負責把上游 `data` 映射為內部欄位(`type→kind`、`name→label`、`labels.namespace→namespace`、`ipaddress→ipAddress`、edge `type→edgeType`)。
 
 主要技術約束:
 
@@ -16,7 +16,7 @@
 
 - 用 `@grafana/create-plugin` 產生 panel scaffold,React 18 + TypeScript + Webpack dev server。
 - 確立 **單一 datasource 整合策略**(Infinity datasource consume backend HTTP),避免自建 backend plugin 增加維護成本。
-- 確立 **型別契約自動化**:從上游 OpenAPI 規格產生 TS 型別,版本納入 git 追蹤。
+- 確立 **型別契約策略**:手寫 TS 型別(`cytoscape.d.ts` declaration merging 擴充 cytoscape 原生型別)+ `normalize.ts` runtime 邊界驗證,不採用 OpenAPI codegen。
 - 確立 **docker-compose + kind** 開發環境拓樸,並讓 plugin source 透過 volume mount 達到熱重載。
 - 為 panel-rendering、graph-data-integration、dev-environment 三個 capability 訂出共用的目錄結構與資料流。
 - 提供節點形狀/邊顏色擴充點(常數對應表),讓 specs 階段填具體規則。
@@ -43,23 +43,22 @@
 
 **Alternatives considered:**
 
-- *自建 backend datasource*:控制力最強(可做 server-side cache、auth proxy),但維護成本顯著上升,且 panel 與 datasource 強耦合無法重用。
-- *Panel 內直接 fetch*:違反 Grafana plugin 安全模型(panel 不應直接打外部 URL,需走 datasource proxy),且失去 datasource 設定 UI。
+- _自建 backend datasource_:控制力最強(可做 server-side cache、auth proxy),但維護成本顯著上升,且 panel 與 datasource 強耦合無法重用。
+- _Panel 內直接 fetch_:違反 Grafana plugin 安全模型(panel 不應直接打外部 URL,需走 datasource proxy),且失去 datasource 設定 UI。
 
-### 型別契約:OpenAPI → TypeScript 自動生成
+### 型別契約:手寫 TS 型別 + normalize runtime 邊界(不採用 codegen)
 
-**Decision:** 在 `package.json` 加入 `openapi-typescript` script,從上游指定的 OpenAPI URL 或本地 spec 檔案產生 `src/types/api.generated.ts`。產物納入 git。`npm run codegen:api` 為手動觸發,並由 GitHub Action 每週自動 PR 更新。
+**Decision:** 內部型別以 cytoscape 原生型別為單一來源,自訂 node/edge `data` 欄位透過 declaration merging 定義於 `src/shared/types/cytoscape.d.ts`;`src/features/graph-data/normalize.ts` 作為 anti-corruption layer,在 runtime 把上游 cytoscape payload 映射並驗證為 `cytoscape.ElementDefinition[]`。不產生 `api.generated.ts`。
 
 **Why:**
 
-- 上游 API 仍在演進,固定快照型別可隔離 panel build 與上游變更節奏。
-- `openapi-typescript` 輸出 plain types(非 runtime client),不增加 bundle size。
-- 自動 PR 讓型別漂移立即可見,避免悄悄破壞。
+- OpenAPI codegen 對此單一小型 REST API 過度設計,且需維護 codegen pipeline;手寫型別 + boundary runtime 驗證維護成本更低,並貼合 cytoscape 整合慣例(declaration merging)。
+- normalize 邊界容忍上游形狀變異(envelope vs unwrapped、`{ data }` vs flat),比編譯期型別更能吸收 Infinity datasource table-flatten 的不確定性。
 
 **Alternatives considered:**
 
-- *手寫 types*:初期快,但長期與上游脫節風險高。
-- *Protobuf / gRPC*:overkill,且 Grafana panel 環境不適合 gRPC-Web。
+- _OpenAPI → TypeScript codegen_(`openapi-typescript`,產物納入 git + 週期性 auto-PR):breaking change 編譯期可見,但對單一小型 API 過度設計、需維護 codegen pipeline —— 不採用。
+- _Protobuf / gRPC_:overkill,且 Grafana panel 環境不適合 gRPC-Web —— 不採用。
 
 ### Cytoscape 整合方式:`cytoscape` core + `cytoscape-fcose` + 自製 React hook
 
@@ -73,8 +72,8 @@
 
 **Alternatives considered:**
 
-- *D3 force-directed*:可程度更高,但需從零實作所有互動,放大開發範圍。
-- *vis-network*:API 較封閉,擴充樣式對應較難。
+- _D3 force-directed_:可程度更高,但需從零實作所有互動,放大開發範圍。
+- _vis-network_:API 較封閉,擴充樣式對應較難。
 
 ### Cytoscape.js × React × TypeScript 整合慣例
 
@@ -102,13 +101,14 @@
   ```ts
   declare module 'cytoscape' {
     interface NodeDataDefinition {
-      kind?: K8sResourceKind;
-      namespace?: string;
+      kind?: NodeKind; // 由上游 data.type 映射
+      namespace?: string; // 由上游 data.labels.namespace 取出
+      ipAddress?: string[]; // 由上游 data.ipaddress 映射(上游 524057b 後從 labels 移出)
       labels?: Record<string, string>;
     }
     interface EdgeDataDefinition {
-      edgeType?: EdgeType;
-      weight?: number;
+      edgeType?: EdgeType; // 由上游 data.type 映射
+      labels?: Record<string, string>;
     }
   }
   ```
@@ -161,11 +161,11 @@
 
 **Alternatives considered:**
 
-- *`react-cytoscapejs`*:已多年未活躍維護,且其抽象限制細粒度更新;TypeScript 型別不完整。
-- *把 elements 當 props 全量替換*:UX 差(每次 update 重新 layout、節點跳動)、效能差。
-- *把 cytoscape instance 放 React state*:會觸發 React 重新 render 整顆樹,反模式。
-- *Class component + lifecycle methods*:與本 repo「function-only」決策衝突,且不必要。
-- *用 `useImperativeHandle` 把 cytoscape API 暴露給父元件*:過早抽象;通常 hook 公開 API 已足夠。
+- _`react-cytoscapejs`_:已多年未活躍維護,且其抽象限制細粒度更新;TypeScript 型別不完整。
+- _把 elements 當 props 全量替換_:UX 差(每次 update 重新 layout、節點跳動)、效能差。
+- _把 cytoscape instance 放 React state_:會觸發 React 重新 render 整顆樹,反模式。
+- _Class component + lifecycle methods_:與本 repo「function-only」決策衝突,且不必要。
+- _用 `useImperativeHandle` 把 cytoscape API 暴露給父元件_:過早抽象;通常 hook 公開 API 已足夠。
 
 **Trade-offs:** diff-and-patch 比 nuclear 替換複雜度高(預估 ~100 行),但維持動畫連續性與互動穩定性的收益遠超實作成本,且 diff 邏輯純函式可完整單測。
 
@@ -181,8 +181,8 @@
 
 **Alternatives considered:**
 
-- *Grafana plugin SDK hot module replacement*:目前對 panel plugin 支援不穩定,實測常需手動 reload。
-- *跑 Grafana on host(非 docker)*:可省略 mount,但開發者環境差異大,且 backend image 還是要 docker。
+- _Grafana plugin SDK hot module replacement_:目前對 panel plugin 支援不穩定,實測常需手動 reload。
+- _跑 Grafana on host(非 docker)_:可省略 mount,但開發者環境差異大,且 backend image 還是要 docker。
 
 ### Docker Compose 拓樸:kind 在 host,backend/grafana 在 compose
 
@@ -193,13 +193,13 @@
 ```yaml
 services:
   kube-state-graph:
-    image: marz32one/kube-state-graph:latest  # tag 待 specs 階段固定為對應分支 tag
+    image: marz32one/kube-state-graph:latest # tag 待 specs 階段固定為對應分支 tag
     volumes:
       - ./dev/.kube/config:/root/.kube/config:ro
     environment:
       KUBECONFIG: /root/.kube/config
     ports:
-      - "8080:8080"
+      - '8080:8080'
 ```
 
 不在本 repo 建置 backend image(無 build context),保持 panel repo 純前端。CI 與本機環境一致,image 更新走 `docker compose pull` 即可。
@@ -212,8 +212,8 @@ services:
 
 **Alternatives considered:**
 
-- *全部塞進 docker-compose 含 kind*:macOS 上 docker-in-docker + kind 經常失敗(seccomp、cgroup v2 問題)。
-- *Tilt / Skaffold*:工具學習曲線高,且我們的 service 規模不需要這層抽象。
+- _全部塞進 docker-compose 含 kind_:macOS 上 docker-in-docker + kind 經常失敗(seccomp、cgroup v2 問題)。
+- _Tilt / Skaffold_:工具學習曲線高,且我們的 service 規模不需要這層抽象。
 
 ### E2E 測試:`@grafana/plugin-e2e` + Playwright
 
@@ -302,7 +302,7 @@ src/
 │   ├── hooks/                      # 通用 hooks(如 useDebouncedValue)
 │   ├── utils/                      # pure functions(同步、無副作用)
 │   ├── constants/                  # 全域常數(SHAPE_BY_KIND、COLOR_BY_EDGE_TYPE)
-│   └── types/                      # 跨 feature 共享型別 + api.generated.ts
+│   └── types/                      # 跨 feature 共享型別(cytoscape.d.ts declaration merging)
 │
 └── __tests__/                      # cross-feature integration tests(option,如需)
 ```
@@ -334,11 +334,11 @@ src/
 
 **Alternatives considered:**
 
-- *Atomic Design(atoms/molecules/organisms/templates/pages)*:對工具/dashboard 類產品過度抽象,且難以決定一個元件該屬於哪一層,實務上分類爭論成本高。
-- *按檔案類型分組(`components/`、`hooks/`、`utils/`)*:單 feature 修改時要跨 3–5 個資料夾,scaffold 規模就會痛。
-- *Container/Presentational 二分*:Hooks 出現後此分類已過時,React 官方文件亦不再推薦。
-- *Allow default exports*:寫起來短一點,但 rename / auto-import 風險不值得。
-- *styled-components / CSS Modules*:與 Grafana theme tokens 整合需自寫橋接層,維護成本高。
+- _Atomic Design(atoms/molecules/organisms/templates/pages)_:對工具/dashboard 類產品過度抽象,且難以決定一個元件該屬於哪一層,實務上分類爭論成本高。
+- _按檔案類型分組(`components/`、`hooks/`、`utils/`)_:單 feature 修改時要跨 3–5 個資料夾,scaffold 規模就會痛。
+- _Container/Presentational 二分_:Hooks 出現後此分類已過時,React 官方文件亦不再推薦。
+- _Allow default exports_:寫起來短一點,但 rename / auto-import 風險不值得。
+- _styled-components / CSS Modules_:與 Grafana theme tokens 整合需自寫橋接層,維護成本高。
 
 **Trade-offs:** Feature-first 對「跨 feature 共享元件」需要明確下放到 `shared/`,初期可能有人猶豫東西該放哪;以「被 2+ feature 使用」作為晉升 `shared/` 的門檻即可。
 
@@ -374,10 +374,10 @@ src/
 
 **Alternatives considered:**
 
-- *Biome*:Rust-based、極快、單一工具取代 ESLint + Prettier。但目前 React/Grafana plugin 生態仍以 ESLint 為主,Biome 對 type-aware rules 與 `@grafana/eslint-config` 沒有對等支援,暫不採用。可在後續 change 重新評估。
-- *oxlint*:更快,但規則覆蓋與外掛生態尚不完整,作為輔助快速檢查可考慮,不取代主 linter。
-- *XO*:意見導向 wrapper,客製空間小,與 Grafana 慣例衝突風險高。
-- *只用 `recommended` 而不啟 `strict-type-checked`*:遺漏大量真實 bug 防線,違反「scaffold 階段建好基線」原則。
+- _Biome_:Rust-based、極快、單一工具取代 ESLint + Prettier。但目前 React/Grafana plugin 生態仍以 ESLint 為主,Biome 對 type-aware rules 與 `@grafana/eslint-config` 沒有對等支援,暫不採用。可在後續 change 重新評估。
+- _oxlint_:更快,但規則覆蓋與外掛生態尚不完整,作為輔助快速檢查可考慮,不取代主 linter。
+- _XO_:意見導向 wrapper,客製空間小,與 Grafana 慣例衝突風險高。
+- _只用 `recommended` 而不啟 `strict-type-checked`_:遺漏大量真實 bug 防線,違反「scaffold 階段建好基線」原則。
 
 **Trade-offs:** type-aware lint 較慢(每次 lint 需 `tsc --project`),但於 monorepo 規模可控,且 CI 平行化即可吸收。
 
@@ -388,8 +388,9 @@ src/
 `useHoverElement(cy)` 在 init 時於 cytoscape instance 註冊 `cy.on('mouseover', 'node, edge', ...)` 與對應 `mouseout`、`remove` listener,並透過 `useSyncExternalStore` 暴露目前 hovered element id(snapshot 為 `{ id, group } | null`)。React 端僅 `HoverTooltip` 訂閱該 store,**不觸發 GraphCanvas 重新 render**。
 
 Tooltip 內容依 `group`:
+
 - `nodes`:`name`(`data.label ?? data.id`)、`kind`、`namespace`、key labels(白名單 `app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`,缺欄位則略過)。
-- `edges`:`edgeType`、`source → target`(解析端點 node 的 `label`)、`weight`(若有)。
+- `edges`:`edgeType`、`source → target`(解析端點 node 的 `label`)、以及該 edge type 的 label 集合:`pod-runs-on-node`→`scheduled_at`;`pod-mounts-pvc`→`claim_name` / `storage_class`;`pod-calls-pod`→`cluster`;`service-selects-pod`→`namespace`(缺欄位則略過)。
 
 無 hover 時不渲染 DOM(避免空 box)。Unhover 走 CSS opacity transition 150ms 淡出。觸控裝置以 cytoscape `tap` 事件觸發同一 store(`tap` 在桌面也會 fire,所以與 click 選取行為共存,但 tooltip 與 selection 為獨立 state)。
 
@@ -402,10 +403,10 @@ Tooltip 內容依 `group`:
 
 **Alternatives considered:**
 
-- *cursor-follow tooltip*:UX 直覺但會短暫覆蓋鄰近節點,需 smart placement 計算空白象限,程式碼複雜度顯著上升。
-- *Smart placement(計算節點周圍空白區域)*:最不擋圖,但需要每次 hover 計算 bounding box 與避讓向量,額外 ~150 行,scaffold 階段不值得。
-- *將 tooltip 改為 click-to-pin sidebar*:雖然提供更詳細資料,但 hover 即時回饋是 SRE 掃圖時最低成本互動,留 sidebar 給後續 change。
-- *把 hover state 放進 React state 並讓 GraphCanvas 重新 render*:每次 hover 都重渲整個 canvas wrapper,違反 design.md §1「instance 為唯一真實源」與 §6「不要每次 props 變動 on/off」。
+- _cursor-follow tooltip_:UX 直覺但會短暫覆蓋鄰近節點,需 smart placement 計算空白象限,程式碼複雜度顯著上升。
+- _Smart placement(計算節點周圍空白區域)_:最不擋圖,但需要每次 hover 計算 bounding box 與避讓向量,額外 ~150 行,scaffold 階段不值得。
+- _將 tooltip 改為 click-to-pin sidebar_:雖然提供更詳細資料,但 hover 即時回饋是 SRE 掃圖時最低成本互動,留 sidebar 給後續 change。
+- _把 hover state 放進 React state 並讓 GraphCanvas 重新 render_:每次 hover 都重渲整個 canvas wrapper,違反 design.md §1「instance 為唯一真實源」與 §6「不要每次 props 變動 on/off」。
 
 **Trade-offs:** 固定角落讓眼球需從 hover 位置移到右上角,初次使用者可能誤以為無回饋;mitigation:tooltip 出現時加入 1 條從 hovered element 到 tooltip 左下角的細虛線「leader line」(scaffold 階段先不做,留作未來增強)。
 
@@ -419,8 +420,8 @@ Tooltip 內容依 `group`:
 interface KsgPanelOptions {
   layout: 'fcose' | 'dagre';
   showLegend: boolean;
-  visibleKinds: K8sResourceKind[];   // default: Object.keys(SHAPE_BY_KIND) as K8sResourceKind[]
-  visibleEdgeTypes: EdgeType[];      // default: Object.keys(COLOR_BY_EDGE_TYPE) as EdgeType[]
+  visibleKinds: K8sResourceKind[]; // default: Object.keys(SHAPE_BY_KIND) as K8sResourceKind[]
+  visibleEdgeTypes: EdgeType[]; // default: Object.keys(COLOR_BY_EDGE_TYPE) as EdgeType[]
 }
 ```
 
@@ -460,21 +461,21 @@ interface KsgPanelOptions {
 
 **Alternatives considered:**
 
-- *In-canvas chips overlay*:UX 較流暢可即時切換,但需自製 chip 元件、處理 zoom/pan 互動衝突、與 Grafana panel toolbar 對齊。延後到 v2。
-- *`display: none` + re-layout*:節點位置每次過濾都重排,使用者失去空間記憶,negative UX。
-- *Dim 至 15% opacity*:保留視覺脈絡,但「過濾後仍佔空間」與使用者預期不符。
-- *Datasource query 端過濾*:減少 wire bytes,但每次切換需重打 API,UX 延遲明顯,且失去客戶端 instant toggle 體驗。Query 端過濾留給未來 namespace / label selector(design.md Open Question)。
-- *Filter UI 與資料來源綁定(動態枚舉現有資料的 kinds)*:選項清單變動,使用者難以建立 muscle memory;改用固定 `SHAPE_BY_KIND` keys 作為枚舉。
+- _In-canvas chips overlay_:UX 較流暢可即時切換,但需自製 chip 元件、處理 zoom/pan 互動衝突、與 Grafana panel toolbar 對齊。延後到 v2。
+- _`display: none` + re-layout_:節點位置每次過濾都重排,使用者失去空間記憶,negative UX。
+- _Dim 至 15% opacity_:保留視覺脈絡,但「過濾後仍佔空間」與使用者預期不符。
+- _Datasource query 端過濾_:減少 wire bytes,但每次切換需重打 API,UX 延遲明顯,且失去客戶端 instant toggle 體驗。Query 端過濾留給未來 namespace / label selector(design.md Open Question)。
+- _Filter UI 與資料來源綁定(動態枚舉現有資料的 kinds)_:選項清單變動,使用者難以建立 muscle memory;改用固定 `SHAPE_BY_KIND` keys 作為枚舉。
 
 **Trade-offs:** `visibility: hidden` 保留位置 → 過濾後可能出現「空白區塊」(原節點位置留白),整體圖看起來鬆散。可接受 —— 換取位置穩定性與 instant toggle。若使用者要求重排,可在後續 change 加 panel option `relayoutOnFilter: boolean` 開關。
 
 ### Sample Workloads:多樣化 manifests 確保樣式覆蓋
 
-**Decision:** 在 `dev/manifests/` 維護一組涵蓋 Deployment、StatefulSet、DaemonSet、Service(ClusterIP/Headless)、Ingress、ConfigMap、Secret、Pod(獨立)、HPA 的 YAML,部署後可觸發 graph-data-integration spec 所定義的所有節點形狀與邊類型。每新增一種樣式對應,需同步新增可觸發該樣式的 manifest。
+**Decision:** 在 `dev/manifests/` 維護能產生後端 6 種 node type 與 4 種 edge 的拓樸:Pod(→ pod,帶 pod_ip)、其所在 K8s Node(→ node,帶 ExternalIP)、綁定 PVC 的 Pod(→ pvc + `pod-mounts-pvc`)、ClusterIP 與 headless Service(→ service + `service-selects-pod`)、pod 對 pod 的 RPC 流量(→ `pod-calls-pod`)、以及 `://` 連線字串端點依 D29/D27 解析為 `service`/`others`/`external`。Deployment/StatefulSet/DaemonSet/Ingress/ConfigMap/Secret/HPA 等僅作為產生上述 pod/service 的 owners,本身不是 node type。每新增一種樣式對應,需同步新增可觸發該樣式的 manifest。
 
 ## Risks / Trade-offs
 
-- **上游 API 不穩定** → 透過 OpenAPI codegen + CI PR 機制即時偵測 breaking change;在 panel 內部包一層 anti-corruption layer (`src/data/normalize.ts`),把上游欄位映射到 panel 內部模型,避免直接散佈到 UI 元件。
+- **上游 API 不穩定** → 在 panel 內部包一層 anti-corruption layer (`src/features/graph-data/normalize.ts`),把上游 cytoscape `data` 映射到 panel 內部欄位、容忍形狀變異並收集解析錯誤,避免直接散佈到 UI 元件;契約以後端 golden fixtures 對照驗證(見 graph-data-integration spec)。
 - **未簽署 plugin 在 production Grafana 需手動允許** → 文件清楚標註,並於後續 change 規劃簽署流程(預期走 Grafana Community plugin)。
 - **Type-aware lint 拖慢開發 iteration** → mitigation:本機 `eslint` 走增量 cache(`--cache --cache-location node_modules/.cache/eslint/`);pre-commit 只跑 staged,完整 lint 留到 pre-push 與 CI。預期本機單檔 lint < 1 秒。
 - **嚴格規則早期阻擋大幅重構** → mitigation:`eslint.config.js` 區分 `src/**` 嚴格、`dev/**` / `e2e/**` 寬鬆;對少數無法避免的特例使用 `// eslint-disable-next-line <rule> -- <reason>` 並要求理由註解(由 `eslint-comments/require-description` 強制)。

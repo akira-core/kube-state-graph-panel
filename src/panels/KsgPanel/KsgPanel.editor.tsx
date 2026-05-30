@@ -2,7 +2,7 @@ import type { PanelOptionsEditorBuilder, StandardEditorProps } from '@grafana/da
 import { MultiSelect } from '@grafana/ui';
 import React from 'react';
 
-import type { EdgeType, K8sResourceKind } from '../../shared/constants/types';
+import type { EdgeType, NodeKind } from '../../shared/constants/types';
 
 import { ALL_EDGE_TYPES, ALL_KINDS, defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
@@ -25,11 +25,11 @@ function makeMultiEditor<T extends string>(allValues: readonly T[]) {
   };
 }
 
-const KindsEditor = makeMultiEditor<K8sResourceKind>(ALL_KINDS);
+const KindsEditor = makeMultiEditor<NodeKind>(ALL_KINDS);
 const EdgeTypesEditor = makeMultiEditor<EdgeType>(ALL_EDGE_TYPES);
 
 export function buildKsgPanelOptions(
-  builder: PanelOptionsEditorBuilder<KsgPanelOptions>,
+  builder: PanelOptionsEditorBuilder<KsgPanelOptions>
 ): PanelOptionsEditorBuilder<KsgPanelOptions> {
   return builder
     .addRadio({

@@ -34,8 +34,8 @@
 
 ## 5. Stylesheet 與資源類型對應表
 
-- [x] 5.1 在 `src/shared/constants/shapeByKind.ts` 定義 `K8sResourceKind` enum/union 與 `SHAPE_BY_KIND` 對應表(Pod=ellipse、Service=round-rectangle、Deployment=hexagon、Ingress=diamond、Node=octagon、StatefulSet=barrel、DaemonSet=tag、ConfigMap=rectangle、Secret=cut-rectangle、HPA=star、fallback=round-rectangle)
-- [x] 5.2 在 `src/shared/constants/colorByEdgeType.ts` 定義 `EdgeType` 與 `COLOR_BY_EDGE_TYPE` 對應表(ownerReference=實線藍、serviceSelector=虛線綠、networkTraffic=漸層橘、ingressBackend=點線紫、fallback=灰實線)
+- [x] 5.1 在 `src/shared/constants/shapeByKind.ts` 定義 `K8sResourceKind` enum/union 與 `SHAPE_BY_KIND` 對應表(Pod=ellipse、Service=round-rectangle、Deployment=hexagon、Ingress=diamond、Node=octagon、StatefulSet=barrel、DaemonSet=tag、ConfigMap=rectangle、Secret=cut-rectangle、HPA=star、fallback=round-rectangle)— ~~已被 §19 取代~~:此處臆測列舉已對齊後端 6 種 node type(pod/node/pvc/service/others/external),實際對應表見 `shapeByKind.ts`。
+- [x] 5.2 在 `src/shared/constants/colorByEdgeType.ts` 定義 `EdgeType` 與 `COLOR_BY_EDGE_TYPE` 對應表(ownerReference=實線藍、serviceSelector=虛線綠、networkTraffic=漸層橘、ingressBackend=點線紫、fallback=灰實線)— ~~已被 §19 取代~~:此處臆測列舉已對齊後端 4 種 edge type(pod-runs-on-node/pod-mounts-pvc/pod-calls-pod/service-selects-pod),實際對應表見 `colorByEdgeType.ts`。
 - [x] 5.3 撰寫 `src/features/graph-canvas/styles/getStylesheet.ts`:pure factory `(theme, shapeMap, colorMap) → Stylesheet[]`
 - [x] 5.4 撰寫 `src/features/graph-canvas/styles/getStylesheet.test.ts`:快照測試 light/dark theme 輸出
 
@@ -57,7 +57,7 @@
 
 ## 8. ~~OpenAPI 型別生成~~(已刪除)
 
-精簡版:OpenAPI codegen 對小型 REST API 過度設計,2024-2026 趨勢偏好「手寫 TS 型別 + boundary 處 runtime 驗證」。本 repo 採此方案,型別於 `src/shared/types/graph.ts` 手寫維護,boundary 由 `src/features/graph-data/normalize.ts` 把關。若日後上游 API schema 大量增長,再另行 change 引入 codegen。
+精簡版:OpenAPI codegen 對小型 REST API 過度設計,2024-2026 趨勢偏好「手寫 TS 型別 + boundary 處 runtime 驗證」。本 repo 採此方案,型別於 `src/shared/types/cytoscape.d.ts`(declaration merging 擴充 cytoscape 原生型別)手寫維護,boundary 由 `src/features/graph-data/normalize.ts` 把關。若日後上游 API schema 大量增長,再另行 change 引入 codegen。
 
 ## 9. Graph Data Integration(精簡版)
 
@@ -140,3 +140,19 @@
 - [x] ~~18.6 docs/spec-coverage.md~~ — 精簡版延後:scenario coverage 由測試名稱直接對應 spec 即可
 - [ ] 18.7 執行 `/opsx:verify` 確認 implementation ↔ artifacts 對齊
 - [ ] 18.8 執行 `/opsx:archive` 歸檔本 change
+
+## 19. 對齊真實上游 kube-state-graph 契約
+
+> scaffold 階段的資料契約為臆測的通用 K8s 拓撲(PascalCase kinds、ownerReference 等 edge),與真實後端 `GET /v1/graph` 的 cytoscape payload 不符,導致 panel 無法顯示真實 graph。本區塊將契約對齊後端 source of truth(node `type`:pod/node/pvc/service/others/external;edge `type`:pod-runs-on-node/pod-mounts-pvc/pod-calls-pod/service-selects-pod;IP 移至 `data.ipaddress`)。
+
+> 對齊已於 working tree 完成,對齊後端 `GET /v1/graph`(node types pod|node|pvc|service|others|external;edge types pod-runs-on-node|pod-mounts-pvc|pod-calls-pod|service-selects-pod;ipaddress[] 已自 labels 移出)。
+
+- [x] 19.1 `src/shared/constants/types.ts`:`K8sResourceKind` → `NodeKind`(6 種後端 node type),`EdgeType` 改為 4 種後端 edge type
+- [x] 19.2 `shapeByKind.ts` / `colorByEdgeType.ts`:對應表 rekey 至新列舉(維持唯一資料源,legend/filter/stylesheet 自動衍生)
+- [x] 19.3 `src/shared/types/cytoscape.d.ts`:`kind?: NodeKind`、新增 `ipAddress?: string[]`、edge `labels?`(移除 `weight`)
+- [x] 19.4 內部模型單一來源為 `cytoscape.d.ts`(`NodeDataDefinition`/`EdgeDataDefinition` 含 `ipAddress?: string[]`、`labels`);移除 `src/shared/types/graph.ts`
+- [x] 19.5 重寫 `normalize.ts`:接受 `{ elements: { nodes, edges } }` 與 unwrapped `{ nodes, edges }`、條目容忍 `{ data }` 包裝、映射 `type→kind`/`name→label`/`labels.namespace→namespace`/`ipaddress→ipAddress`/edge `type→edgeType`;更新 `normalize.test.ts` 以後端 golden JSON 為 fixture
+- [x] 19.6 `useGraphData.extractJsonFromFrames`:挑選「看起來像 graph payload」的值(含 `elements` 或 `nodes`/`edges`),略過 `apiVersion`/`clusters`
+- [x] 19.7 `HoverTooltip`:新增 `ipAddress` row(逗號串接);更新測試
+- [x] 19.8 demo 對齊:`ksg-demo.json` 的 `visibleKinds`/`visibleEdgeTypes` 改為新列舉、query url `/api/graph` → `/v1/graph`;`KsgPanel.types.ts` / `KsgPanel.editor.tsx` defaults 同步
+- [x] 19.9 驗證:typecheck + lint + test:ci 全綠,並以後端 golden fixture 確認 normalize 產出正確 elements(final green run pending)

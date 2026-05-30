@@ -2,31 +2,51 @@ import { type DataFrame, type PanelData } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 import { useMemo } from 'react';
 
-import { normalizeGraph } from '../normalize';
+import { isPlainObject, normalizeGraph } from '../normalize';
 
 export interface UseGraphDataResult {
   elements: cytoscape.ElementDefinition[];
   error?: string;
 }
 
+// A graph payload is either the full backend response ({ elements: { nodes, edges } })
+// or an already-unwrapped { nodes, edges } object. This guard lets us skip sibling
+// columns (apiVersion string, clusters array) that Infinity's table flattening may
+// surface ahead of the graph data.
+function looksLikeGraphPayload(value: unknown): boolean {
+  // Reuse normalize's plain-object guard so the "what is a graph payload" rule
+  // lives in one place (the normalize anti-corruption boundary), not two.
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  return isPlainObject(value.elements) || Array.isArray(value.nodes);
+}
+
 function extractJsonFromFrames(series: DataFrame[]): unknown {
+  let fallback: unknown;
   for (const frame of series) {
     for (const field of frame.fields) {
       const values = field.values as unknown as ArrayLike<unknown>;
       const raw = values[0];
+      let candidate: unknown = raw;
       if (typeof raw === 'string') {
         try {
-          return JSON.parse(raw);
+          candidate = JSON.parse(raw);
         } catch {
           continue;
         }
       }
-      if (typeof raw === 'object' && raw !== null) {
-        return raw;
+      if (looksLikeGraphPayload(candidate)) {
+        return candidate;
+      }
+      // Remember the first parseable candidate so a wholly-invalid payload still
+      // reaches normalizeGraph and surfaces an error rather than rendering blank.
+      if (fallback === undefined) {
+        fallback = candidate;
       }
     }
   }
-  return undefined;
+  return fallback;
 }
 
 export function useGraphData(data: PanelData): UseGraphDataResult {

@@ -35,41 +35,91 @@ describe('HoverTooltip', () => {
       data: {
         id: 'pod-1',
         label: 'My Pod',
-        kind: 'Pod',
+        kind: 'pod',
         namespace: 'default',
+        ipAddress: ['10.244.0.10'],
         labels: { app: 'web', version: '1.2.3' },
       },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByText('My Pod')).toBeInTheDocument();
-    expect(screen.getByText('Pod')).toBeInTheDocument();
+    expect(screen.getByText('pod')).toBeInTheDocument();
     expect(screen.getByText('default')).toBeInTheDocument();
+    expect(screen.getByText('10.244.0.10')).toBeInTheDocument();
     expect(screen.getByText('web')).toBeInTheDocument();
     expect(screen.getByText('1.2.3')).toBeInTheDocument();
+  });
+
+  it('joins multiple ip addresses with a comma', () => {
+    useHoverElement.mockReturnValue({
+      id: 'node-1',
+      group: 'nodes',
+      data: { id: 'node-1', label: 'worker', kind: 'node', ipAddress: ['10.0.0.1', '10.0.0.2'] },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('10.0.0.1, 10.0.0.2')).toBeInTheDocument();
   });
 
   it('shows edge metadata when hovering an edge', () => {
     useHoverElement.mockReturnValue({
       id: 'e1',
       group: 'edges',
-      data: { id: 'e1', source: 'a', target: 'b', edgeType: 'serviceSelector', weight: 5 },
+      data: { id: 'e1', source: 'a', target: 'b', edgeType: 'service-selects-pod' },
       sourceLabel: 'A',
       targetLabel: 'B',
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByText('A → B')).toBeInTheDocument();
-    expect(screen.getByText('serviceSelector')).toBeInTheDocument();
-    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('service-selects-pod')).toBeInTheDocument();
   });
 
   it('omits missing optional fields', () => {
     useHoverElement.mockReturnValue({
       id: 'pod-2',
       group: 'nodes',
-      data: { id: 'pod-2', label: 'Minimal', kind: 'Pod' },
+      data: { id: 'pod-2', label: 'Minimal', kind: 'pod' },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.queryByText('namespace:')).not.toBeInTheDocument();
     expect(screen.queryByText('app:')).not.toBeInTheDocument();
+    expect(screen.queryByText('ipAddress:')).not.toBeInTheDocument();
+  });
+
+  it('omits ipAddress for an explicit empty array', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-3',
+      group: 'nodes',
+      data: { id: 'pod-3', label: 'No IP', kind: 'pod', ipAddress: [] },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.queryByText('ipAddress:')).not.toBeInTheDocument();
+  });
+
+  it('renders edge labels for a service-selects-pod edge', () => {
+    useHoverElement.mockReturnValue({
+      id: 'e2',
+      group: 'edges',
+      data: { id: 'e2', source: 'svc', target: 'pod', edgeType: 'service-selects-pod', labels: { namespace: 'shop' } },
+      sourceLabel: 'payments',
+      targetLabel: 'payments-0',
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('service-selects-pod')).toBeInTheDocument();
+    expect(screen.getByText('namespace:')).toBeInTheDocument();
+    expect(screen.getByText('shop')).toBeInTheDocument();
+  });
+
+  it('renders the cluster label for a pod-calls-pod edge', () => {
+    useHoverElement.mockReturnValue({
+      id: 'e3',
+      group: 'edges',
+      data: { id: 'e3', source: 'a', target: 'b', edgeType: 'pod-calls-pod', labels: { cluster: 'cluster-alpha' } },
+      sourceLabel: 'checkout',
+      targetLabel: 'payments',
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('pod-calls-pod')).toBeInTheDocument();
+    expect(screen.getByText('cluster:')).toBeInTheDocument();
+    expect(screen.getByText('cluster-alpha')).toBeInTheDocument();
   });
 });

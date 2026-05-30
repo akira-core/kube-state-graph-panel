@@ -2,8 +2,8 @@ import React from 'react';
 
 export function LoadingOverlay(): React.JSX.Element {
   return (
-    <div data-testid="loading-overlay" role="status" aria-live="polite">
+    <output data-testid="loading-overlay" aria-live="polite">
       Loading graph…
-    </div>
+    </output>
   );
 }

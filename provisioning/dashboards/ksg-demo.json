@@ -14,23 +14,8 @@
       "options": {
         "layout": "fcose",
         "showLegend": true,
-        "visibleKinds": [
-          "Pod",
-          "Service",
-          "Deployment",
-          "Ingress",
-          "Node",
-          "StatefulSet",
-          "DaemonSet",
-          "ConfigMap",
-          "Secret",
-          "HPA",
-          "Namespace",
-          "ReplicaSet",
-          "Job",
-          "CronJob"
-        ],
-        "visibleEdgeTypes": ["ownerReference", "serviceSelector", "networkTraffic", "ingressBackend"]
+        "visibleKinds": ["pod", "node", "pvc", "service", "others", "external"],
+        "visibleEdgeTypes": ["pod-runs-on-node", "pod-mounts-pvc", "pod-calls-pod", "service-selects-pod"]
       },
       "targets": [
         {
@@ -38,7 +23,7 @@
           "type": "json",
           "source": "url",
           "format": "table",
-          "url": "/api/graph",
+          "url": "/v1/graph",
           "url_options": { "method": "GET" }
         }
       ],

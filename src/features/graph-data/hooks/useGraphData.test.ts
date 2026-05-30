@@ -41,7 +41,7 @@ describe('useGraphData', () => {
 
   it('parses JSON string field and normalizes graph payload', () => {
     const payload = {
-      nodes: [{ id: 'a', kind: 'Pod' }],
+      nodes: [{ id: 'a', type: 'pod' }],
       edges: [],
     };
     const data = panelData([frameWithFieldValue(JSON.stringify(payload))]);
@@ -53,7 +53,7 @@ describe('useGraphData', () => {
   });
 
   it('accepts object field value directly (non-stringified payload)', () => {
-    const payload = { nodes: [{ id: 'a', kind: 'Pod' }], edges: [] };
+    const payload = { nodes: [{ id: 'a', type: 'pod' }], edges: [] };
     const data = panelData([frameWithFieldValue(payload)]);
     const { result } = renderHook(() => useGraphData(data));
     expect(result.current.elements).toHaveLength(1);
@@ -70,6 +70,39 @@ describe('useGraphData', () => {
     const data = panelData([frameWithFieldValue(JSON.stringify('definitely not an object'))]);
     const { result } = renderHook(() => useGraphData(data));
     expect(result.current.error).toBeDefined();
+  });
+
+  it('skips parseable sibling columns and selects the graph envelope', () => {
+    const envelope = {
+      apiVersion: 'v1',
+      clusters: ['cluster-alpha'],
+      elements: {
+        nodes: [{ data: { id: 'cluster-alpha/uid-1', name: 'pod-a', type: 'pod', labels: {} } }],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [
+        { name: 'apiVersion', type: FieldType.string, config: {}, values: [JSON.stringify('v1')] },
+        { name: 'clusters', type: FieldType.string, config: {}, values: [JSON.stringify(['cluster-alpha'])] },
+        { name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(envelope)] },
+      ],
+    };
+    const data = panelData([frame]);
+    const { result } = renderHook(() => useGraphData(data));
+    expect(result.current.elements).toHaveLength(1);
+    const first = result.current.elements[0] as { data: { id: string } };
+    expect(first.data.id).toBe('cluster-alpha/uid-1');
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('falls back to a parseable non-graph object so normalize surfaces an error', () => {
+    const data = panelData([frameWithFieldValue(JSON.stringify({ foo: 1 }))]);
+    const { result } = renderHook(() => useGraphData(data));
+    expect(typeof result.current.error).toBe('string');
+    expect(result.current.error).not.toBe('');
   });
 
   it('memoizes result across renders with same data.series reference', () => {

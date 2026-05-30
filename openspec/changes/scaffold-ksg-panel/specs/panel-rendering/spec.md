@@ -30,12 +30,12 @@ Panel SHALL 透過 cytoscape.js 在指定 DOM 容器中渲染 nodes 與 edges,�
 
 ### Requirement: 節點形狀依資源類型對應
 
-系統 SHALL 透過集中於 `src/shared/constants/shapeByKind.ts` 的對應表,將不同 Kubernetes 資源類型(kind)映射到不同 cytoscape node shape;對應表為唯一資料源,stylesheet 與 legend 元件皆從此匯入。
+系統 SHALL 透過集中於 `src/shared/constants/shapeByKind.ts` 的對應表,將上游 kube-state-graph node 類型(`NodeKind`)映射到不同 cytoscape node shape;對應表為唯一資料源,stylesheet 與 legend 元件皆從此匯入。`NodeKind` 列舉 MUST 對齊後端輸出:`pod` / `node` / `pvc` / `service` / `others` / `external`。
 
 #### Scenario: 已知資源類型對應到正確形狀
 
-- **WHEN** 節點 data 帶有 `kind: 'Pod'`(或其他已定義 kind)
-- **THEN** 該節點以對應 shape(例如 Pod=ellipse)渲染,且形狀對應與 `shapeByKind.ts` 一致
+- **WHEN** 節點 data 帶有 `kind: 'pod'`(或其他已定義 kind)
+- **THEN** 該節點以對應 shape(例如 pod=ellipse)渲染,且形狀對應與 `shapeByKind.ts` 一致
 
 #### Scenario: 未知資源類型走 fallback
 
@@ -44,11 +44,11 @@ Panel SHALL 透過 cytoscape.js 在指定 DOM 容器中渲染 nodes 與 edges,�
 
 ### Requirement: 邊顏色依關係類型對應
 
-系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將不同 edge type(例如 `ownerReference`、`serviceSelector`、`networkTraffic`、`ingressBackend`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。
+系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將上游 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉 MUST 對齊後端輸出:`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `service-selects-pod`。
 
 #### Scenario: 已知邊類型對應到正確顏色
 
-- **WHEN** 邊 data 帶有 `edgeType: 'serviceSelector'`(或其他已定義 type)
+- **WHEN** 邊 data 帶有 `edgeType: 'service-selects-pod'`(或其他已定義 type)
 - **THEN** 該邊以對應顏色與線型渲染,且與 `colorByEdgeType.ts` 定義一致
 
 #### Scenario: 未知邊類型走 fallback
@@ -117,7 +117,7 @@ Panel SHALL 提供 legend 元件,顯示當前圖中出現的節點形狀與邊�
 
 #### Scenario: Legend 與圖中元素一致
 
-- **WHEN** Panel 收到含 Pod / Service / Deployment 節點與 ownerReference / serviceSelector 邊的資料
+- **WHEN** Panel 收到含 pod / service / node 節點與 pod-runs-on-node / service-selects-pod 邊的資料
 - **THEN** Legend 區域顯示三種節點形狀與兩種邊顏色的對應說明,且形狀/顏色與 canvas 中渲染一致
 
 ### Requirement: Hover Tooltip 顯示元素 metadata
@@ -127,12 +127,12 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 #### Scenario: Hover 節點顯示節點 metadata
 
 - **WHEN** 使用者滑鼠 hover 於任一節點
-- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`,以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
 
 #### Scenario: Hover 邊顯示邊 metadata
 
 - **WHEN** 使用者滑鼠 hover 於任一邊
-- **THEN** `HoverTooltip` 顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id),以及 `weight`(若 `edge.data.weight` 存在)
+- **THEN** `HoverTooltip` 顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
 
 #### Scenario: Tooltip 不阻擋圖形互動
 
@@ -156,17 +156,17 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 
 ### Requirement: Node Kind / Edge Type 過濾
 
-Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `K8sResourceKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`SHAPE_BY_KIND` / `COLOR_BY_EDGE_TYPE`)的全部 keys。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
+Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `NodeKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`SHAPE_BY_KIND` / `COLOR_BY_EDGE_TYPE`)的全部 keys。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
 
 #### Scenario: 過濾節點 kind 後對應節點不可見且位置保留
 
-- **WHEN** 使用者於 panel options 將 `visibleKinds` 中的 `Pod` 取消勾選
-- **THEN** 所有 `data.kind === 'Pod'` 的節點以 `visibility: hidden` 隱藏;其餘節點位置不變(不觸發 layout 重排);cytoscape instance reference 不變
+- **WHEN** 使用者於 panel options 將 `visibleKinds` 中的 `pod` 取消勾選
+- **THEN** 所有 `data.kind === 'pod'` 的節點以 `visibility: hidden` 隱藏;其餘節點位置不變(不觸發 layout 重排);cytoscape instance reference 不變
 
 #### Scenario: 過濾邊 type 後對應邊不可見
 
-- **WHEN** 使用者於 panel options 將 `visibleEdgeTypes` 中的 `serviceSelector` 取消勾選
-- **THEN** 所有 `data.edgeType === 'serviceSelector'` 的邊以 `visibility: hidden` 隱藏;節點與其他邊不受影響
+- **WHEN** 使用者於 panel options 將 `visibleEdgeTypes` 中的 `service-selects-pod` 取消勾選
+- **THEN** 所有 `data.edgeType === 'service-selects-pod'` 的邊以 `visibility: hidden` 隱藏;節點與其他邊不受影響
 
 #### Scenario: 邊在任一端點被隱藏時自動隱藏
 

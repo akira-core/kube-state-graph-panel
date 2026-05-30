@@ -1,17 +1,9 @@
 import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
-import {
-  COLOR_BY_EDGE_TYPE,
-  FALLBACK_EDGE_STYLE,
-  type EdgeStyle,
-} from '../../../shared/constants/colorByEdgeType';
-import {
-  FALLBACK_SHAPE,
-  SHAPE_BY_KIND,
-  type CytoscapeNodeShape,
-} from '../../../shared/constants/shapeByKind';
-import type { EdgeType, K8sResourceKind } from '../../../shared/constants/types';
+import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
+import { FALLBACK_SHAPE, SHAPE_BY_KIND, type CytoscapeNodeShape } from '../../../shared/constants/shapeByKind';
+import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import type { CyStylesheet } from '../hooks/useCytoscape';
 
 export interface GetStylesheetInput {
@@ -62,7 +54,7 @@ export function getStylesheet({
       selector: 'node',
       style: {
         shape: ((ele: cytoscape.NodeSingular): CytoscapeNodeShape =>
-          resolveShape(ele.data('kind') as K8sResourceKind | undefined, shapeMap)) as unknown as cytoscape.Css.NodeShape,
+          resolveShape(ele.data('kind') as NodeKind | undefined, shapeMap)) as unknown as cytoscape.Css.NodeShape,
         'background-color': bgColor,
         'border-color': borderColor,
         'border-width': 1.5,

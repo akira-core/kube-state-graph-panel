@@ -9,7 +9,7 @@ Kubernetes 集群中的資源拓撲(Pod、Service、Deployment、Ingress 等)及
 - 透過 Grafana datasource(預設 HTTP/Infinity 或自訂 backend datasource,二擇一於 design 階段決定)消費 `kube-state-graph` API,並從上游 repo 的 OpenAPI 規格自動產生 TypeScript 型別。
 - 不同 k8s 資源類型對應不同節點形狀(例如 Pod=ellipse、Service=round-rectangle、Deployment=hexagon、Ingress=diamond、Node=octagon 等),完整對應表於 specs 階段定義。
 - 不同邊類型(owner reference、service selector、network traffic、ingress backend 等)對應不同顏色/線型。
-- 滑鼠 hover 於節點/邊時顯示 metadata tooltip(節點:name + kind + namespace + key labels;邊:edgeType + source→target + weight),tooltip 固定渲染於 canvas 右上角,不覆蓋圖形,且 `pointer-events: none` 不阻擋互動。
+- 滑鼠 hover 於節點/邊時顯示 metadata tooltip(節點:name + kind + namespace + key labels;邊:edgeType + source→target + key labels),tooltip 固定渲染於 canvas 右上角,不覆蓋圖形,且 `pointer-events: none` 不阻擋互動。
 - 透過 Grafana panel options(sidebar)的 MultiSelect 提供 node kind / edge type 過濾,被過濾元素以 `visibility: hidden` 隱藏(不重跑 layout、保留位置),邊在任一端點被隱藏時自動隱藏。
 - 開發環境支援熱重載(plugin source 變更後 Grafana 自動載入,無需重新 build container),透過 docker-compose 編排 `grafana` + `kube-state-graph` backend image + 本地 `kind` cluster。
 - 提供 sample workload manifests(deployment/service/ingress/configmap 多樣化組合)部署到 kind cluster,確保各種節點形狀與邊類型在開發與 E2E 測試中皆可觸發。

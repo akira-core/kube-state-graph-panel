@@ -42,8 +42,8 @@ export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCy
       }
     };
     // Init effect intentionally runs once — element/style/layout updates handled by dedicated effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- single-shot init; subsequent updates handled by other effects
-  }, []);
+    // oxlint-disable-next-line react-doctor/exhaustive-deps -- single-shot init; subsequent updates handled by other effects
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- single-shot init; subsequent updates handled by other effects
 
   // Elements diff-and-patch
   useEffect(() => {
