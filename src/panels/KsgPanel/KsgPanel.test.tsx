@@ -7,15 +7,24 @@ import {
   type PanelProps,
   type TimeRange,
 } from '@grafana/data';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
+
+// Spy is hoisted above jest.mock so the factory closure can capture it.
+const graphCanvasSpy = jest.fn();
 
 // Stub GraphCanvas: it mounts cytoscape + runs fcose, which is not registered in
 // the jest env. This lets the panel render its legend aside (the unit under test)
 // without a live graph instance. EmptyState/LoadingOverlay stay real.
 jest.mock('../../features/graph-canvas', () => {
   const actual = jest.requireActual<typeof import('../../features/graph-canvas')>('../../features/graph-canvas');
-  return { ...actual, GraphCanvas: (): null => null };
+  return {
+    ...actual,
+    GraphCanvas: (props: { collapsedIds?: Set<string> }): null => {
+      graphCanvasSpy(props);
+      return null;
+    },
+  };
 });
 
 import { KsgPanel } from './KsgPanel';
@@ -61,6 +70,10 @@ function buildProps(overrides: Partial<PanelProps<KsgPanelOptions>> = {}): Panel
 }
 
 describe('KsgPanel', () => {
+  beforeEach(() => {
+    graphCanvasSpy.mockClear();
+  });
+
   it('renders empty state when no data', () => {
     render(<KsgPanel {...buildProps()} />);
     expect(screen.getByTestId('empty-state')).toBeInTheDocument();
@@ -114,5 +127,70 @@ describe('KsgPanel', () => {
     );
     const legend = screen.getByTestId('cluster-legend');
     expect(within(legend).getByText('demo')).toBeInTheDocument();
+  });
+
+  it('collapses all clusters via the cluster legend toggle and passes collapsedIds to GraphCanvas', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          { data: { id: 'demo/p1', type: 'pod', name: 'web', parent: 'demo/node-a', labels: { cluster: 'demo' } } },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    fireEvent.click(screen.getByTestId('cluster-collapse-toggle'));
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('cluster:demo')).toBe(true);
+  });
+
+  it('collapses all k8s-node containers via the node legend toggle and passes collapsedIds to GraphCanvas', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          { data: { id: 'demo/p1', type: 'pod', name: 'web', parent: 'demo/node-a', labels: { cluster: 'demo' } } },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    fireEvent.click(screen.getByTestId('node-collapse-toggle'));
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('demo/node-a')).toBe(true);
+  });
+
+  it('does not render the cluster legend when there are no clusters', () => {
+    render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+    expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();
   });
 });

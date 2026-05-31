@@ -2,7 +2,7 @@ import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
 import { useGraphData } from '../../features/graph-data';
@@ -113,6 +113,84 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
+  // Collapsed parent-container ids. Lives here so the legend toggles (siblings of
+  // GraphCanvas) and the canvas share one source. GraphCanvas reports the full
+  // next Set via onCollapsedChange (cue events / data-refresh prune).
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  // Cluster container ids = backend cluster containers (isCluster).
+  const clusterContainerIds = useMemo<string[]>(() => {
+    const ids: string[] = [];
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isCluster === true && typeof d.id === 'string') {
+        ids.push(d.id);
+      }
+    }
+    return ids;
+  }, [elements]);
+
+  // K8s node container ids = node-kind nodes that are a parent of some node.
+  const k8sNodeContainerIds = useMemo<string[]>(() => {
+    const parentIds = new Set<string>();
+    for (const el of elements) {
+      if (el.group === 'nodes') {
+        const p = (el.data as cytoscape.NodeDataDefinition).parent;
+        if (typeof p === 'string') {
+          parentIds.add(p);
+        }
+      }
+    }
+    const ids: string[] = [];
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.kind === 'node' && typeof d.id === 'string' && parentIds.has(d.id)) {
+        ids.push(d.id);
+      }
+    }
+    return ids;
+  }, [elements]);
+
+  const allClustersCollapsed =
+    clusterContainerIds.length > 0 && clusterContainerIds.every((id) => collapsedIds.has(id));
+  const allNodesCollapsed = k8sNodeContainerIds.length > 0 && k8sNodeContainerIds.every((id) => collapsedIds.has(id));
+
+  const toggleClusters = useCallback(() => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      const collapseThem = !clusterContainerIds.every((id) => prev.has(id));
+      for (const id of clusterContainerIds) {
+        if (collapseThem) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
+  }, [clusterContainerIds]);
+
+  const toggleNodes = useCallback(() => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      const collapseThem = !k8sNodeContainerIds.every((id) => prev.has(id));
+      for (const id of k8sNodeContainerIds) {
+        if (collapseThem) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
+  }, [k8sNodeContainerIds]);
+
   if (seriesError !== undefined) {
     return (
       <Alert severity="error" title="Graph data error">
@@ -138,9 +216,17 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     <div className={styles.root}>
       {options.showLegend && (
         <aside className={styles.legendArea}>
-          <NodeLegend />
+          <ClusterLegend
+            clusters={clusterEntries}
+            onToggleCollapseAll={toggleClusters}
+            allCollapsed={allClustersCollapsed}
+          />
+          <NodeLegend
+            onToggleCollapseAll={toggleNodes}
+            allCollapsed={allNodesCollapsed}
+            showCollapseToggle={k8sNodeContainerIds.length > 0}
+          />
           <EdgeLegend />
-          <ClusterLegend clusters={clusterEntries} />
           <StatusLegend />
         </aside>
       )}
@@ -157,6 +243,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               visibleEdgeTypes={visibleEdgeTypes}
               onSelect={setSelectedNodeId}
               selectedId={selectedNodeId}
+              collapsedIds={collapsedIds}
+              onCollapsedChange={setCollapsedIds}
             />
             <NodeDetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
           </>
