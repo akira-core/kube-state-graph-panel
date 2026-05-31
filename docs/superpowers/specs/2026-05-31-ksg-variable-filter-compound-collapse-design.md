@@ -3,7 +3,7 @@
 - **日期**:2026-05-31
 - **OpenSpec change**:`scaffold-ksg-panel`(延伸,非新 change)
 - **Capability**:`panel-rendering`(主)、`graph-data-integration`(provisioning/變數)、`dev-environment`(demo backend 版本)
-- **狀態**:設計待 review
+- **狀態**:已實作(F2+C 完成;F1 provisioning 完成,Grafana UI 驗證待跑)
 
 ## 1. 目標
 
@@ -17,7 +17,7 @@
 
 ## 2. 現況關鍵事實(實作前已確認)
 
-### 2.1 後端 `/v1/graph`(已讀原始碼驗證 — `feat/build-graph-api` 分支)
+### 2.1 後端 `/v1/graph`(已於部署中的 `v0.0.14` 映像實測驗證 — 2026-05-31)
 
 - `parseGraphRequest`(`internal/api/handlers.go`)+ `graph.NewScope`(`internal/graph/scope.go`)支援 **9 個 query 參數**:
   - `start`、`end`(必填,Unix 秒或 RFC3339)
@@ -27,17 +27,21 @@
   - `cluster` 比對 `node.labels["cluster"]`;**cluster 過濾啟用時 external node 一律被排除**。
   - `namespace` 比對 `node.labels["namespace"]`。
   - `name` 比對 `node.Name()`,為 **set 精確比對**(非子字串/regex)。
-  - `edge_type` 僅 3 值:`pod-mounts-pvc` / `pod-calls-pod` / `service-selects-pod`。
+  - `edge_type` 僅過濾**邊**(`pod-mounts-pvc` / `pod-calls-pod` / `service-selects-pod` / `pod-runs-on-node`);節點**全部保留**。
   - edge 連帶:端點被過濾掉的 edge 隨之消失(後端 projection 完成)。
 - **重要:後端 `q["cluster"]` 不拆逗號** → 多值必須用重複參數 `cluster=a&cluster=b`。
-- **空值參數語意**(provisioning 須避開):送 `cluster=`(空字串)會被 `stringSet` 當成「過濾值=空字串」→ 比不到任何 node → 回空集合(**非**「無過濾」)。故變數**不可**展開成空值(見 §4.3);實作期 `curl` 確認此行為。
-- 兩個探索端點可直接餵 Grafana query 變數:**`GET /v1/clusters`**、**`GET /v1/edge-types`**。
+- **空值參數語意(已實測)**:`cluster=`(空字串)→ 後端視為**無過濾條件**,回傳**完整圖**(實測:20 nodes);`cluster=bogus`(不存在值)→ 0 nodes。**不存在空值陷阱** — 空/未帶此參數皆等同「不限」。
+- 兩個探索端點已在 `v0.0.14` 確認可用:**`GET /v1/clusters`**、**`GET /v1/edge-types`**。
+  - `/v1/clusters` 回傳 `{ clusters: [{ name: "dr" }, { name: "prod" }] }`(物件陣列,鍵 `name`)。
+  - `/v1/edge-types` 回傳 `{ edge_types: [{ type: "pod-calls-pod", ... }, ...] }`(root key = `edge_types`,包含 `pod-runs-on-node`)。
 - 認證:`/v1/*` 可選 `X-API-Key`(未設 key 時為 no-op,demo 不受影響)。
-- 輸出模型(`internal/api/serialise.go`):node `data = { id, name, type, parent?, ipaddress?, labels }`;`labels` 鍵含 `cluster` / `namespace` / `node`(pod 指向其 k8s node id)/ `volume`。cluster 容器 = `{ id:"cluster/<name>", type:"cluster", labels:{} }`。`/v1/graph` 回應另帶頂層 `clusters: [...]` 陣列。巢狀:pod→node→cluster、node/svc/pvc→cluster、others/external 無 parent。
+- 輸出模型(`internal/api/serialise.go`):node `data = { id, name, type, parent?, ipaddress?, labels }`;`labels` 鍵含 `cluster` / `namespace` / `node`(pod 指向其 k8s node id)/ `volume`。cluster 容器 = `{ id:"cluster/<name>", type:"cluster", labels:{} }`。`/v1/graph` 頂層 `clusters` 為**字串陣列** `["dr","prod"]`。節點位於 `elements.nodes[*].data.{name,type,labels.namespace}`。巢狀:pod→node→cluster、node/svc/pvc→cluster、others/external 無 parent。
 
-### 2.2 ⚠️ 版本相依(已拍板)
+### 2.2 版本相依(已解決)
 
-scope 參數 + `/v1/clusters` + `/v1/edge-types` 都在後端**未發布分支**(version `dev`、無 release tag),demo 目前釘 `v0.0.14`(很可能無這些參數)。**決策**:鎖定最新後端,demo 改用 **`:latest`** tag(見 §4.5)。
+scope 參數 + `/v1/clusters` + `/v1/edge-types` 已確認包含在**目前部署的 `v0.0.14` 映像**中(live 實測,2026-05-31),**無需升級至 `:latest`**。版本相依風險已消除。
+
+> 歷史備注:設計初稿讀的是後端 `feat/build-graph-api`/`dev` 分支原始碼;當時擔心功能未進 release。實測後確認 v0.0.14 release 映像已包含全部相關端點與參數。
 
 ### 2.3 Panel 端現況
 
@@ -93,18 +97,18 @@ scope 參數 + `/v1/clusters` + `/v1/edge-types` 都在後端**未發布分支**
 
 於 demo dashboard `provisioning/dashboards/ksg-demo.json` 新增 `templating.list`(並在文件記錄給真實環境參考)。後端**無** `/v1/namespaces`,故 `namespace`/`name` 採 **Infinity query 變數從 `/v1/graph` 子集萃取 distinct 值**(chained on 上層變數):
 
-| variable    | 類型            | Infinity 來源 / 解析                                                                                                                     | multi | 備註                                           |
-| ----------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------- |
-| `cluster`   | Query           | `GET /v1/clusters`;JSON root selector → `clusters`(陣列)                                                                                 | ✅    | Include All = **展開為全部實際值**(非自訂 `*`) |
-| `namespace` | Query           | `GET /v1/graph?start=…&end=…&${cluster:customqueryparam:cluster:}`;JSONata/UQL 取 `nodes[*].data.labels.namespace` → **distinct/unique** | ✅    | **chained on `cluster`**;refresh on time range |
-| `name`      | Query           | 同上來源,取 `nodes[*].data.name` → **distinct/unique**(chained on cluster/namespace)                                                     | ✅    | 後端**精確比對**(§4.1)                         |
-| `edge_type` | Custom 或 Query | 固定 3 值,或 `GET /v1/edge-types`                                                                                                        | ✅    | 可選                                           |
+| variable    | 類型            | Infinity 來源 / 解析                                                                                                                                   | multi | 備註                                                   |
+| ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ------------------------------------------------------ |
+| `cluster`   | Query           | `GET /v1/clusters`;回傳 `{clusters:[{name:"dr"},{name:"prod"}]}`(物件陣列) → UQL `scope "clusters" \| pick "name"` 萃取 `name` 欄位                    | ✅    | Include All 或空值皆等同不過濾(後端行為已驗證,見 §2.1) |
+| `namespace` | Query           | `GET /v1/graph?start=…&end=…&${cluster:customqueryparam:cluster:}`;UQL `scope "elements.nodes" \| pick "data.labels.namespace" \| uniq` → **distinct** | ✅    | **chained on `cluster`**;refresh on time range         |
+| `name`      | Query           | 同上來源,UQL `scope "elements.nodes" \| pick "data.name" \| uniq`(chained on cluster/namespace)                                                        | ✅    | 後端**精確比對**(§4.1)                                 |
+| `edge_type` | Custom 或 Query | 固定值,或 `GET /v1/edge-types`(回傳 `{edge_types:[{type,...}]}`,root key = `edge_types`)                                                               | ✅    | 可選                                                   |
 
 設計註:
 
-- `/v1/clusters` / `/v1/edge-types` 的確切 JSON 形狀(推測 `{apiVersion, clusters:[…]}` / `{apiVersion, edgeTypes:[…]}`)於實作時 `curl` 確認再定 root selector;`/v1/graph` 的 distinct 萃取以 Infinity 的 **UQL `summarize`/`distinct`** 或 JSONata `$distinct(nodes.data.labels.namespace)` 實作。
+- `/v1/clusters` 回傳**物件陣列**(`{name:"dr"}` 等),需以 UQL 或 JSONata 萃取 `name` 欄位,**非**裸字串陣列。`/v1/edge-types` root key 為 `edge_types`(含 `pod-runs-on-node`)。`/v1/graph` 的 distinct 萃取以 Infinity 的 **UQL `scope`/`uniq`** 或 JSONata `$distinct(elements.nodes.data.labels.namespace)` 實作;UQL `scope "elements.nodes"` 語法須於目標 Grafana 版本 UI 確認。
 - **chained 空鏈**:若上層變數(cluster)無結果,下游(namespace/name)亦空 → 屬預期;demo seeder 必須至少提供一個 cluster 才能填充變數。
-- 變數的 **Include All** 必須展開為「全部實際值」而非自訂 all-value(`*`),否則後端收到 `cluster=*` 比不到 → 回空(見 §2.1 空值語意)。
+- **Include All / 空值**:後端實測確認 `cluster=`(空值)→ 完整圖(無過濾);`cluster=*` → 0 nodes(比不到字面 `*`)。故 Include All 仍應展開為全部實際值,避免 `cluster=*` 這個字面情況;但空值本身無害,不會意外清空圖。
 
 ### 4.3 Query URL 參數化(`customqueryparam`)
 
@@ -128,7 +132,7 @@ Infinity query 的 URL 由原本
 
 - **不可改用 `queryparam`**:標準 `queryparam` 會輸出 `var-cluster=a&var-cluster=b`(帶 `var-` 前綴),後端讀不到 `cluster`。
 - **驗證要求**:Grafana docs 的 `customqueryparam` 範例為「自訂名 **+** 非空前綴」(`v-servers:x-`);「空 valuePrefix」這一變體須在 **目標 Grafana 版本實測確認**輸出無前綴的 `cluster=a&cluster=b`,並記錄測試版本。
-- **空值/All**:選 All → 展開全部實際值 → 等同無過濾;無選任何值 → 期望不輸出該段(無空 `cluster=`)。實測若仍輸出空值,改以變數預設=All 規避(見 §2.1)。
+- **空值/All**:選 All → 展開全部實際值 → 等同無過濾;即使輸出空 `cluster=`,後端實測亦回傳完整圖(見 §2.1),不需特別規避。`cluster=*`(字面星號)才比不到 → 故 Include All 仍應展開實際值,不使用自訂 all-value `*`。
 - **後備方案 B**(僅在踩到 Infinity 多值 URL 已知地雷 #293/#1265 時啟用):後端 `stringSet` 加逗號拆分、Grafana 改用 `${cluster:csv}`。列為風險後備,本次不預先採用。
 
 ### 4.4 Panel 端影響(最小)
@@ -139,9 +143,9 @@ Infinity query 的 URL 由原本
 
 ### 4.5 後端版本 / demo(`dev-environment`)
 
-- `docker-compose` 的 `kube-state-graph` 服務改用含 scope 參數的後端映像(`KSG_BACKEND_TAG` 預設 → `latest`)。
+- `docker-compose` 的 `kube-state-graph` 服務**保持 `v0.0.14`**;scope 參數與探索端點已在此版本確認可用(§2.2),**無需升級至 `:latest`**。
 - demo dashboard 加上 §4.2 變數 + §4.3 URL;seeder 已涵蓋多 cluster/namespace,足以示範過濾。
-- 文件(README / CLAUDE.md「Local demo」)更新:說明變數過濾、`:latest` 相依、`/v1/clusters` 與 `/v1/edge-types` 探索端點。
+- 文件(README / CLAUDE.md「Local demo」)更新:說明變數過濾與 `/v1/clusters`、`/v1/edge-types` 探索端點。
 
 ## 5. B. Compound node 收合(`cytoscape-expand-collapse`)
 
@@ -347,9 +351,9 @@ class 名稱已對照 README 查證。於 `getStylesheet.ts` 追加(維持純工
 ## 9. 風險 / 取捨
 
 - **expand-collapse × diff-patch reconciliation**(§5.4)為最高風險:以 `reconcileCollapse` 純函式 + expandAll→patch→recollapse 單一週期 + `suppressRef` guard + 選配注入 降低耦合;必測呼叫順序、guard 進出、與資料 refresh 後收合保持。
-- **Infinity 多值 URL**(社群 #293/#1265):`customqueryparam` + 空 valuePrefix 為依 Grafana docs 推得的可行路徑,但**空前綴變體未見官方範例**,須於目標 Grafana 版本實測;失敗則啟用 §4.3 後備方案 B(後端逗號拆分)。
-- **namespace/name 變數來源**:後端無對應探索端點,靠 Infinity 從 `/v1/graph` distinct 萃取;`name` 後端為精確比對(文件已明示限制)。
-- **後端未發布分支**:`:latest` 為移動標的;設計以目前 `feat/build-graph-api` 行為為準,實作期 `curl` 確認 `/v1/clusters`、`/v1/edge-types` 回傳形狀與空值行為。
+- **Infinity 多值 URL**(社群 #293/#1265):`customqueryparam` + 空 valuePrefix 為依 Grafana docs 推得的可行路徑,但**空前綴變體未見官方範例**,須於目標 Grafana 版本 UI 實測;失敗則啟用 §4.3 後備方案 B(後端逗號拆分)。
+- **namespace/name 變數來源**:後端無對應探索端點,靠 Infinity 從 `/v1/graph` distinct 萃取;`name` 後端為精確比對(文件已明示限制)。UQL `scope "elements.nodes"` 語法須於目標 Grafana Infinity 版本 UI 確認。
+- **後端版本**:v0.0.14 scope 參數與探索端點已實測確認(§2.2),此風險已消除。
 - **cue × legend 雙向同步**:已以 `suppressRef` guard 定義(§5.3/§5.4);實作須確保程式化操作全程包在 guard 內。
 
 ## 10. 不做(YAGNI)
