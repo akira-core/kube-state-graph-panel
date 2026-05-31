@@ -1,6 +1,6 @@
-import { render, act } from '@testing-library/react';
+import { render, act, renderHook } from '@testing-library/react';
 import cytoscape from 'cytoscape';
-import React from 'react';
+import React, { type MutableRefObject } from 'react';
 
 import { useCytoscape, type CyStylesheet } from './useCytoscape';
 
@@ -114,5 +114,111 @@ describe('useCytoscape', () => {
     }
     const { getByTestId } = render(<ReadyHarness />);
     expect(getByTestId('ready').getAttribute('data-ready')).toBe('true');
+  });
+});
+
+const baseElements: cytoscape.ElementDefinition[] = [
+  { group: 'nodes', data: { id: 'cl', isCluster: true } },
+  { group: 'nodes', data: { id: 'p1', parent: 'cl', kind: 'pod' } },
+];
+
+describe('useCytoscape collapse-aware diff-patch', () => {
+  it('expands all, patches, then re-collapses present parents and reports prune in order', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const order: string[] = [];
+    const states: boolean[] = [];
+    const suppressRef = { current: false };
+    const api = {
+      expandAll: jest.fn(() => {
+        states.push(suppressRef.current);
+        order.push('expandAll');
+      }),
+      collapse: jest.fn(() => order.push('collapse')),
+    } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const onCollapsedChange = jest.fn();
+
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef,
+          onCollapsedChange,
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+    rerender({ elements: [...baseElements, { group: 'nodes', data: { id: 'p2', parent: 'cl', kind: 'pod' } }] });
+
+    expect(order[0]).toBe('expandAll');
+    expect(order).toContain('collapse');
+    expect(order.indexOf('expandAll')).toBeLessThan(order.indexOf('collapse'));
+    expect(states[0]).toBe(true);
+    expect(suppressRef.current).toBe(false);
+    expect(onCollapsedChange).not.toHaveBeenCalled();
+    cy.destroy();
+  });
+
+  it('collapses exactly the reconciled parents, even when ids contain CSS-special chars', () => {
+    const slashElements: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'cluster/demo', isCluster: true } },
+      { group: 'nodes', data: { id: 'demo/p1', parent: 'cluster/demo', kind: 'pod' } },
+    ];
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: slashElements });
+    const collapseArgIds: string[][] = [];
+    const api = {
+      expandAll: jest.fn(),
+      collapse: jest.fn((eles: cytoscape.NodeCollection) => {
+        collapseArgIds.push(eles.map((n) => n.id()));
+      }),
+    } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cluster/demo']) } as MutableRefObject<ReadonlySet<string>>;
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+        }),
+      { initialProps: { elements: slashElements } }
+    );
+    result.current.cyRef.current = cy;
+    rerender({
+      elements: [...slashElements, { group: 'nodes', data: { id: 'demo/p2', parent: 'cluster/demo', kind: 'pod' } }],
+    });
+    expect(collapseArgIds.at(-1)).toEqual(['cluster/demo']);
+    cy.destroy();
+  });
+
+  it('prunes removed parents and reports the shrunken Set', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl', 'ghost']) } as MutableRefObject<ReadonlySet<string>>;
+    const onCollapsedChange = jest.fn();
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange,
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+    rerender({ elements: [...baseElements, { group: 'nodes', data: { id: 'p2', parent: 'cl', kind: 'pod' } }] });
+    expect(onCollapsedChange).toHaveBeenCalledWith(new Set(['cl']));
+    cy.destroy();
   });
 });

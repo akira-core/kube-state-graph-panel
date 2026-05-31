@@ -1,18 +1,25 @@
 import cytoscape from 'cytoscape';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 
 import { diffElements } from '../sync/diffElements';
+import { reconcileCollapse } from '../sync/reconcileCollapse';
 
 export type CyStylesheet = cytoscape.StylesheetStyle | cytoscape.StylesheetCSS;
 
 export interface UseCytoscapeProps {
   elements: cytoscape.ElementDefinition[];
   stylesheet: CyStylesheet[];
+  // Optional collapse integration (injected by GraphCanvas). When all undefined,
+  // the diff-patch effect behaves exactly as before (backward compatible).
+  apiRef?: MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+  collapsedIdsRef?: MutableRefObject<ReadonlySet<string>>;
+  suppressRef?: MutableRefObject<boolean>;
+  onCollapsedChange?: (next: Set<string>) => void;
 }
 
 export interface UseCytoscapeReturn {
-  containerRef: React.MutableRefObject<HTMLDivElement | null>;
-  cyRef: React.MutableRefObject<cytoscape.Core | null>;
+  containerRef: MutableRefObject<HTMLDivElement | null>;
+  cyRef: MutableRefObject<cytoscape.Core | null>;
   // Flips to true once the instance exists. cyRef is a ref (no re-render on set),
   // so a child effect that binds cy listeners (e.g. hover) would run before the
   // instance is created — children's effects fire before the parent's init
@@ -24,7 +31,14 @@ export interface UseCytoscapeReturn {
 // useGraphLayout is the single source of layout execution.
 const INIT_LAYOUT: cytoscape.LayoutOptions = { name: 'preset' };
 
-export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCytoscapeReturn {
+export function useCytoscape({
+  elements,
+  stylesheet,
+  apiRef,
+  collapsedIdsRef,
+  suppressRef,
+  onCollapsedChange,
+}: UseCytoscapeProps): UseCytoscapeReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -53,32 +67,61 @@ export function useCytoscape({ elements, stylesheet }: UseCytoscapeProps): UseCy
     // oxlint-disable-next-line react-doctor/exhaustive-deps -- single-shot init; subsequent updates handled by other effects
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- single-shot init; subsequent updates handled by other effects
 
-  // Elements diff-and-patch
+  // Elements diff-and-patch (collapse-aware when refs are injected).
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {
       return;
     }
+    const api = apiRef?.current ?? null;
+
+    // 1) Restore the real (fully expanded) graph so the diff compares against the
+    //    true topology, not the collapsed view. No api / no collapse → no-op.
+    if (api) {
+      if (suppressRef) {
+        suppressRef.current = true;
+      }
+      api.expandAll();
+    }
+
+    // 2) Diff real-vs-incoming and patch (remove → add → update), as before.
     const current = cy.elements().jsons() as cytoscape.ElementDefinition[];
     const diff = diffElements(current, elements);
-    if (diff.toAdd.length === 0 && diff.toRemove.length === 0 && diff.toUpdate.length === 0) {
-      return;
-    }
-    cy.batch(() => {
-      if (diff.toRemove.length > 0) {
-        cy.remove(diff.toRemove.map((id) => `#${id}`).join(', '));
-      }
-      if (diff.toAdd.length > 0) {
-        cy.add(diff.toAdd);
-      }
-      for (const el of diff.toUpdate) {
-        const target = cy.getElementById(el.data.id ?? '');
-        if (target.length > 0) {
-          target.data(el.data);
+    if (diff.toAdd.length > 0 || diff.toRemove.length > 0 || diff.toUpdate.length > 0) {
+      cy.batch(() => {
+        if (diff.toRemove.length > 0) {
+          cy.remove(diff.toRemove.map((id) => `#${id}`).join(', '));
         }
+        if (diff.toAdd.length > 0) {
+          cy.add(diff.toAdd);
+        }
+        for (const el of diff.toUpdate) {
+          const target = cy.getElementById(el.data.id ?? '');
+          if (target.length > 0) {
+            target.data(el.data);
+          }
+        }
+      });
+    }
+
+    // 3) Re-apply collapse to the parents that still exist after the patch.
+    if (api) {
+      const present = new Set(cy.nodes(':parent').map((n) => n.id()));
+      const desired = collapsedIdsRef?.current ?? new Set<string>();
+      const recollapse = reconcileCollapse(desired, present);
+      if (recollapse.length > 0) {
+        const recollapseSet = new Set(recollapse);
+        api.collapse(cy.nodes().filter((n) => recollapseSet.has(n.id())));
       }
-    });
-  }, [elements]);
+      if (suppressRef) {
+        suppressRef.current = false;
+      }
+      // 4) Prune: parents removed by this update drop out of the reported set.
+      if (recollapse.length !== desired.size) {
+        onCollapsedChange?.(new Set(recollapse));
+      }
+    }
+  }, [elements]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable; deps intentionally stay [elements] to keep a single update cycle
 
   // Stylesheet swap (no instance rebuild)
   useEffect(() => {
