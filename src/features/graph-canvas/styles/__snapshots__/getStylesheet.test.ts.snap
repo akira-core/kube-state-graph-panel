@@ -58,6 +58,30 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node[kind="pod"][status="normal"], node[kind="node"][status="normal"], node[kind="pvc"][status="normal"]",
+    "style": {
+      "border-color": "#73BF69",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[kind="pod"][status="warning"], node[kind="node"][status="warning"], node[kind="pvc"][status="warning"]",
+    "style": {
+      "border-color": "#F2CC0C",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[kind="pod"][status="critical"], node[kind="node"][status="critical"], node[kind="pvc"][status="critical"]",
+    "style": {
+      "border-color": "#E02F44",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
     "selector": "node:selected",
     "style": {
       "border-color": "#3d71d9",

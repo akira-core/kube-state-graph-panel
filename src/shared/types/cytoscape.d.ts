@@ -1,10 +1,11 @@
 import 'cytoscape';
 
-import type { NodeKind, EdgeType } from '../constants/types';
+import type { NodeKind, EdgeType, NodeStatus } from '../constants/types';
 
 declare module 'cytoscape' {
   interface NodeDataDefinition {
     kind?: NodeKind; // mapped from upstream data.type
+    status?: NodeStatus; // mapped from upstream data.status; normalize defaults to 'normal'
     namespace?: string; // extracted from upstream data.labels.namespace
     ipAddress?: string[]; // mapped from upstream data.ipaddress (moved out of labels in 524057b)
     labels?: Record<string, string>;

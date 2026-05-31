@@ -11,7 +11,7 @@ const edge = (
   id: string,
   source: string,
   target: string,
-  extra: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {}
 ): cytoscape.ElementDefinition => ({
   group: 'edges',
   data: { id, source, target, ...extra },

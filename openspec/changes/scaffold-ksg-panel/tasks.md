@@ -156,3 +156,17 @@
 - [x] 19.7 `HoverTooltip`:新增 `ipAddress` row(逗號串接);更新測試
 - [x] 19.8 demo 對齊:`ksg-demo.json` 的 `visibleKinds`/`visibleEdgeTypes` 改為新列舉、query url `/api/graph` → `/v1/graph`;`KsgPanel.types.ts` / `KsgPanel.editor.tsx` defaults 同步
 - [x] 19.9 驗證:typecheck + lint + test:ci 全綠,並以後端 golden fixture 確認 normalize 產出正確 elements(final green run pending)
+
+## 20. Status 外框與 Node Detail 浮層
+
+> 延伸功能(設計:`docs/superpowers/specs/2026-05-31-ksg-status-border-node-detail-design.md`)。Status 依 `data.status` 對 pod/node/pvc 上紅黃綠外框(缺值/非法預設 normal=綠);點節點於 canvas 底部浮出 detail 浮層(`Alert Name` / `Alert Content` 空骨架),點背景/邊/關閉鈕關閉,且 cy 藍框與面板同步。
+
+- [x] 20.1 `shared/constants/types.ts` 新增 `NodeStatus`;新檔 `colorByStatus.ts`(`STATUS_COLOR`/`FALLBACK_STATUS`/`STATUS_BORDER_KINDS`)+ 測試;`shared/types/cytoscape.d.ts` 加 `status?`;`shared/constants/index.ts` re-export
+- [x] 20.2 `graph-data/normalize.ts`:非 cluster node 帶 `status`(缺值/非法→normal),cluster 不帶;`normalize.test.ts` 補 status case
+- [x] 20.3 `graph-canvas/styles/getStylesheet.ts`:於 `node:parent`/`node[?isCluster]` 後、`node:selected` 前插入 pod/node/pvc × status 外框選擇器(border-width 3 / border-opacity 1);更新 snapshot + 排序斷言測試
+- [x] 20.4 新 `legend/components/StatusLegend`(三色 swatch)+ 測試;legend barrel export;`KsgPanel` 於 legendArea 渲染
+- [x] 20.5 新 feature `features/node-detail/`:`NodeDetailPanel`(底部浮層,標題列 name+kind+status+close,`Alert Name`/`Alert Content` 空區段)+ 測試 + barrel
+- [x] 20.6 `graph-canvas/components/GraphCanvas`:新增受控 `selectedId` + `selectSingle` helper(單選同步藍框)+ 測試;`GraphCanvas.types` 加 prop
+- [x] 20.7 `KsgPanel`:`selectedNodeId` state、由 elements 解析 selectedNode、傳 onSelect/selectedId、渲染 NodeDetailPanel;`KsgPanel.test.tsx` 補選取→開啟→關閉
+- [x] 20.8 驗證:typecheck + lint(0 warning)+ test:ci + build 全綠
+- [ ] 20.9 demo/backend `data.status` 確認(後端未送則 demo 全綠,屬已知限制)

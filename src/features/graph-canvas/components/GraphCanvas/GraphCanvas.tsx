@@ -10,6 +10,7 @@ import { useGraphLayout } from '../../hooks/useGraphLayout';
 import { useGraphResize } from '../../hooks/useGraphResize';
 
 import type { GraphCanvasProps } from './GraphCanvas.types';
+import { selectSingle } from './selectSingle';
 
 function getStyles(): { root: string; canvas: string } {
   return {
@@ -27,7 +28,7 @@ function getStyles(): { root: string; canvas: string } {
 }
 
 export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Element {
-  const { elements, stylesheet, layout, visibleKinds, visibleEdgeTypes, onSelect } = props;
+  const { elements, stylesheet, layout, visibleKinds, visibleEdgeTypes, onSelect, selectedId } = props;
   const styles = useStyles2(getStyles);
 
   const { containerRef, cyRef, isReady } = useCytoscape({
@@ -64,6 +65,17 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     };
     // isReady gates binding until the instance exists (see useCytoscape).
   }, [cyRef, onSelect, isReady]);
+
+  // Controlled selection sync: mirror selectedId into cytoscape's single
+  // selection so the blue highlight tracks the detail panel (tap / X / background).
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (cy === null) {
+      return;
+    }
+    selectSingle(cy, selectedId ?? null);
+    // isReady re-runs this once the instance exists (cyRef is a stable ref).
+  }, [cyRef, selectedId, isReady]);
 
   return (
     <div className={styles.root} data-testid="graph-canvas-root">

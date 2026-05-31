@@ -2,6 +2,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
 import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
+import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { FALLBACK_SHAPE, SHAPE_BY_KIND, type CytoscapeNodeShape } from '../../../shared/constants/shapeByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import type { CyStylesheet } from '../hooks/useCytoscape';
@@ -48,6 +49,15 @@ export function getStylesheet({
   const bgColor = colors.background.secondary;
   const borderColor = colors.border.medium;
   const selectedColor = colors.primary.main;
+
+  // Status border for managed leaf kinds (pod/node/pvc). Spread (below) between
+  // the container selectors and node:selected so it overrides the neutral
+  // node:parent border (a K8s node is itself a compound parent) yet still yields
+  // to the selection highlight. Colours come from STATUS_COLOR (single source).
+  const statusSelectors: CyStylesheet[] = Object.entries(STATUS_COLOR).map(([status, color]) => ({
+    selector: STATUS_BORDER_KINDS.map((kind) => `node[kind="${kind}"][status="${status}"]`).join(', '),
+    style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
+  }));
 
   const stylesheet: CyStylesheet[] = [
     {
@@ -115,6 +125,7 @@ export function getStylesheet({
         events: 'no',
       },
     },
+    ...statusSelectors,
     {
       // Declared AFTER the container selectors so the selection highlight wins
       // for selected leaf nodes AND node containers (clusters are events:'no').

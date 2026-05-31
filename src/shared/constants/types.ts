@@ -14,3 +14,8 @@ export type EdgeType = 'pod-runs-on-node' | 'pod-mounts-pvc' | 'pod-calls-pod' |
 // the filter, and the stylesheet. It remains in `EdgeType` because it is still a
 // valid wire value (the Grafana Node Graph format retains it).
 export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
+
+// Health status carried on leaf nodes (upstream data.status). Drives the status
+// border colour (pod/node/pvc) and the detail panel badge. Absent/unknown values
+// are normalised to 'normal'.
+export type NodeStatus = 'normal' | 'warning' | 'critical';

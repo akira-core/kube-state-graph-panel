@@ -33,10 +33,7 @@ function shallowEqualData(a: cytoscape.ElementDataDefinition, b: cytoscape.Eleme
   return true;
 }
 
-export function diffElements(
-  current: cytoscape.ElementDefinition[],
-  next: cytoscape.ElementDefinition[],
-): ElementDiff {
+export function diffElements(current: cytoscape.ElementDefinition[], next: cytoscape.ElementDefinition[]): ElementDiff {
   const currentById = new Map<string, cytoscape.ElementDefinition>();
   for (const el of current) {
     const id = elementId(el);

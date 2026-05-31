@@ -1,7 +1,8 @@
 import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
-import type { EdgeType, NodeKind } from '../../shared/constants/types';
+import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
+import type { EdgeType, NodeKind, NodeStatus } from '../../shared/constants/types';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -30,6 +31,10 @@ function isStringRecord(v: unknown): v is Record<string, string> {
 
 function isNonEmptyStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string');
+}
+
+function isNodeStatus(v: unknown): v is NodeStatus {
+  return v === 'normal' || v === 'warning' || v === 'critical';
 }
 
 // Upstream entries are cytoscape-shaped ({ data: {...} }); tolerate flat objects too.
@@ -96,7 +101,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     // every other node carries its kind. One branch, one place.
     const identity = isCluster
       ? { isCluster: true, cluster: label, clusterColor: colorForCluster(label) }
-      : { kind: d.type as NodeKind };
+      : { kind: d.type as NodeKind, status: isNodeStatus(d.status) ? d.status : FALLBACK_STATUS };
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',

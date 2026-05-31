@@ -11,4 +11,7 @@ export interface GraphCanvasProps {
   visibleKinds: NodeKind[];
   visibleEdgeTypes: EdgeType[];
   onSelect?: (nodeId: string | null) => void;
+  // Controlled selection: keeps cytoscape's single selection in sync (blue
+  // highlight) with the detail panel. null/undefined clears the selection.
+  selectedId?: string | null;
 }

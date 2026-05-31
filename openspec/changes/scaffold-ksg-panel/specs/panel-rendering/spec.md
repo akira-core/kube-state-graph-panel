@@ -221,3 +221,40 @@ Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —�
 
 - **WHEN** datasource query 失敗
 - **THEN** Panel 顯示 `@grafana/ui` 風格的錯誤 banner,內含錯誤訊息與重試提示,不顯示破損的 cytoscape canvas
+
+### Requirement: Status 外框
+
+Panel SHALL 依節點 `data.status` 對 `pod` / `node` / `pvc` 渲染狀態外框,顏色取自單一資料源 `STATUS_COLOR`(`normal`→綠、`warning`→黃、`critical`→紅),缺值或非法值正規化為 `normal`。其餘 node kind 維持主題中性外框,但仍攜帶 `status` 供 detail 面板使用。Legend MUST 顯示三色 status 說明(`StatusLegend`)。
+
+#### Scenario: 依 status 顯示外框
+
+- **WHEN** 一個 `pod` / `node` / `pvc` 節點帶有 `data.status`
+- **THEN** 該節點以對應 `STATUS_COLOR` 顏色渲染外框
+- **WHEN** `status` 缺值或不在列舉中
+- **THEN** 一律以 `normal`(綠)渲染
+
+#### Scenario: 外框不影響選取與容器
+
+- **WHEN** 節點被選取
+- **THEN** 選取高亮(`node:selected`)覆蓋 status 外框
+- **AND** 身為 compound parent 的 K8s `node` 仍顯示 status 外框(選擇器排序覆蓋 `node:parent`)
+
+### Requirement: Node Detail 面板
+
+Panel SHALL 在點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,顯示節點 name、kind、status 三項,以及 `Alert Name` / `Alert Content` 兩個預留空區段;並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。cluster 容器不可點選。
+
+#### Scenario: 點節點開啟面板
+
+- **WHEN** 使用者點擊任一節點
+- **THEN** 底部浮層顯示該節點 label、kind badge、status badge,覆蓋於 graph 之上且不改變 graph 尺寸
+- **AND** 該節點的選取高亮與開啟的面板同步
+
+#### Scenario: 點外面或關閉鈕關閉
+
+- **WHEN** 使用者點擊 graph 背景或邊,或按下關閉鈕
+- **THEN** detail 面板關閉,且選取高亮清除
+
+#### Scenario: 切換節點
+
+- **WHEN** 面板開啟時使用者點擊另一個節點
+- **THEN** 面板切換為新點擊的節點
