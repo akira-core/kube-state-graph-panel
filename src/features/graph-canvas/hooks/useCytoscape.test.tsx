@@ -221,4 +221,66 @@ describe('useCytoscape collapse-aware diff-patch', () => {
     expect(onCollapsedChange).toHaveBeenCalledWith(new Set(['cl']));
     cy.destroy();
   });
+
+  it('applies collapse on collapseKey change with UNCHANGED elements (legend toggle fix)', () => {
+    // Proves the bug fix: a collapseKey bump (collapsed-set content change) triggers
+    // the diff-patch effect even when elements are identical, so legend toggles are
+    // applied immediately rather than waiting for the next data refresh.
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const collapseArgIds: string[][] = [];
+    const expandAllCalls: number[] = [];
+    let callIndex = 0;
+    const api = {
+      expandAll: jest.fn(() => {
+        expandAllCalls.push(callIndex++);
+      }),
+      collapse: jest.fn((eles: cytoscape.NodeCollection) => {
+        collapseArgIds.push(eles.map((n) => n.id()));
+      }),
+    } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set<string>() } as MutableRefObject<ReadonlySet<string>>;
+    const suppressRef = { current: false };
+
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[]; collapseKey: number }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef,
+          onCollapsedChange: jest.fn(),
+          collapseKey: props.collapseKey,
+        }),
+      { initialProps: { elements: baseElements, collapseKey: 0 } }
+    );
+    result.current.cyRef.current = cy;
+
+    // --- Collapse case: set desired={"cl"}, bump key (elements unchanged) ---
+    collapsedIdsRef.current = new Set(['cl']);
+    rerender({ elements: baseElements, collapseKey: 1 });
+
+    // expandAll must have been called (restores graph before diff)
+    expect(expandAllCalls.length).toBeGreaterThanOrEqual(1);
+    // collapse must have been called and include 'cl'
+    expect(collapseArgIds.length).toBeGreaterThanOrEqual(1);
+    const lastCollapseIds = collapseArgIds.at(-1) ?? [];
+    expect(lastCollapseIds).toContain('cl');
+
+    // --- Expand case: clear desired set, bump key again (elements still unchanged) ---
+    const collapseCallsBefore = collapseArgIds.length;
+    collapsedIdsRef.current = new Set<string>();
+    rerender({ elements: baseElements, collapseKey: 2 });
+
+    // expandAll called again (restores the collapsed graph)
+    expect(expandAllCalls.length).toBeGreaterThan(1);
+    // collapse should NOT have been called with 'cl' on this rerender
+    // (desired set is empty → reconcileCollapse returns [] → api.collapse not invoked)
+    const newCalls = collapseArgIds.slice(collapseCallsBefore);
+    const recollapseWithCl = newCalls.some((ids) => ids.includes('cl'));
+    expect(recollapseWithCl).toBe(false);
+
+    cy.destroy();
+  });
 });

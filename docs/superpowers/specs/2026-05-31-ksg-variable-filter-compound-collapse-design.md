@@ -195,7 +195,7 @@ KsgPanel.collapsedIds(Set<string>)
 
 **機制**:**element diff 永遠對「完全展開的真實圖」進行,收合在 patch 後立即重套**,且全程在 `useCytoscape` **既有的單一** diff-patch effect 內完成(維持單一更新週期)。把該 effect 改為 **collapse-aware**,由 GraphCanvas 注入選配 ref(`apiRef`/`collapsedIdsRef`/`suppressRef`);**未注入時與現況完全相同**(向後相容)。
 
-修訂後 diff-patch effect(pseudocode,取代 `useCytoscape.ts:57–81` 內容、deps **仍 `[elements]`**):
+修訂後 diff-patch effect(pseudocode,取代 `useCytoscape.ts:57–81` 內容、deps **`[elements, collapseKey]`**):
 
 ```ts
 const cy = cyRef.current;
@@ -232,6 +232,7 @@ if (api) {
 - **ref 歸屬**:`apiRef`/`suppressRef` 由 GraphCanvas 建立,同時傳給 `useExpandCollapse`(寫 api)與 `useCytoscape`(讀)。`collapsedIdsRef` 鏡像 `collapsedIds`,避免把它放進 diff-patch deps 造成多餘重跑。
 - **無 race(首次掛載)**:elements 經 constructor 帶入 → 首次 diff 空、尚無收合;`useExpandCollapse`(deps `[cyRef,isReady]`)在 `isReady` 翻 true 後設 `apiRef`;其後 elements 變動時 apiRef 已就緒。
 - **`expandAll()` 安全性**:無收合時為 no-op(已查證 api 語意),呼叫無副作用。
+- **`collapseKey` 修正(legend toggle bug fix)**:effect deps 實際為 `[elements, collapseKey]`,其中 `collapseKey` 由 GraphCanvas 以 `runToken`(= `useCollapseRunToken` 的輸出,僅在 `collapsedIds` **內容**改變時 bump)傳入。如此當 legend toggle 更新 `collapsedIds`(但 `elements` 不變)時,同一個 expandAll → diff → reconcile → collapse 週期仍會執行 → 收合立即生效,不必等下次資料 refresh。no-collapse path 不傳 `collapseKey`(undefined)→ deps 實質為 `[elements, undefined]`,行為與修正前完全相同。GraphCanvas 中 `useCytoscape` 在 `useGraphLayout` 之前呼叫,故 collapse 套用(useCytoscape effect)先於 relayout(useGraphLayout effect)在同一 commit 內執行。
 
 **純函式(可單測)**:
 
@@ -250,6 +251,7 @@ export function reconcileCollapse(desired: ReadonlySet<string>, presentParents: 
 - 收合/展開改變節點數與尺寸 → 需重排,但**不可**在收合處直接呼叫 `cy.layout()`。
 - `useGraphLayout` 增 `runToken: number` 輸入,其唯一 layout effect deps `[cyRef, name, runToken]`,token 改變即重跑當前 layout ⇒ **`useGraphLayout` 仍是唯一呼叫 `cy.layout()` 處**。
 - **bump 條件**:僅在 `collapsedIds` **內容**改變時 bump(以 size + 排序後 join 的等值比較判定,避免 ref 變動造成多餘重排);**mount 不額外 bump**(避免 double-layout —— init 仍 `preset`,首跑由既有 mount 邏輯負責)。
+- **`runToken` / `collapseKey` 共用信號**:`runToken`(由 `useCollapseRunToken` 產生)同時作為 `collapseKey`(傳入 `useCytoscape`)與 `runToken`(傳入 `useGraphLayout`)。GraphCanvas 內的 hook 呼叫順序:①`useCytoscape`(collapse 套用)→②`useGraphLayout`(relayout)— 因此在同一 React commit 內,collapse 先完成、layout 再對「已收合的圖」執行,確保 layout 正確計算收合後的尺寸與位置。
 
 ### 5.6 與 element-filter 的整合
 

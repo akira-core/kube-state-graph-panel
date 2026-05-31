@@ -15,6 +15,11 @@ export interface UseCytoscapeProps {
   collapsedIdsRef?: MutableRefObject<ReadonlySet<string>>;
   suppressRef?: MutableRefObject<boolean>;
   onCollapsedChange?: (next: Set<string>) => void;
+  // Bumped by GraphCanvas when the collapsed-set CONTENT changes, so the
+  // diff-patch effect re-applies collapse without waiting for a data refresh.
+  // This keeps api.collapse calls in a single place (one update cycle).
+  // When undefined (no-collapse path), the effect deps are effectively [elements].
+  collapseKey?: number;
 }
 
 export interface UseCytoscapeReturn {
@@ -38,6 +43,7 @@ export function useCytoscape({
   collapsedIdsRef,
   suppressRef,
   onCollapsedChange,
+  collapseKey,
 }: UseCytoscapeProps): UseCytoscapeReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -121,7 +127,7 @@ export function useCytoscape({
         onCollapsedChange?.(new Set(recollapse));
       }
     }
-  }, [elements]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable; deps intentionally stay [elements] to keep a single update cycle
+  }, [elements, collapseKey]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable; deps are [elements, collapseKey]: collapseKey (undefined on no-collapse path) re-runs the same expandAll→diff→reconcile→collapse cycle when the collapsed-set changes without a data refresh, keeping api.collapse in one place
 
   // Stylesheet swap (no instance rebuild)
   useEffect(() => {

@@ -85,7 +85,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   const { containerRef, cyRef, isReady } = useCytoscape({
     elements,
     stylesheet,
-    ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange } : {}),
+    ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: runToken } : {}),
   });
 
   useGraphLayout({ cyRef, name: layout, runToken });
