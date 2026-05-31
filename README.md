@@ -6,14 +6,14 @@ Grafana panel plugin that visualizes Kubernetes resource topology (Pods, Service
 
 - Node 22+
 - Docker (with Compose v2)
-- A reachable Kubernetes cluster (for backend to read real data). Set `KUBECONFIG_PATH` env var if your kubeconfig isn't at `./dev/kubeconfig`.
+- No real Kubernetes cluster needed — the demo is fully self-contained. The `v0.0.14` backend derives the graph from PromQL over a seeded VictoriaMetrics (the `ksg-seeder` service pushes a synthetic fixture), all brought up by `docker compose`.
 
 ## Quick Start
 
 ```bash
 npm install
 npm run dev               # webpack watch, outputs to dist/
-docker compose up -d      # starts grafana + kube-state-graph backend
+docker compose up -d      # grafana + kube-state-graph backend + victoriametrics + seeder
 # Open http://localhost:3000 (default Grafana login)
 ```
 
@@ -32,8 +32,9 @@ Feature-first layout under `src/`:
 - `src/features/graph-data/` — Infinity datasource integration + normalize boundary
 - `src/features/legend/` — node/edge legend
 - `src/features/theme/` — Grafana theme → cytoscape stylesheet adapter
-- `src/features/hover-tooltip/` — hover tooltip (planned)
-- `src/features/element-filter/` — node-kind / edge-type filter (planned)
+- `src/features/hover-tooltip/` — right-corner hover tooltip
+- `src/features/element-filter/` — node-kind / edge-type visibility filter
+- `src/features/node-detail/` — bottom node-detail panel (click to open)
 - `src/shared/` — cross-feature primitives, constants, types
 
 Decisions captured in `openspec/changes/scaffold-ksg-panel/design.md`.
@@ -49,14 +50,14 @@ npm run e2e            # playwright (requires grafana + plugin running)
 npm run format         # prettier --write
 ```
 
-`husky` installs git hooks: `pre-commit` runs `lint-staged`, `pre-push` runs `lint` + `typecheck` + `test:ci`.
+Git hooks are version-controlled under `.githooks/` and enabled automatically by the `prepare` npm script (which points `core.hooksPath` at `.githooks/`): `pre-commit` runs `lint-staged`, `pre-push` runs `lint` + `typecheck` + `test:ci`.
 
 ## Troubleshooting
 
 - **Unsigned plugin warning in Grafana**: ensure `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=marz32one-ksg-panel` is set (already in `docker-compose.yaml`).
 - **Port 3000 / 8080 collision**: stop other services or override `GF_SERVER_HTTP_PORT` / backend port mapping.
-- **Backend cannot reach cluster**: confirm `KUBECONFIG_PATH` points to a valid kubeconfig readable by the backend container. Verify with `docker compose logs kube-state-graph`.
-- **Panel shows "No data"**: backend is reachable but returned empty payload — check kubeconfig context selects the right cluster and that workloads exist in observed namespaces.
+- **Backend returns errors / empty graph**: check `docker compose logs kube-state-graph` and `docker compose logs victoriametrics`; the `ksg-seeder` service must be running and pushing fixtures for the topology to appear.
+- **Panel shows "No data"**: backend returned an empty payload — confirm the dashboard time range covers the seeded window and that `ksg-seeder` is up (`docker compose ps`).
 
 ## Specs & Change Log
 
