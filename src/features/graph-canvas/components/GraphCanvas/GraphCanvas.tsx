@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
 import { useStyles2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { useElementFilter } from '../../../element-filter';
 import { HoverTooltip } from '../../../hover-tooltip';
 import { useCytoscape } from '../../hooks/useCytoscape';
+import { useExpandCollapse } from '../../hooks/useExpandCollapse';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
 import { useGraphResize } from '../../hooks/useGraphResize';
 
@@ -27,18 +28,81 @@ function getStyles(): { root: string; canvas: string } {
   };
 }
 
+function noop(): void {
+  // No-op collapsed-change sink for the backward-compatible (no-collapse) path.
+}
+
+// A stable numeric token that increments only when the collapsed-id set CONTENT
+// changes (size + sorted membership), so useGraphLayout reruns once per real
+// collapse change rather than on every parent render.
+//
+// Uses the React render-phase state update idiom (equivalent to the old
+// getDerivedStateFromProps): calling setState during render is permitted and
+// tells React to re-render once immediately with the updated state, preventing
+// stale renders. This avoids both ref.current reads during render
+// (react-hooks/refs) and setState calls inside useEffect bodies
+// (react-hooks/set-state-in-effect).
+function useCollapseRunToken(collapsedIds: Set<string> | undefined): number {
+  const key = collapsedIds === undefined ? '' : [...collapsedIds].sort().join('|');
+  const [stored, setStored] = useState<{ key: string; token: number }>({ key: '', token: 0 });
+  if (key !== stored.key) {
+    const next = { key, token: stored.token + 1 };
+    setStored(next);
+    return next.token;
+  }
+  return stored.token;
+}
+
 export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Element {
-  const { elements, stylesheet, layout, visibleKinds, visibleEdgeTypes, onSelect, selectedId } = props;
+  const {
+    elements,
+    stylesheet,
+    layout,
+    visibleKinds,
+    visibleEdgeTypes,
+    onSelect,
+    selectedId,
+    collapsedIds,
+    onCollapsedChange,
+  } = props;
   const styles = useStyles2(getStyles);
+
+  // GraphCanvas owns the expand-collapse refs so useExpandCollapse (writer) and
+  // useCytoscape's diff-patch (reader) share one api/guard/desired-set.
+  const apiRef = useRef<cytoscape.ExpandCollapseApi | null>(null);
+  const suppressRef = useRef(false);
+  const collapsedIdsRef = useRef<ReadonlySet<string>>(collapsedIds ?? new Set());
+  useEffect(() => {
+    collapsedIdsRef.current = collapsedIds ?? new Set();
+  }, [collapsedIds]);
+
+  // runToken bumps only when collapsed-id CONTENT changes, so layout reruns once
+  // per real collapse change (not on every render). Equality by size + sorted join.
+  const runToken = useCollapseRunToken(collapsedIds);
+
+  const collapseEnabled = onCollapsedChange !== undefined;
 
   const { containerRef, cyRef, isReady } = useCytoscape({
     elements,
     stylesheet,
+    ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange } : {}),
   });
 
-  useGraphLayout({ cyRef, name: layout });
+  useGraphLayout({ cyRef, name: layout, runToken });
   useGraphResize({ cyRef, containerRef });
   useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes });
+  useExpandCollapse({
+    cyRef,
+    // Gate: only init the extension when collapse is wired. On the no-collapse
+    // path this stays false so the effect early-returns and never calls the
+    // (potentially unregistered) cy.expandCollapse.
+    enabled: collapseEnabled,
+    isReady,
+    apiRef,
+    collapsedIdsRef,
+    suppressRef,
+    onCollapsedChange: onCollapsedChange ?? noop,
+  });
 
   useEffect(() => {
     const cy = cyRef.current;
