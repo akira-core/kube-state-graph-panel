@@ -30,7 +30,7 @@ npx jest src/features/element-filter/computeVisibility.test.ts
 npx jest -t 'edge auto-hides'   # by test name
 ```
 
-Git hooks (Husky): `pre-commit` runs `lint-staged` (eslint --fix + prettier --write on staged files); `pre-push` runs `lint && typecheck && test:ci`.
+Git hooks: version-controlled scripts under `.githooks/`. `pre-commit` runs `lint-staged` (eslint --fix + prettier --write on staged files); `pre-push` runs `lint && typecheck && test:ci`. They are enabled automatically — the `prepare` npm script points `core.hooksPath` at `.githooks/` on `npm install` — or manually via `npm run init-hooks`. Bypass ad hoc with `git commit/push --no-verify`.
 
 CI: single GitHub Actions job (`.github/workflows/ci.yml`) runs typecheck → lint → test:ci → build → optional sign → plugin-validator → artifact upload. **No E2E in CI** (developer-triggered locally).
 
