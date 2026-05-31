@@ -29,4 +29,29 @@ declare module 'cytoscape' {
       events?: 'yes' | 'no';
     }
   }
+
+  // cytoscape-expand-collapse: Core augmentation (expandCollapse method) is the
+  // panel's extension API surface. The module stub lives in cytoscape-extensions.d.ts.
+  interface ExpandCollapseOptions {
+    layoutBy: cytoscape.LayoutOptions | null;
+    fisheye: boolean;
+    animate: boolean;
+    undoable: boolean;
+    cueEnabled: boolean;
+  }
+
+  interface ExpandCollapseApi {
+    collapse(nodes: cytoscape.NodeCollection): void;
+    expand(nodes: cytoscape.NodeCollection): void;
+    collapseAll(): void;
+    expandAll(): void;
+    isExpandable(node: cytoscape.NodeSingular): boolean;
+    isCollapsible(node: cytoscape.NodeSingular): boolean;
+    getCollapsedChildren(node: cytoscape.NodeSingular): cytoscape.NodeCollection;
+    getCollapsedChildrenRecursively(node: cytoscape.NodeSingular): cytoscape.NodeCollection;
+  }
+
+  interface Core {
+    expandCollapse(options: Partial<ExpandCollapseOptions>): ExpandCollapseApi;
+  }
 }
