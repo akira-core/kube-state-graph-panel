@@ -16,12 +16,15 @@ export type CytoscapeNodeShape =
 // Single source of truth: keyed by upstream node `data.type`.
 // stylesheet, legend, and the element filter's KNOWN_KINDS all derive from this.
 // Shapes are chosen to be mutually distinct at small sizes — no two many-sided
-// polygons that read alike (pentagon=node vs star=external vs diamond=others).
+// polygons that read alike: pod=ellipse / service=hexagon / node=round-rectangle
+// / pvc=pentagon / others=diamond / external=star. node uses round-rectangle so
+// the leaf/collapsed node glyph matches the node:parent container box it becomes
+// when it holds pods (it is itself a compound node).
 export const SHAPE_BY_KIND: Record<NodeKind, CytoscapeNodeShape> = {
   pod: 'ellipse',
-  service: 'round-rectangle',
-  node: 'pentagon',
-  pvc: 'barrel',
+  service: 'hexagon',
+  node: 'round-rectangle',
+  pvc: 'pentagon',
   others: 'diamond',
   external: 'star',
 };

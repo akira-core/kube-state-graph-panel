@@ -53,6 +53,14 @@ describe('getStylesheet', () => {
     }
   });
 
+  it('uses the reconfigured kind shapes (service=hexagon, node=round-rectangle, pvc=pentagon)', () => {
+    const shapeFn = styleFor('node').shape as ShapeFn;
+    expect(shapeFn(fakeEle({ kind: 'service' }))).toBe('hexagon');
+    expect(shapeFn(fakeEle({ kind: 'node' }))).toBe('round-rectangle');
+    expect(shapeFn(fakeEle({ kind: 'pvc' }))).toBe('pentagon');
+    expect(shapeFn(fakeEle({ kind: 'pod' }))).toBe('ellipse');
+  });
+
   it('maps every backend edge type to its color and line style', () => {
     const edgeStyle = styleFor('edge');
     const colorFn = edgeStyle['line-color'] as EdgeFn;
@@ -87,8 +95,8 @@ describe('getStylesheet', () => {
     expect(cy.getElementById('demo/node-a').style('shape')).toBe('round-rectangle');
     // A leaf pod keeps its kind shape.
     expect(cy.getElementById('demo/p1').style('shape')).toBe('ellipse');
-    // A childless node falls through to its kind shape (pentagon), not a box.
-    expect(cy.getElementById('leaf-node').style('shape')).toBe('pentagon');
+    // A childless node falls through to its kind shape (round-rectangle), not a box.
+    expect(cy.getElementById('leaf-node').style('shape')).toBe('round-rectangle');
     // The cluster container gets the translucent backplate opacity (not the
     // generic node:parent 0.05), proving node[?isCluster] wins the cascade.
     expect(Number(cy.getElementById('cluster:demo').style('background-opacity'))).toBeCloseTo(0.07);
