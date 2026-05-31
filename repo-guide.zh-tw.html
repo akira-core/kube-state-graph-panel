@@ -372,14 +372,15 @@
           <a href="#quick-start">2. 快速開始</a>
           <a href="#mental-model">3. 先建立心智模型</a>
           <a href="#architecture">4. 架構與資料流</a>
-          <a href="#react-for-ts">5. React 新手速成</a>
-          <a href="#debug">6. Debug 怎麼跑</a>
-          <a href="#change-and-test">7. 修改後怎麼測</a>
-          <a href="#where-to-change">8. 常見修改位置</a>
-          <a href="#best-practices">9. Best Practices</a>
-          <a href="#testing-map">10. 測試地圖</a>
-          <a href="#troubleshooting">11. 常見問題</a>
-          <a href="#glossary">12. 名詞表</a>
+          <a href="#render-pipeline">5. 渲染管線與 cytoscape 格式</a>
+          <a href="#react-for-ts">6. React 新手速成</a>
+          <a href="#debug">7. Debug 怎麼跑</a>
+          <a href="#change-and-test">8. 修改後怎麼測</a>
+          <a href="#where-to-change">9. 常見修改位置</a>
+          <a href="#best-practices">10. Best Practices</a>
+          <a href="#testing-map">11. 測試地圖</a>
+          <a href="#troubleshooting">12. 常見問題</a>
+          <a href="#glossary">13. 名詞表</a>
         </nav>
       </aside>
 
@@ -407,9 +408,11 @@
             Pod、Service、Node、PVC 與它們之間的關係，渲染成互動式 graph。
           </p>
           <p>
-            這個 repo <strong>只做前端 panel</strong>，不包含 Go backend。真正讀 Kubernetes API 並產生 graph JSON
-            的服務是上游 <code>marz32one/kube-state-graph</code> Docker image。本 panel 透過 Grafana 的 Infinity
-            datasource 呼叫 backend 的 <code>GET /v1/graph</code>，再把回來的 JSON 正規化成 cytoscape elements。
+            這個 repo <strong>只做前端 panel</strong>，不包含 Go backend。產生 graph JSON 的服務是上游
+            <code>marz32one/kube-state-graph</code> Docker image。<strong>v0.0.14 backend 是從 PromQL（一個
+            <code>[start,end]</code> 時間窗）衍生出整張拓撲圖，它<em>不</em>讀 Kubernetes API</strong>；資料實際來自一個
+            Prometheus 相容的 metrics store。本 panel 透過 Grafana 的 Infinity datasource 呼叫 backend 的
+            <code>GET /v1/graph</code>，再把回來的 JSON 正規化成 cytoscape elements。
           </p>
 
           <div class="cards">
@@ -446,8 +449,13 @@
             <li><code>Node 22+</code></li>
             <li><code>npm 11+</code>，目前 <code>package.json</code> 指定 <code>npm@11.13.0</code></li>
             <li>Docker with Compose v2</li>
-            <li>可用的 Kubernetes cluster kubeconfig，若要看真實資料</li>
           </ul>
+          <div class="callout good">
+            <strong>不需要 Kubernetes cluster。</strong>demo 是<strong>完全自包含</strong>的：compose 會起一個
+            VictoriaMetrics 與一個 seeder，把合成的 topology metrics 灌進去餵給 backend。<strong>不需要 kubeconfig，也沒有
+            <code>KUBECONFIG_PATH</code> 這個變數</strong>。要改指向真實資料時，才在 <code>kube-state-graph</code> service
+            上設 <code>KSG_PROM_URL</code> 指到你自己的 VictoriaMetrics，並移除 <code>ksg-seeder</code>。
+          </div>
 
           <h3>第一次安裝</h3>
           <pre><code>npm install</code></pre>
@@ -463,12 +471,42 @@
               </p>
             </article>
             <article class="card">
-              <h4>Terminal B：啟動 Grafana + backend</h4>
-              <pre><code>KUBECONFIG_PATH=$HOME/.kube/config docker compose up -d</code></pre>
+              <h4>Terminal B：啟動整套 demo stack</h4>
+              <pre><code>docker compose up -d</code></pre>
               <p class="muted">
-                如果不設 <code>KUBECONFIG_PATH</code>，compose 會預設掛載 <code>./dev/kubeconfig</code>。
+                不需要任何環境變數或 kubeconfig。一個指令會起 4 個 service（見下表）。
               </p>
             </article>
+          </div>
+
+          <h4><code>docker compose up</code> 起了哪 4 個 service？</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>角色</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>grafana</code></td>
+                  <td>掛載 <code>dist/</code> 載入本 panel，並 provision <code>KSG Demo</code> dashboard 與 Infinity datasource。</td>
+                </tr>
+                <tr>
+                  <td><code>kube-state-graph</code>（<code>ksg-backend</code>）</td>
+                  <td>v0.0.14 backend；<code>KSG_PROM_URL</code> 指向 VictoriaMetrics。</td>
+                </tr>
+                <tr>
+                  <td><code>victoriametrics</code></td>
+                  <td>backend 的拓撲資料來源（PromQL）。</td>
+                </tr>
+                <tr>
+                  <td><code>ksg-seeder</code></td>
+                  <td>每隔 <code>SEED_INTERVAL</code> 秒重新 push 合成 fixture（含遞增的 service-graph counter），讓 <code>last_over_time(...)</code> 與 <code>rate(...)</code> 維持新鮮。</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <h3>打開 Grafana</h3>
@@ -492,7 +530,8 @@
             <div class="flow-step">
               <strong>1. Backend 回傳 JSON</strong>
               <br />
-              <code>kube-state-graph</code> 從 Kubernetes API 建出 <code>{ elements: { nodes, edges } }</code>。
+              <code>kube-state-graph</code> 從 PromQL（一個 <code>[start,end]</code> 時間窗）衍生出
+              <code>{ elements: { nodes, edges } }</code>，<strong>不讀 Kubernetes API</strong>。
             </div>
             <div class="flow-step">
               <strong>2. Grafana datasource query</strong>
@@ -527,6 +566,10 @@
             <strong>最重要的架構規則：</strong>React 不是 graph 狀態的 source of truth。cytoscape instance 才是。 React
             負責 mount/unmount 與把 props 變化同步進 cytoscape。
           </div>
+          <p class="muted">
+            逐步細節（cytoscape JSON 契約、deserialization、stylesheet 如何套到 node/edge）見
+            <a href="#render-pipeline">§5 渲染管線與 cytoscape 格式</a>。
+          </p>
         </section>
 
         <section id="architecture" class="section">
@@ -814,8 +857,419 @@ import {
           </div>
         </section>
 
+        <section id="render-pipeline" class="section">
+          <h2>5. 渲染管線與 cytoscape 格式</h2>
+          <p>
+            這一節把「從 backend JSON 到畫面上每一個 node / edge 長什麼樣」拆成可追蹤的步驟。
+            如果你要 debug「資料有進來但畫面不對」或「新增一種 kind 要改哪裡」，先對照這條管線。
+          </p>
+
+          <h3>5.1 端到端渲染管線</h3>
+          <p>整條路徑可以分成 <strong>資料反序列化</strong> 與 <strong>cytoscape imperative 渲染</strong> 兩大半：</p>
+          <div class="flow">
+            <div class="flow-step">
+              <strong>A. HTTP → Grafana PanelData</strong>
+              <br />
+              Infinity datasource 呼叫 <code>GET /v1/graph</code>，把 JSON 包進
+              <code>PanelData.series[].fields[].values[0]</code>（可能是字串或已解析物件）。
+            </div>
+            <div class="flow-step">
+              <strong>B. extractJsonFromFrames（挑 payload）</strong>
+              <br />
+              <code>useGraphData</code> 掃描所有 frame / field，<code>JSON.parse</code> 字串欄位，用
+              <code>looksLikeGraphPayload</code> 挑出含 <code>elements</code> 或 <code>nodes</code> 的物件。
+            </div>
+            <div class="flow-step">
+              <strong>C. normalizeGraph（反序列化 + 映射）</strong>
+              <br />
+              驗證形狀、把上游 <code>data.type</code> / <code>data.name</code> 等欄位映射成 panel 內部
+              <code>kind</code> / <code>label</code>，產出 <code>cytoscape.ElementDefinition[]</code>。
+            </div>
+            <div class="flow-step">
+              <strong>D. KsgPanel orchestrator</strong>
+              <br />
+              處理 loading / error / empty，同時用 <code>useGraphTheme</code> 算出 stylesheet，把
+              <code>elements</code> 與 filter options 傳給 <code>GraphCanvas</code>。
+            </div>
+            <div class="flow-step">
+              <strong>E. useCytoscape — 建立 instance</strong>
+              <br />
+              空 deps effect 建立 <code>cytoscape({ container, elements, style, layout: preset })</code>。
+              <strong>不在 constructor 跑 fcose/dagre</strong>，避免 mount 時 double layout。
+            </div>
+            <div class="flow-step">
+              <strong>F. diffElements — 增量同步</strong>
+              <br />
+              比較 <code>cy.elements().jsons()</code> 與 incoming elements，只 add / remove / update 差異，包在
+              <code>cy.batch()</code> 裡。
+            </div>
+            <div class="flow-step">
+              <strong>G. cy.style(stylesheet).update()</strong>
+              <br />
+              theme 或常數 map 變動時換 stylesheet，<strong>不重建 instance</strong>。
+            </div>
+            <div class="flow-step">
+              <strong>H. useGraphLayout — 佈局</strong>
+              <br />
+              <code>cy.stop()</code> 後 <code>cy.layout({ name: 'fcose' | 'dagre' }).run()</code>。這是 layout 的
+              <strong>唯一執行點</strong>。
+            </div>
+            <div class="flow-step">
+              <strong>I. useElementFilter — 可見性</strong>
+              <br />
+              依 visible kinds / edge types 對每個 element 設 <code>visibility: visible | hidden</code>（不刪元素、不重跑 layout）。
+            </div>
+            <div class="flow-step">
+              <strong>J. useGraphResize + 互動層</strong>
+              <br />
+              <code>ResizeObserver</code> → <code>cy.resize()</code> / <code>cy.fit()</code>；hover tooltip、tap 選取、expand-collapse 疊在最上層。
+            </div>
+          </div>
+
+          <div class="callout good">
+            <strong>核心原則：</strong>React props 驅動的是「要同步進 cytoscape 的資料與設定」；畫布上的位置、選取、visibility
+            等 runtime 狀態由 cytoscape instance 持有，透過 hooks 以 imperative API 更新。
+          </div>
+
+          <h3>5.2 上游 cytoscape JSON 契約</h3>
+          <p>
+            上游 <code>kube-state-graph</code> 的 <code>GET /v1/graph</code> 輸出 <strong>cytoscape.js elements 形式</strong> 的
+            JSON。頂層長這樣：
+          </p>
+          <pre><code>{
+  "apiVersion": "…",
+  "clusters": ["prod", "dr"],
+  "elements": {
+    "nodes": [ … ],
+    "edges": [ … ]
+  }
+}</code></pre>
+          <p>每個 node / edge 條目遵循 cytoscape 慣例，資料包在 <code>data</code> 物件裡（panel 也容忍扁平物件，見 §5.4）：</p>
+          <pre><code>// Node（上游 wire 格式）
+{
+  "data": {
+    "id": "prod/shop/checkout-0",
+    "name": "checkout-0",
+    "type": "pod",
+    "parent": "prod/node/worker-1",
+    "status": "normal",
+    "ipaddress": ["10.0.1.5"],
+    "labels": { "namespace": "shop" }
+  }
+}
+
+// Edge（上游 wire 格式）
+{
+  "data": {
+    "id": "e1",
+    "type": "pod-calls-pod",
+    "source": "prod/shop/gateway",
+    "target": "dr/app/consumer",
+    "labels": { }
+  }
+}</code></pre>
+
+          <h4>Compound（巢狀）結構由 backend 決定</h4>
+          <p>
+            v0.0.14 起 backend 會 emit compound nodes：<code>type: "cluster"</code> 的合成群組包住各 cluster 內資源；pod 嵌在 K8s
+            node 底下。 <code>pod-runs-on-node</code> 關係<strong>不畫成 edge</strong>，而是以
+            <code>parent</code> 巢狀表達（design D31）。panel 對 <code>parent</code> 欄位<strong>原樣 pass-through</strong>，只額外替
+            <code>cluster</code> 容器加上 accent 色（<code>clusterColor</code>）。
+          </p>
+
+          <h3>5.3 Deserialization：從 Grafana frame 到 ElementDefinition</h3>
+          <p>「反序列化」在本 repo 指兩步：<strong>從 PanelData 抽出 JSON</strong> + <strong>normalize 成 typed elements</strong>。</p>
+
+          <h4>步驟 1 — extractJsonFromFrames</h4>
+          <p>檔案：<code>features/graph-data/hooks/useGraphData.ts</code></p>
+          <pre><code>PanelData.series[]
+  └── DataFrame.fields[]
+        └── field.values[0]
+
+// 對每個 candidate：
+// 1. 若 typeof raw === 'string' → JSON.parse(raw)
+// 2. looksLikeGraphPayload(candidate) ?
+//      isPlainObject(v) && (isPlainObject(v.elements) || Array.isArray(v.nodes))
+// 3. 第一個符合的 graph payload 立即 return
+// 4. 否則 fallback 到第一個可 parse 的值，讓 normalizeGraph 回報錯誤</code></pre>
+          <div class="callout">
+            Infinity datasource 的 table flatten 行為不固定，同一個 response 可能同時出現
+            <code>apiVersion</code>、<code>clusters</code>、<code>elements</code> 等多欄。
+            <code>looksLikeGraphPayload</code> 的目的就是跳過非 graph 欄位，只挑真正的 topology payload。
+          </div>
+
+          <h4>步驟 2 — normalizeGraph（防腐層）</h4>
+          <p>檔案：<code>features/graph-data/normalize.ts</code> — 純函式，無 I/O，相同輸入必得相同輸出。</p>
+          <pre><code>normalizeGraph(raw: unknown)
+  → { elements: cytoscape.ElementDefinition[], errors: string[] }</code></pre>
+
+          <p>normalize 容忍的頂層形狀：</p>
+          <ul>
+            <li>完整 envelope：<code>{ elements: { nodes, edges }, … }</code></li>
+            <li>已解包：<code>{ nodes, edges }</code></li>
+          </ul>
+          <p>每個 node / edge 條目容忍：</p>
+          <ul>
+            <li>cytoscape 包裝：<code>{ data: { id, type, … } }</code></li>
+            <li>扁平：<code>{ id, type, … }</code>（<code>unwrapData</code> 優先取 <code>entry.data</code>）</li>
+          </ul>
+
+          <h4>步驟 3 — 欄位映射（upstream → panel internal）</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>上游（wire）</th>
+                  <th>normalize 後（cytoscape data）</th>
+                  <th>誰消費</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>data.type</code>（非 cluster）</td>
+                  <td><code>kind: NodeKind</code></td>
+                  <td>shape、legend、filter、tooltip、detail panel</td>
+                </tr>
+                <tr>
+                  <td><code>data.type === 'cluster'</code></td>
+                  <td><code>isCluster</code>、<code>cluster</code>、<code>clusterColor</code></td>
+                  <td>cluster 容器 stylesheet、ClusterLegend</td>
+                </tr>
+                <tr>
+                  <td><code>data.name</code></td>
+                  <td><code>label</code>（缺則 fallback 為 <code>id</code>）</td>
+                  <td>圖上文字、tooltip title</td>
+                </tr>
+                <tr>
+                  <td><code>data.status</code></td>
+                  <td><code>status: NodeStatus</code>（缺/非法 → <code>normal</code>）</td>
+                  <td>status border、StatusLegend、NodeDetailPanel</td>
+                </tr>
+                <tr>
+                  <td><code>data.parent</code></td>
+                  <td><code>parent</code>（原樣）</td>
+                  <td>cytoscape compound nesting</td>
+                </tr>
+                <tr>
+                  <td><code>data.labels.namespace</code></td>
+                  <td><code>namespace</code></td>
+                  <td>tooltip</td>
+                </tr>
+                <tr>
+                  <td><code>data.ipaddress</code></td>
+                  <td><code>ipAddress</code>（非空字串陣列才保留）</td>
+                  <td>tooltip；不可再從 labels 讀 IP</td>
+                </tr>
+                <tr>
+                  <td><code>data.labels</code></td>
+                  <td><code>labels</code></td>
+                  <td>tooltip 白名單欄位</td>
+                </tr>
+                <tr>
+                  <td><code>edge.data.type</code></td>
+                  <td><code>edgeType: EdgeType</code></td>
+                  <td>edge 顏色/線型、legend、filter</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>normalize 產出的 ElementDefinition 長相</h4>
+          <pre><code>// Node element（panel 內部）
+{
+  group: 'nodes',
+  data: {
+    id: 'prod/shop/checkout-0',
+    kind: 'pod',
+    status: 'normal',
+    label: 'checkout-0',
+    parent: 'prod/node/worker-1',
+    namespace: 'shop',
+    ipAddress: ['10.0.1.5']
+  }
+}
+
+// Cluster container node
+{
+  group: 'nodes',
+  data: {
+    id: 'cluster:prod',
+    isCluster: true,
+    cluster: 'prod',
+    clusterColor: '#38bdf8',
+    label: 'prod'
+  }
+}
+
+// Edge element
+{
+  group: 'edges',
+  data: {
+    id: 'e1',
+    source: 'prod/shop/gateway',
+    target: 'dr/app/consumer',
+    edgeType: 'pod-calls-pod'
+  }
+}</code></pre>
+          <p>
+            型別定義集中在 <code>src/shared/types/cytoscape.d.ts</code>（declaration merging 擴充
+            <code>NodeDataDefinition</code> / <code>EdgeDataDefinition</code>）。
+          </p>
+
+          <h4>驗證與錯誤收集</h4>
+          <ul>
+            <li>payload 不是 object → 整包失敗</li>
+            <li><code>nodes</code> / <code>edges</code> 不是 array → 記 warning，當空陣列處理</li>
+            <li>node 缺 <code>id</code> 或 <code>type</code> → 略過該 node，push error</li>
+            <li>edge 缺必要欄位，或 source/target 不在 node id 集合 → 略過該 edge，push error</li>
+            <li>第一個 error 會由 <code>useGraphData</code> 暴露給 UI（<code>Graph data malformed</code> alert）</li>
+          </ul>
+
+          <h3>5.4 cytoscape instance 如何把 elements 畫出來</h3>
+
+          <h4>Init（只跑一次）</h4>
+          <pre><code>cytoscape({
+  container: divRef,
+  elements,
+  style: stylesheet,
+  layout: { name: 'preset' }
+});</code></pre>
+
+          <h4>Elements 更新（diff-and-patch）</h4>
+          <p>檔案：<code>features/graph-canvas/sync/diffElements.ts</code></p>
+          <pre><code>current = cy.elements().jsons()
+diff = diffElements(current, incoming)
+
+cy.batch(() => {
+  cy.remove('#id1, #id2, …')
+  cy.add([ … ])
+  cy.getElementById(id).data(d)
+});</code></pre>
+          <p>
+            若啟用 expand-collapse，patch 前會 <code>api.expandAll()</code> 還原真實拓撲再 diff，patch 後
+            <code>reconcileCollapse</code> 重新套用 collapsed 狀態。
+          </p>
+
+          <h3>5.5 Stylesheet：node / edge 格式怎麼套用</h3>
+          <p>
+            檔案：<code>features/graph-canvas/styles/getStylesheet.ts</code> — pure factory
+            <code>(theme, shapeMap?, colorMap?) → cytoscape.Stylesheet[]</code>。
+            <code>useGraphTheme</code> 監聽 Grafana theme，由 <code>useCytoscape</code> 呼叫
+            <code>cy.style(stylesheet).update()</code>。
+          </p>
+
+          <h4>Node 樣式分層（selector 優先順序很重要）</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selector</th>
+                  <th>適用對象</th>
+                  <th>關鍵 style</th>
+                  <th>資料來源</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>node</code></td>
+                  <td>所有節點（基底）</td>
+                  <td><code>shape</code> ← <code>SHAPE_BY_KIND[data.kind]</code>；背景/邊框來自 Grafana theme</td>
+                  <td><code>shapeByKind.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>node:parent</code></td>
+                  <td>有子節點的 compound 容器</td>
+                  <td>半透明 round-rectangle 外框</td>
+                  <td>cytoscape meta-selector</td>
+                </tr>
+                <tr>
+                  <td><code>node[?isCluster]</code></td>
+                  <td>cluster 容器</td>
+                  <td><code>data(clusterColor)</code>；<code>events: 'no'</code></td>
+                  <td><code>normalize.ts</code> + <code>clusterPalette.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>node[kind="…"][status="…"]</code></td>
+                  <td>pod / node / pvc health border</td>
+                  <td><code>border-color</code> / width 3</td>
+                  <td><code>colorByStatus.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>node:selected</code></td>
+                  <td>選中節點</td>
+                  <td>Grafana primary 粗邊框</td>
+                  <td><code>selectSingle</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Node kind → shape（SHAPE_BY_KIND）</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>kind</th><th>shape</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>pod</code></td><td><code>ellipse</code></td></tr>
+                <tr><td><code>service</code></td><td><code>hexagon</code></td></tr>
+                <tr><td><code>node</code></td><td><code>round-rectangle</code></td></tr>
+                <tr><td><code>pvc</code></td><td><code>pentagon</code></td></tr>
+                <tr><td><code>others</code></td><td><code>diamond</code></td></tr>
+                <tr><td><code>external</code></td><td><code>star</code></td></tr>
+                <tr><td>未知</td><td><code>round-rectangle</code>（FALLBACK，filter 預設可見）</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Edge 樣式（COLOR_BY_EDGE_TYPE）</h4>
+          <pre><code>style: {
+  'line-color': (ele) => resolveEdgeStyle(ele.data('edgeType'), map).color,
+  'line-style': (ele) => resolveEdgeStyle(…).lineStyle,
+}</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>edgeType</th><th>顏色</th><th>線型</th><th>備註</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>pod-mounts-pvc</code></td><td>#a855f7</td><td>dotted</td><td></td></tr>
+                <tr><td><code>pod-calls-pod</code></td><td>#f97316</td><td>solid</td><td></td></tr>
+                <tr><td><code>service-selects-pod</code></td><td>#10b981</td><td>dashed</td><td></td></tr>
+                <tr>
+                  <td><code>pod-runs-on-node</code></td>
+                  <td colspan="3">不繪製 — 以 parent nesting 表達，不在 stylesheet / legend / filter 中</td>
+                </tr>
+                <tr><td>未知</td><td>#94a3b8</td><td>solid</td><td>FALLBACK</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Visibility filter（與 stylesheet 分離）</h4>
+          <p>
+            Filter 不改 elements 陣列，而是在 <code>useElementFilter</code> 對 live cytoscape elements 設 inline
+            <code>visibility</code>。edge 任一端 hidden 則 edge hidden；filter 變更<strong>不重跑 layout</strong>。
+          </p>
+
+          <h3>5.6 追蹤一筆資料的完整時間線</h3>
+          <ol>
+            <li>Grafana re-query → <code>PanelData.series</code> 更新 → <code>KsgPanel</code> re-render。</li>
+            <li><code>useGraphData</code> → <code>extractJsonFromFrames</code> → <code>normalizeGraph</code> → 新 elements。</li>
+            <li><code>useCytoscape</code> diff effect patch cytoscape。</li>
+            <li><code>useGraphLayout</code> 只在 layout 或 collapse token 變動時重跑。</li>
+            <li><code>useElementFilter</code> 更新 visibility。</li>
+            <li>Tooltip / NodeDetailPanel 讀 normalize 後的 <code>data.*</code> 顯示細節。</li>
+          </ol>
+
+          <div class="callout good">
+            <strong>修改捷徑：</strong>上游 JSON → <code>normalize.ts</code>；Grafana frame → <code>useGraphData.ts</code>；
+            形狀/顏色 → <code>shapeByKind.ts</code> / <code>colorByEdgeType.ts</code> / <code>getStylesheet.ts</code>；
+            顯示/隱藏 → <code>computeVisibility.ts</code>；位置 → <code>useGraphLayout.ts</code>。
+          </div>
+        </section>
+
         <section id="react-for-ts" class="section">
-          <h2>5. React 新手速成：用 TypeScript 角度看這個 repo</h2>
+          <h2>6. React 新手速成：用 TypeScript 角度看這個 repo</h2>
           <p>你如果懂 TypeScript，可以把 React component 想成「接收 props、回傳 JSX 的函式」。</p>
 
           <h3>Component = typed function</h3>
@@ -982,7 +1436,7 @@ return (
         </section>
 
         <section id="debug" class="section">
-          <h2>6. Debug 怎麼跑</h2>
+          <h2>7. Debug 怎麼跑</h2>
 
           <h3>Debug 第一層：確認 build watch</h3>
           <pre><code>npm run dev</code></pre>
@@ -991,18 +1445,28 @@ return (
           <h3>Debug 第二層：確認 Grafana 與 backend</h3>
           <pre><code>docker compose ps
 docker compose logs grafana
-docker compose logs kube-state-graph</code></pre>
+docker compose logs kube-state-graph
+docker compose logs victoriametrics
+docker compose logs ksg-seeder</code></pre>
           <ul>
             <li>Grafana 應該在 <code>localhost:3000</code>。</li>
             <li>Backend 應該在 compose network 中由 Grafana datasource 連到 <code>kube-state-graph:8080</code>。</li>
-            <li>Host 也可看 backend port <code>8080</code> 是否有開。</li>
+            <li>Host 也可看 backend port <code>8080</code>、VictoriaMetrics port <code>8428</code> 是否有開。</li>
+            <li>
+              若 graph 一直空，先確認 <code>ksg-seeder</code> 有持續在 push（它每 <code>SEED_INTERVAL</code> 秒跑一次）；
+              backend 靠 <code>last_over_time</code>/<code>rate</code> over 時間窗取資料，seeder 停了資料就會過期。
+            </li>
           </ul>
 
           <h3>Debug 第三層：確認 datasource / dashboard</h3>
           <ul>
             <li>Dashboard 檔案：<code>provisioning/dashboards/ksg-demo.json</code></li>
             <li>Panel type：<code>marz32one-ksg-panel</code></li>
-            <li>Demo query URL：<code>/v1/graph</code></li>
+            <li>
+              Demo query URL：<code>/v1/graph?start=${__from:date:seconds}&amp;end=${__to:date:seconds}&amp;…</code>
+              加上 cluster / namespace / name / edge_type 等 scope 參數（由 template variable 展開）。
+              <strong><code>start</code>/<code>end</code> 時間窗是必要的</strong>，backend 靠它決定查詢區間（接受 Unix 秒或 RFC 3339）。
+            </li>
             <li>Datasource UID：<code>ksg-default</code></li>
           </ul>
           <div class="callout">
@@ -1043,7 +1507,7 @@ docker compose logs kube-state-graph</code></pre>
         </section>
 
         <section id="change-and-test" class="section">
-          <h2>7. 修改後怎麼測</h2>
+          <h2>8. 修改後怎麼測</h2>
 
           <h3>最常用驗證指令</h3>
           <pre><code>npm run typecheck
@@ -1120,7 +1584,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="where-to-change" class="section">
-          <h2>8. 常見修改位置</h2>
+          <h2>9. 常見修改位置</h2>
 
           <h3>新增一種 node kind</h3>
           <ol>
@@ -1200,7 +1664,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="best-practices" class="section">
-          <h2>9. Best Practices</h2>
+          <h2>10. Best Practices</h2>
 
           <h3>專案邊界</h3>
           <ul>
@@ -1288,7 +1752,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="testing-map" class="section">
-          <h2>10. 測試地圖</h2>
+          <h2>11. 測試地圖</h2>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1340,7 +1804,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="troubleshooting" class="section">
-          <h2>11. 常見問題</h2>
+          <h2>12. 常見問題</h2>
 
           <h3>Grafana 顯示 unsigned plugin warning</h3>
           <p>
@@ -1361,11 +1825,15 @@ npx jest -t "edge auto-hides"</code></pre>
           <h3>Port 3000 或 8080 被佔用</h3>
           <p>停掉其他服務，或改 compose port mapping。Grafana 預設是 3000，backend 預設映射 8080。</p>
 
-          <h3>Backend 連不到 Kubernetes cluster</h3>
+          <h3>Backend 沒有資料 / 連不到 metrics store</h3>
           <ul>
-            <li>確認 <code>KUBECONFIG_PATH</code> 指到 host 上存在且可讀的 kubeconfig。</li>
-            <li>確認 kubeconfig 目前 context 正確。</li>
-            <li>看 <code>docker compose logs kube-state-graph</code>。</li>
+            <li>確認 <code>victoriametrics</code> 與 <code>ksg-seeder</code> 都在跑：<code>docker compose ps</code>。</li>
+            <li>確認 backend 的 <code>KSG_PROM_URL</code> 指到 <code>http://victoriametrics:8428</code>。</li>
+            <li>
+              直接查 VictoriaMetrics 看 seeder 有沒有灌進去：
+              <code>curl 'http://localhost:8428/api/v1/query?query=up'</code> 或查 topology metric。
+            </li>
+            <li>看 <code>docker compose logs kube-state-graph</code> 與 <code>docker compose logs ksg-seeder</code>。</li>
           </ul>
 
           <h3>Panel 顯示 No graph data</h3>
@@ -1394,7 +1862,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="glossary" class="section">
-          <h2>12. 名詞表</h2>
+          <h2>13. 名詞表</h2>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1422,7 +1890,15 @@ npx jest -t "edge auto-hides"</code></pre>
                 </tr>
                 <tr>
                   <td>normalize</td>
-                  <td>把外部不穩定資料轉成內部穩定資料的 boundary。</td>
+                  <td>把外部不穩定資料轉成內部穩定資料的 boundary；<code>normalizeGraph</code> 把上游 cytoscape JSON 映射成 <code>ElementDefinition[]</code>。</td>
+                </tr>
+                <tr>
+                  <td>deserialization</td>
+                  <td>本 repo 指 <code>extractJsonFromFrames</code>（從 Grafana frame 抽出 JSON）+ <code>normalizeGraph</code>（驗證與欄位映射）兩步。</td>
+                </tr>
+                <tr>
+                  <td>Stylesheet</td>
+                  <td>cytoscape 的 selector → style 規則陣列；由 <code>getStylesheet(theme)</code> 產生，決定 node shape、edge 顏色、compound 容器外觀等。</td>
                 </tr>
                 <tr>
                   <td>fcose</td>
