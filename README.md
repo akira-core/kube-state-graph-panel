@@ -19,6 +19,10 @@ docker compose up -d      # starts grafana + kube-state-graph backend
 
 The `KSG Demo` dashboard is auto-provisioned and opens with one configured `Kube State Graph` panel.
 
+### Variable filtering
+
+The demo dashboard exposes four template variables that filter the graph **at the backend** (`/v1/graph` scope query params): `cluster`, `namespace`, `name` (resource), and `edge_type`. They are chained — `namespace` is scoped by the selected `cluster`, and `name` by both. Multi-value selections expand to repeated query params (e.g. `cluster=prod&cluster=dr`) via Grafana's `${var:customqueryparam:<name>:}` interpolation; `All` expands to every actual value (no filter). `cluster` values are sourced from the backend discovery endpoint `GET /v1/clusters` (returns `{ "clusters": [{"name":"dr"}, {"name":"prod"}] }`); `edge_type` is a fixed Custom variable with the 3 drawn edge types. The `v0.0.14` backend already implements scope params and discovery endpoints — no image change is required. Panel-side `node kind` / `edge type` visibility filters (panel options) are independent and stack on top of the backend filter.
+
 ## Architecture Overview
 
 Feature-first layout under `src/`:
