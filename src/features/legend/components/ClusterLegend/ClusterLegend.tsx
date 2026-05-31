@@ -49,7 +49,7 @@ export function ClusterLegend({
         {onToggleCollapseAll !== undefined && (
           <IconButton
             data-testid="cluster-collapse-toggle"
-            name={allCollapsed ? 'angle-down' : 'angle-up'}
+            name={allCollapsed ? 'plus-circle' : 'minus-circle'}
             aria-label={allCollapsed ? 'Expand all clusters' : 'Collapse all clusters'}
             tooltip={allCollapsed ? 'Expand all clusters' : 'Collapse all clusters'}
             size="sm"

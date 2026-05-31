@@ -42,7 +42,7 @@ export function NodeLegend({
         {showCollapseToggle && onToggleCollapseAll !== undefined && (
           <IconButton
             data-testid="node-collapse-toggle"
-            name={allCollapsed ? 'angle-down' : 'angle-up'}
+            name={allCollapsed ? 'plus-circle' : 'minus-circle'}
             aria-label={allCollapsed ? 'Expand all nodes' : 'Collapse all nodes'}
             tooltip={allCollapsed ? 'Expand all nodes' : 'Collapse all nodes'}
             size="sm"

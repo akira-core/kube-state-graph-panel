@@ -85,6 +85,15 @@ describe('getStylesheet', () => {
     expect(nodeStyle.height).toBe(40);
   });
 
+  it('widens hexagon-shaped kinds to a regular flat-top hexagon ratio (width:height = 2:√3)', () => {
+    // cytoscape stretches `hexagon` to the node box, so a 40×40 box squashes it
+    // into an irregular hexagon. The override widens it while keeping height 40.
+    const hexStyle = styleFor('node[kind="service"]');
+    expect(hexStyle.width).toBeCloseTo((40 * 2) / Math.sqrt(3));
+    // height intentionally inherits the base 40 so the ratio is exactly 2:√3.
+    expect(hexStyle.height).toBeUndefined();
+  });
+
   it('declares collapsed-node and meta-edge selectors with collapsed-cluster events override after node[?isCluster]', () => {
     const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
       selector: string;

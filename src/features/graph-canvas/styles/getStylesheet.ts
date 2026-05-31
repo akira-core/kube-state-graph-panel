@@ -13,6 +13,9 @@ export interface GetStylesheetInput {
   colorMap?: Record<string, EdgeStyle>;
 }
 
+const NODE_SIZE = 40;
+const HEXAGON_ASPECT = 2 / Math.sqrt(3);
+
 function resolveShape(kind: string | undefined, map: Record<string, CytoscapeNodeShape>): CytoscapeNodeShape {
   if (kind !== undefined && kind in map) {
     const shape = map[kind];
@@ -59,6 +62,24 @@ export function getStylesheet({
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
+  // Derive hexagon-shaped kinds from the single-source shapeMap so this follows
+  // any future shape reassignment. They keep the base height and only widen, so
+  // width:height settles at 2:√3 — a regular hexagon. Leaf-only selector; cluster
+  // / node:parent containers override `shape` to round-rectangle, so the width
+  // bump never reaches a compound box.
+  const hexagonKinds = Object.entries(shapeMap)
+    .filter(([, shape]) => shape === 'hexagon')
+    .map(([kind]) => kind);
+  const hexagonSelectors: CyStylesheet[] =
+    hexagonKinds.length > 0
+      ? [
+          {
+            selector: hexagonKinds.map((kind) => `node[kind="${kind}"]`).join(', '),
+            style: { width: NODE_SIZE * HEXAGON_ASPECT },
+          },
+        ]
+      : [];
+
   const stylesheet: CyStylesheet[] = [
     {
       selector: 'node',
@@ -74,10 +95,11 @@ export function getStylesheet({
         'text-valign': 'bottom',
         'text-halign': 'center',
         'text-margin-y': 4,
-        width: 40,
-        height: 40,
+        width: NODE_SIZE,
+        height: NODE_SIZE,
       },
     },
+    ...hexagonSelectors,
     {
       // Any compound parent (a node that has children — e.g. a K8s node boxing
       // its pods) renders as a neutral, labelled container. cytoscape's native

@@ -20,6 +20,12 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node[kind="service"]",
+    "style": {
+      "width": 46.188021535170066,
+    },
+  },
+  {
     "selector": "node:parent",
     "style": {
       "background-color": "rgba(204, 204, 220, 0.2)",
