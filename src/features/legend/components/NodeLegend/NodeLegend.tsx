@@ -12,8 +12,8 @@ function getStyles(): { list: string; row: string; glyph: string; header: string
     // Fixed square box keeps every shape glyph equal width and height.
     glyph: css({
       display: 'inline-flex',
-      width: 18,
-      height: 18,
+      width: 30,
+      height: 30,
       flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',

@@ -44,7 +44,7 @@ services:
       - ./dev/victoriametrics:/seed:ro
 
   kube-state-graph:
-    image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-v0.0.14}
+    image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
     container_name: ksg-backend
     depends_on:
       - victoriametrics

@@ -17,6 +17,13 @@ interface ShapePaint {
   strokeWidth: number;
 }
 
+/** Uniform scale for legend glyphs (~1.5× the base 16×16 geometry). */
+const GLYPH_SCALE = 1.5;
+const GLYPH_CENTER = 8;
+// viewBox padding so scaled shapes (esp. star / octagon) are not clipped
+const GLYPH_VIEW_MIN = -2;
+const GLYPH_VIEW_SIZE = 20;
+
 // Faithful 16×16 renditions of the cytoscape node shapes the panel uses, so the
 // legend is a true key to the canvas. Every glyph is drawn inside the same
 // 16-unit square and rendered in a fixed-size box, so all glyphs are equal
@@ -38,7 +45,9 @@ function renderShape(shape: CytoscapeNodeShape, paint: ShapePaint): React.JSX.El
     case 'pentagon':
       return <polygon points="8,1.8 13.9,6.1 11.6,13 4.4,13 2.1,6.1" {...common} />;
     case 'hexagon':
-      return <polygon points="8,1.8 13.37,4.9 13.37,11.1 8,14.2 2.63,11.1 2.63,4.9" {...common} />;
+      // Flat-top (pointy left/right), matching cytoscape's built-in `hexagon`
+      // node orientation so the legend reads as a true key to the canvas.
+      return <polygon points="4.9,2.63 11.1,2.63 14.2,8 11.1,13.37 4.9,13.37 1.8,8" {...common} />;
     case 'octagon':
       return <polygon points="5.5,2 10.5,2 14,5.5 14,10.5 10.5,14 5.5,14 2,10.5 2,5.5" {...common} />;
     case 'diamond':
@@ -59,7 +68,7 @@ function renderShape(shape: CytoscapeNodeShape, paint: ShapePaint): React.JSX.El
   }
 }
 
-export function ShapeGlyph({ shape, size = 18, fill, stroke }: Readonly<ShapeGlyphProps>): React.JSX.Element {
+export function ShapeGlyph({ shape, size = 27, fill, stroke }: Readonly<ShapeGlyphProps>): React.JSX.Element {
   const theme = useTheme2();
   // Match the on-canvas node look: neutral fill + medium border.
   const colors = theme.colors as unknown as {
@@ -75,12 +84,16 @@ export function ShapeGlyph({ shape, size = 18, fill, stroke }: Readonly<ShapeGly
     <svg
       width={size}
       height={size}
-      viewBox="0 0 16 16"
+      viewBox={`${GLYPH_VIEW_MIN} ${GLYPH_VIEW_MIN} ${GLYPH_VIEW_SIZE} ${GLYPH_VIEW_SIZE}`}
       role="img"
       aria-label={`${shape} shape`}
       data-testid={`shape-glyph-${shape}`}
     >
-      {renderShape(shape, paint)}
+      <g
+        transform={`translate(${GLYPH_CENTER} ${GLYPH_CENTER}) scale(${GLYPH_SCALE}) translate(${-GLYPH_CENTER} ${-GLYPH_CENTER})`}
+      >
+        {renderShape(shape, paint)}
+      </g>
     </svg>
   );
 }
