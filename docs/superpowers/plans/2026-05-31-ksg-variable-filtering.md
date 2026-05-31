@@ -2,80 +2,76 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 
-**Goal:** Add Grafana dashboard template variables (cluster / namespace / name / edge_type) that filter the KSG graph at the backend `/v1/graph` endpoint via repeated query params, by upgrading the demo backend image and parameterizing the Infinity query URL — panel code is untouched.
+**Goal:** Add Grafana dashboard template variables (cluster / namespace / name / edge_type) that filter the KSG graph at the backend `/v1/graph` endpoint via repeated query params, by parameterizing the Infinity query URL — panel code is untouched. No backend image change is required: the currently-pinned `v0.0.14` already supports scope query params + the `/v1/clusters` + `/v1/edge-types` discovery endpoints (verified live against `marz32one/kube-state-graph:v0.0.14` on 2026-05-31).
 
-**Architecture:** This is Feature 1 of the design spec (§1.A, §2.1, §2.2, §3, §4, parts of §8/§9). All work is **provisioning + docs**: bump `docker-compose.yaml`'s `KSG_BACKEND_TAG` default from `v0.0.14` to `latest` (the unreleased branch that exposes scope params + `/v1/clusters` + `/v1/edge-types`), add four template variables to `provisioning/dashboards/ksg-demo.json`, and rewrite the single Infinity target URL to append `${var:customqueryparam:<name>:}` segments that expand multi-value selections into repeated `cluster=a&cluster=b` params (NOT the `var-`-prefixed `queryparam`). The panel's `normalizeGraph` is structure-agnostic and renders whatever subgraph the backend returns, so no `.tsx`/`.ts` changes are required. There is no unit-testable code here; each task replaces the TDD red/green cycle with **explicit manual verification** (exact `curl` against the running backend + exact Grafana UI steps + expected JSON output).
+**Architecture:** This is Feature 1 of the design spec (§1.A, §2.1, §2.2, §3, §4, parts of §8/§9). All work is **provisioning + docs**: add four template variables to `provisioning/dashboards/ksg-demo.json`, and rewrite the single Infinity target URL to append `${var:customqueryparam:<name>:}` segments that expand multi-value selections into repeated `cluster=a&cluster=b` params (NOT the `var-`-prefixed `queryparam`). The panel's `normalizeGraph` is structure-agnostic and renders whatever subgraph the backend returns, so no `.tsx`/`.ts` changes are required. There is no unit-testable code here; each task replaces the TDD red/green cycle with **explicit manual verification** (exact `curl` against the running backend + exact Grafana UI steps + expected JSON output).
 
 **Tech Stack:** Grafana 12.x template variables (Query type via Infinity datasource + Custom type), `yesoreyeram-infinity-datasource` (UQL / JSONata distinct extraction, `customqueryparam` interpolation), Docker Compose, `@grafana/plugin-e2e` (Playwright) for the optional verification spec.
 
 ## File Structure
 
-| File                                    | Create/Modify                 | Responsibility                                                                                                                |
-| --------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `docker-compose.yaml`                   | Modify (line 47)              | Change `kube-state-graph` image tag default `v0.0.14` → `latest` so scope params + discovery endpoints exist                  |
-| `provisioning/dashboards/ksg-demo.json` | Modify (lines 26, 38)         | Add four template variables to `templating.list`; parameterize the Infinity target `url` with `customqueryparam` segments     |
-| `README.md`                             | Modify (after line 20)        | Document the variable filter, `:latest` dependency, discovery endpoints                                                       |
-| `CLAUDE.md`                             | Modify (lines 53, 57, 59, 67) | Update Local demo table/notes for `:latest` backend + variable-driven query URL                                               |
-| `tests/variable-filter.spec.ts`         | Create                        | Optional Playwright verification: dashboard loads with template variables visible; panel mounts under default (All) selection |
+| File                                    | Create/Modify          | Responsibility                                                                                                                |
+| --------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `provisioning/dashboards/ksg-demo.json` | Modify (lines 26, 38)  | Add four template variables to `templating.list`; parameterize the Infinity target `url` with `customqueryparam` segments     |
+| `README.md`                             | Modify (after line 20) | Document the variable filter and discovery endpoints                                                                          |
+| `CLAUDE.md`                             | Modify (lines 57, 59)  | Update Local demo notes for variable-driven query URL (v0.0.14 already supports scope params — no image change needed)        |
+| `tests/variable-filter.spec.ts`         | Create                 | Optional Playwright verification: dashboard loads with template variables visible; panel mounts under default (All) selection |
 
 ---
 
-### Task 1: Bump demo backend image to `latest` and verify scope params exist (curl)
+### Task 1: Verify the pinned `v0.0.14` backend already supports scope params + discovery endpoints (curl)
 
 **Files:**
 
-- Modify: `docker-compose.yaml` (line 47)
+- None (verification only — `docker-compose.yaml` is NOT modified; `KSG_BACKEND_TAG` default stays `v0.0.14`)
 
-This task has no unit test (it is a container image tag + a runtime contract check). Replace TDD with the manual-verification cycle below: bring the backend up, confirm the **current** `v0.0.14` does NOT honor scope params, change the tag, then confirm `latest` DOES.
+The currently-pinned `v0.0.14` backend was verified live on 2026-05-31 to already support all required endpoints and scope filtering. This task re-confirms those facts against your running demo before the provisioning work begins.
 
-- [ ] Step 1: VERIFY-FAIL (capture current `v0.0.14` behavior). Bring up the backend stack and confirm the discovery endpoints + scope filtering are absent on the pinned tag. Run each command and record the output:
+- [ ] Step 1: Bring up the backend stack:
 
   ```bash
   cd /Users/marz/Develop/tools/kube-state-graph-panel
   docker compose up -d victoriametrics ksg-seeder kube-state-graph
   # give the seeder ~2 ticks so rate()/last_over_time windows are populated
   sleep 25
-  NOW=$(date +%s); FROM=$((NOW - 3600))
-  # (a) discovery endpoints — on v0.0.14 these likely 404:
-  curl -s -o /dev/null -w '%{http_code}\n' "http://localhost:8080/v1/clusters"
-  curl -s -o /dev/null -w '%{http_code}\n' "http://localhost:8080/v1/edge-types"
-  # (b) does scope filtering change the node count? compare full vs cluster=prod:
-  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("full nodes:",len(d.get("nodes",d.get("elements",{}).get("nodes",[]))))'
-  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=prod" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("cluster=prod nodes:",len(d.get("nodes",d.get("elements",{}).get("nodes",[]))))'
   ```
 
-  Expected (v0.0.14): `/v1/clusters` and `/v1/edge-types` return `404`; the two node counts are **equal** (scope param ignored). Record these numbers.
-
-- [ ] Step 2: Change the image tag default to `latest`. In `docker-compose.yaml` line 47:
-
-  ```yaml
-  # BEFORE
-      image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-v0.0.14}
-  # AFTER
-      image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
-  ```
-
-- [ ] Step 3: VERIFY-PASS (re-pull `latest` and confirm scope params + discovery endpoints now work). Run:
+- [ ] Step 2: VERIFY discovery endpoints return 200:
 
   ```bash
-  cd /Users/marz/Develop/tools/kube-state-graph-panel
-  docker compose pull kube-state-graph
-  docker compose up -d --force-recreate kube-state-graph
-  sleep 25
   NOW=$(date +%s); FROM=$((NOW - 3600))
-  # (a) discovery endpoints now 200 + JSON — capture exact shape for Task 3 root selectors:
+  # (a) discovery endpoints — v0.0.14 DOES support these:
+  curl -s -o /dev/null -w '%{http_code}\n' "http://localhost:8080/v1/clusters"
+  curl -s -o /dev/null -w '%{http_code}\n' "http://localhost:8080/v1/edge-types"
+  # (b) capture exact shapes (used in Tasks 2 and 4 for root selectors):
   curl -s "http://localhost:8080/v1/clusters" | python3 -m json.tool
   curl -s "http://localhost:8080/v1/edge-types" | python3 -m json.tool
-  # (b) scope filtering now reduces the node set:
+  ```
+
+  Expected: both endpoints return `200`. `/v1/clusters` shape: `{ "apiVersion":"v1", "clusters":[ {"name":"dr"}, {"name":"prod"} ] }` (root key `clusters`, array of objects with a `name` field). `/v1/edge-types` shape: `{ "apiVersion":"v1", "edge_types":[ {"type":"pod-runs-on-node",...}, {"type":"pod-mounts-pvc",...}, {"type":"pod-calls-pod",...}, {"type":"service-selects-pod",...} ] }` (root key `edge_types` with underscore, 4 types). Record these for Tasks 2 and 4.
+
+- [ ] Step 3: VERIFY scope filtering reduces node counts as expected:
+
+  ```bash
+  NOW=$(date +%s); FROM=$((NOW - 3600))
+  # full graph:
   curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("full:",len(d["elements"]["nodes"]))'
+  # single cluster:
+  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=dr" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("cluster=dr:",len(d["elements"]["nodes"]))'
   curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=prod" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("cluster=prod:",len(d["elements"]["nodes"]))'
-  # (c) repeated-param OR (cluster=prod&cluster=dr) returns >= the single-cluster set:
-  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=prod&cluster=dr" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("prod+dr:",len(d["elements"]["nodes"]))'
-  # (d) EMPTY-VALUE trap (design §2.1/§4.3): cluster= (empty) must NOT mean "no filter":
+  # repeated-param OR (both clusters):
+  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=dr&cluster=prod" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("dr+prod:",len(d["elements"]["nodes"]))'
+  # namespace filter:
+  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&namespace=data" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("namespace=data:",len(d["elements"]["nodes"]))'
+  # combined AND filter:
+  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=prod&namespace=data" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("prod+data:",len(d["elements"]["nodes"]))'
+  # bogus cluster returns 0:
+  curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=bogus" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("bogus:",len(d["elements"]["nodes"]))'
+  # empty cluster= returns FULL graph (NOT zero — no empty-value trap):
   curl -s "http://localhost:8080/v1/graph?start=${FROM}&end=${NOW}&cluster=" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("cluster=empty:",len(d["elements"]["nodes"]))'
   ```
 
-  Expected (`latest`): discovery endpoints return `200` with JSON arrays (note the exact root key — likely `clusters` / `edgeTypes` — and record it; Task 3 uses it as the JSON root selector). `cluster=prod` count `<` full count. `cluster=` (empty) returns `0` nodes (confirms the empty-value trap that Task 2's All-handling must avoid). If discovery endpoints still 404, STOP — the `latest` image predates the branch; fall back to pinning `KSG_BACKEND_TAG` to the branch's published tag and re-run.
+  Expected: `full: 20`; `cluster=dr: 10`; `cluster=prod: 14`; `dr+prod: 20`; `namespace=data: 13`; `prod+data: 9`; `bogus: 0`; `cluster=empty: 20` (empty value = no filter, full graph returned — NOT zero). The AND-across-params behaviour means selecting both `cluster=prod` AND `namespace=data` returns the intersection (9 nodes).
 
 - [ ] Step 4: Tear down to a clean state for later tasks:
 
@@ -84,11 +80,7 @@ This task has no unit test (it is a container image tag + a runtime contract che
   docker compose down
   ```
 
-- [ ] Step 5: Commit:
-  ```bash
-  git add docker-compose.yaml
-  git commit -m "chore: pin demo backend to :latest for scope-param + discovery endpoint support"
-  ```
+- [ ] Step 5: No commit (no files changed in this task). Proceed to Task 2.
 
 ---
 
@@ -109,10 +101,7 @@ This task has no unit test (it is a container image tag + a runtime contract che
 
   Expected: `templating.list len: 0` (no variables yet).
 
-- [ ] Step 2: Replace the empty templating list (line 38) with a list containing the `cluster` variable. Use the JSON root selector + parser shape confirmed in Task 1 Step 3. **Conditional on the captured `/v1/clusters` shape:** the `/v1/graph` golden fixture shows the top-level `clusters` is an array of **bare strings** (`"clusters": ["cluster-alpha"]`), and `/v1/clusters` likely returns the same string-array shape. For a primitive string array, Infinity's table format with `columns: []` may not surface usable text/value pairs — so do one of:
-  - **(a) string-array** (most likely): use a single-column parse — set `root_selector` to the array key (`clusters`) and let Infinity emit one column of the string values; confirm in "Preview of values" that it yields `prod`/`dr`.
-  - **(b) object-array**: keep `root_selector` + `columns: []` mapping the name field.
-  - **(c) alternative source**: source `cluster` from `/v1/graph` top-level `clusters` (already proven to be a `string[]`) via a UQL Query variable (`parse-json | scope "clusters"`), instead of `/v1/clusters`.
+- [ ] Step 2: Replace the empty templating list (line 38) with a list containing the `cluster` variable. `/v1/clusters` returns an **object array** (verified in Task 1 Step 2): `{ "apiVersion":"v1", "clusters":[ {"name":"dr"}, {"name":"prod"} ] }`. Use Infinity's table format with `root_selector: "clusters"` and a `columns` entry that extracts the `name` field so the variable options are `dr`/`prod` (not `[object Object]`).
 
   Replace:
 
@@ -120,7 +109,7 @@ This task has no unit test (it is a container image tag + a runtime contract che
     "templating": { "list": [] },
   ```
 
-  with (shape (a), single-column string-array parse; adjust `root_selector`/`columns` per the captured shape):
+  with:
 
   ```json
     "templating": {
@@ -138,7 +127,9 @@ This task has no unit test (it is a container image tag + a runtime contract che
             "url": "/v1/clusters",
             "url_options": { "method": "GET" },
             "root_selector": "clusters",
-            "columns": []
+            "columns": [
+              { "selector": "name", "text": "name", "type": "string" }
+            ]
           },
           "multi": true,
           "includeAll": true,
@@ -151,7 +142,7 @@ This task has no unit test (it is a container image tag + a runtime contract che
     },
   ```
 
-  Note: `allValue` is intentionally **omitted** (not set to `""`). With `includeAll: true` and no `allValue`, Grafana expands an "All" selection to every concrete option value (`cluster=prod&cluster=dr`); a `""` allValue would expand All to a single empty value and send the catastrophic `cluster=` (Task 1 Step 3d proved that returns 0 nodes). The All-expansion behavior is verified end-to-end in Task 6.
+  Note: `allValue` is intentionally **omitted** (not set to `""`). With `includeAll: true` and no `allValue`, Grafana expands an "All" selection to every concrete option value (`cluster=prod&cluster=dr`). The backend treats an empty `cluster=` value as no filter (returns the full graph), but omitting `allValue` keeps the All-expansion semantics clean — the `customqueryparam` interpolation with a non-empty-prefix already skips unset variables. The All-expansion behavior is verified end-to-end in Task 6.
 
 - [ ] Step 3: VERIFY-PASS (validate JSON + confirm variable parsed). Run:
 
@@ -288,7 +279,7 @@ The backend has no `/v1/namespaces`, so `namespace` is derived as the **distinct
   curl -s "http://localhost:8080/v1/edge-types" | python3 -m json.tool
   ```
 
-  Expected: `names:` includes `mongodb-0`, `mongodb-1`, `mongodb-2` (pods) + `mongodb-data-mongodb-0/1/2` (PVCs). It does **NOT** include a `mongodb` service node — the seeded mongodb Service is **headless** (`cluster_ip="None"`) so no Service node materialises. The only materialised service node in the demo is `nats` in `dr`/`messaging` (use `cluster=dr&namespace=messaging` if you need to show a service-node name). `/v1/edge-types` lists `pod-mounts-pvc`, `pod-calls-pod`, `service-selects-pod`. These confirm the Custom edge_type values in Step 2.
+  Expected: `names:` includes `mongodb-0`, `mongodb-1`, `mongodb-2` (pods) + `mongodb-data-mongodb-0/1/2` (PVCs). It does **NOT** include a `mongodb` service node — the seeded mongodb Service is **headless** (`cluster_ip="None"`) so no Service node materialises. The only materialised service node in the demo is `nats` in `dr`/`messaging` (use `cluster=dr&namespace=messaging` if you need to show a service-node name). `/v1/edge-types` returns `{ "apiVersion":"v1", "edge_types":[ {"type":"pod-runs-on-node",...}, {"type":"pod-mounts-pvc",...}, {"type":"pod-calls-pod",...}, {"type":"service-selects-pod",...} ] }` (root key `edge_types`, 4 types). The Custom variable in Step 2 uses only 3 of the 4 — `pod-runs-on-node` is excluded because it is expressed as compound nesting (pod inside k8s node), not a drawn edge; filtering it has no visible effect in the panel.
 
 - [ ] Step 2: Append the `name` and `edge_type` variables to `templating.list` (after the `namespace` object). Add:
 
@@ -332,7 +323,7 @@ The backend has no `/v1/namespaces`, so `namespace` is derived as the **distinct
         }
   ```
 
-  Note: `name` chains on both `cluster` and `namespace` via two `customqueryparam` segments. `edge_type` is Custom (fixed 3 backend-supported values, design §2.1) — avoids depending on `/v1/edge-types` JSON shape. Both variables intentionally **omit** `allValue` (as does `cluster` in Task 2) so an "All" selection expands to every concrete value rather than a single empty value (which would send a catastrophic `cluster=`/`name=` — see Task 6).
+  Note: `name` chains on both `cluster` and `namespace` via two `customqueryparam` segments. `edge_type` is Custom (3 drawn edge types only — `pod-runs-on-node` is excluded because it is compound nesting, not a drawn edge, so filtering it has no visible effect). Both variables intentionally **omit** `allValue` (as does `cluster` in Task 2) so an "All" selection expands to every concrete value rather than a single empty value. (The backend harmlessly treats `cluster=` empty as no filter, but omitting `allValue` keeps the semantics clean and avoids sending unnecessary empty params.)
 
 - [ ] Step 3: VERIFY-PASS (validate JSON + all four variables present in order). Run:
 
@@ -437,7 +428,7 @@ Rewrite the single panel target URL so each variable appends a backend-readable 
 
 - (no file changes — this is a behavioral verification task that locks in the design §4.3 All/empty semantics before docs)
 
-`customqueryparam` skips a variable that resolves to no value, so an **unselected** variable should emit no segment (no empty `cluster=`), and **All** should expand to every actual value (equivalent to no filter). This task proves both, since the empty-value trap (Task 1 Step 3d) makes a stray `cluster=` catastrophic (returns 0 nodes).
+`customqueryparam` skips a variable that resolves to no value, so an **unselected** variable should emit no segment (no empty `cluster=`), and **All** should expand to every actual value (equivalent to no filter). The backend already treats `cluster=` (empty value) as no filter (returns the full graph — verified in Task 1 Step 3), so even a stray empty param is harmless. This task confirms the correct expansion behavior in Grafana's interpolation layer.
 
 - [ ] Step 1: VERIFY-FAIL baseline (record full unfiltered node count for comparison). Run:
 
@@ -452,12 +443,12 @@ Rewrite the single panel target URL so each variable appends a backend-readable 
 
 - [ ] Step 2: (no implementation change — verification only). Skip to Step 3.
 
-- [ ] Step 3: VERIFY-PASS (Grafana UI — All expands to repeated **concrete** params, never an empty `cluster=`; deselect emits no segment). UI steps via DevTools → Network panel on the outgoing `/v1/graph` request:
-  1. Set **all four** variables to `All`. Inspect the outgoing request URL: confirm it contains repeated **concrete** values `cluster=prod&cluster=dr`, `namespace=apps&namespace=data&namespace=messaging`, all names, all three edge_types — and **never** a bare `cluster=` (or `namespace=`/`name=`/`edge_type=`) with an empty value. This is the load-bearing check that omitting `allValue` (Tasks 2-4) makes Include All expand to every concrete value rather than a single empty value. Confirm the panel renders the **full** graph (node count == N_full from Step 1).
-  2. **Clear** the Cluster selection entirely (deselect All and every value, if the picker allows). Inspect the request: confirm there is **no** `cluster=` segment at all (the segment is dropped, not sent empty). The panel should still render (no `cluster=` empty-value trap → backend treats it as no cluster filter).
+- [ ] Step 3: VERIFY-PASS (Grafana UI — All expands to repeated **concrete** params; deselect either drops the segment or emits a harmless empty value). UI steps via DevTools → Network panel on the outgoing `/v1/graph` request:
+  1. Set **all four** variables to `All`. Inspect the outgoing request URL: confirm it contains repeated **concrete** values `cluster=prod&cluster=dr`, `namespace=apps&namespace=data&namespace=messaging`, all names, all three edge_types. This is the load-bearing check that omitting `allValue` (Tasks 2-4) makes Include All expand to every concrete value rather than a single empty value. Confirm the panel renders the **full** graph (node count == N_full from Step 1).
+  2. **Clear** the Cluster selection entirely (deselect All and every value, if the picker allows). Inspect the request: the `cluster` segment should either be absent or, if the picker sends `cluster=` (empty), confirm the panel still renders the full graph (the backend treats empty value as no filter — verified in Task 1 Step 3).
   3. Confirm that with everything `All`, the rendered graph is identical to opening the dashboard fresh (the variables are a no-op when All-selected).
 
-  Expected: All-selection emits repeated concrete params (`cluster=prod&cluster=dr`) and renders the full graph; deselection drops the segment rather than sending `cluster=` (which Task 1 Step 3d proved returns 0 nodes). If All emits an empty `cluster=` (the graph goes empty), confirm the variable's `allValue` is omitted (not `""`); if a deselected variable still emits `cluster=`, change that variable's `current`/default to keep `All` selected (design §4.3: "改以變數預設=All 規避") and re-verify.
+  Expected: All-selection emits repeated concrete params (`cluster=prod&cluster=dr`) and renders the full graph. A cleared variable either drops its segment or sends an empty value that the backend ignores — either way the panel renders correctly. If All emits an empty `cluster=` and the graph unexpectedly goes empty, confirm the variable's `allValue` is omitted (not `""`) and re-verify.
 
 - [ ] Step 4: VERIFY-PASS (confirm no regression on default load). Reload the dashboard with no manual selection (provisioned defaults). Confirm the panel renders the full graph (node count == N_full) — i.e., the added variables do not break the out-of-the-box demo.
       Expected: default dashboard load shows the full topology exactly as before the change.
@@ -465,7 +456,7 @@ Rewrite the single panel target URL so each variable appends a backend-readable 
 - [ ] Step 5: Commit (this task may produce a small `current`-default tweak in the JSON if Step 3 required it; otherwise commit nothing and proceed). If the JSON changed:
   ```bash
   git add provisioning/dashboards/ksg-demo.json
-  git commit -m "fix: default template variables to All to avoid empty-value backend trap"
+  git commit -m "fix: default template variables to All for clean no-filter semantics"
   ```
 
 ---
@@ -477,16 +468,16 @@ Rewrite the single panel target URL so each variable appends a backend-readable 
 - Modify: `README.md` (after line 20, the "auto-provisioned dashboard" paragraph)
 - Modify: `CLAUDE.md` (lines 53, 57, 59, 67 — Local demo section)
 
-Document the variable filter, the `:latest` backend dependency, the discovery endpoints, and the new query URL — replacing the now-stale `v0.0.14` references in the Local demo section.
+Document the variable filter, the discovery endpoints, and the new query URL. No image change is needed — `v0.0.14` already supports scope params + discovery endpoints, so the existing `KSG_BACKEND_TAG` default is unchanged.
 
-- [ ] Step 1: VERIFY-FAIL (confirm docs still say `v0.0.14` / lack variable filter mention). Run:
+- [ ] Step 1: VERIFY-FAIL (confirm docs still lack variable filter mention). Run:
 
   ```bash
   cd /Users/marz/Develop/tools/kube-state-graph-panel
-  grep -n "v0.0.14" CLAUDE.md; grep -c "customqueryparam\|template variable" README.md CLAUDE.md
+  grep -c "customqueryparam\|template variable" README.md CLAUDE.md
   ```
 
-  Expected: `CLAUDE.md` still references `v0.0.14` on lines 53/57/59/67; `grep -c` reports `0` matches for the variable-filter terms in both files.
+  Expected: `grep -c` reports `0` matches for the variable-filter terms in both files.
 
 - [ ] Step 2: README — add a "Variable filtering" note after the auto-provisioned dashboard paragraph (after line 20). Replace:
 
@@ -501,36 +492,10 @@ Document the variable filter, the `:latest` backend dependency, the discovery en
 
   ### Variable filtering
 
-  The demo dashboard exposes four template variables that filter the graph **at the backend** (`/v1/graph` scope query params): `cluster`, `namespace`, `name` (resource), and `edge_type`. They are chained — `namespace` is scoped by the selected `cluster`, and `name` by both. Multi-value selections expand to repeated query params (e.g. `cluster=prod&cluster=dr`) via Grafana's `${var:customqueryparam:<name>:}` interpolation; `All` expands to every actual value (no filter). `cluster`/`edge_type` are also seeded from the backend discovery endpoints `GET /v1/clusters` and `GET /v1/edge-types`. This requires the **`:latest`** backend image (the `v0.0.14` release does not implement scope params). Panel-side `node kind` / `edge type` visibility filters (panel options) are independent and stack on top of the backend filter.
+  The demo dashboard exposes four template variables that filter the graph **at the backend** (`/v1/graph` scope query params): `cluster`, `namespace`, `name` (resource), and `edge_type`. They are chained — `namespace` is scoped by the selected `cluster`, and `name` by both. Multi-value selections expand to repeated query params (e.g. `cluster=prod&cluster=dr`) via Grafana's `${var:customqueryparam:<name>:}` interpolation; `All` expands to every actual value (no filter). `cluster` values are sourced from the backend discovery endpoint `GET /v1/clusters` (returns `{ "clusters": [{"name":"dr"}, {"name":"prod"}] }`); `edge_type` is a fixed Custom variable with the 3 drawn edge types. The `v0.0.14` backend already implements scope params and discovery endpoints — no image change is required. Panel-side `node kind` / `edge type` visibility filters (panel options) are independent and stack on top of the backend filter.
   ```
 
-- [ ] Step 3: CLAUDE.md — update the four stale references. Apply these exact edits (lines 53, 57, 59, 67):
-
-  Line 53 — change the backend table row from `v0.0.14` to `latest`:
-
-  ```markdown
-  | `kube-state-graph` (`ksg-backend`) | the v0.0.14 backend; `KSG_PROM_URL` points it at VictoriaMetrics |
-  ```
-
-  →
-
-  ```markdown
-  | `kube-state-graph` (`ksg-backend`) | the `:latest` backend (scope query params + `/v1/clusters` + `/v1/edge-types`); `KSG_PROM_URL` points it at VictoriaMetrics |
-  ```
-
-  Line 57 — the standalone "The v0.0.14 backend derives…" sentence (NOTE: line 55 is the `ksg-seeder` table row, do **not** touch it). The PromQL-derivation behaviour is unchanged in `:latest`, so just drop the version pin so it reads as the current backend (not a historical v0.0.14 note):
-
-  ```markdown
-  **The v0.0.14 backend derives the whole graph from PromQL over a `[start,end]` window — it does NOT read the Kubernetes API.** So the demo seeds VictoriaMetrics instead of mounting a kubeconfig. Two consequences encoded in the demo:
-  ```
-
-  →
-
-  ```markdown
-  **The backend derives the whole graph from PromQL over a `[start,end]` window — it does NOT read the Kubernetes API.** So the demo seeds VictoriaMetrics instead of mounting a kubeconfig. Two consequences encoded in the demo:
-  ```
-
-  (Alternatively, if you prefer to keep the historical version reference, leave this sentence as-is — it documents PromQL-derivation behaviour, not the pinned tag — and just note here that it is intentionally retained. Either way, do not chase it as a separate fix.)
+- [ ] Step 3: CLAUDE.md — update two references. Apply these exact edits (lines 59, 67):
 
   Line 59 — extend the dashboard-query bullet to mention the scope params:
 
@@ -541,10 +506,10 @@ Document the variable filter, the `:latest` backend dependency, the discovery en
   →
 
   ```markdown
-  - The dashboard query is `/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}` plus four scope segments `&${cluster:customqueryparam:cluster:}&${namespace:…}&${name:…}&${edge_type:…}` driven by template variables — multi-value selections expand to repeated params (`cluster=prod&cluster=dr`), `All` expands to all actual values. The backend's `start`/`end` accept Unix **seconds** or RFC 3339, not millis; scope filtering is in-memory projection (design §2.1), and a stray empty `cluster=` returns **zero** nodes, so variables default to `All`.
+  - The dashboard query is `/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}` plus four scope segments `&${cluster:customqueryparam:cluster:}&${namespace:…}&${name:…}&${edge_type:…}` driven by template variables — multi-value selections expand to repeated params (`cluster=prod&cluster=dr`), `All` expands to all actual values. The backend's `start`/`end` accept Unix **seconds** or RFC 3339, not millis; scope filtering is in-memory projection (design §2.1).
   ```
 
-  Line 67 — update the trailing image-tag sentence (it currently asserts `v0.0.14` throughout). Append a clarifying note after the existing "Image tags are overridable" sentence:
+  Line 67 — append a clarifying note about the discovery endpoints after the existing "Image tags are overridable" sentence:
 
   ```markdown
   Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`.
@@ -553,7 +518,7 @@ Document the variable filter, the `:latest` backend dependency, the discovery en
   →
 
   ```markdown
-  Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`. The demo now defaults `KSG_BACKEND_TAG` to **`latest`** (not `v0.0.14`) because the variable filter needs the backend's scope query params + `/v1/clusters` / `/v1/edge-types` discovery endpoints; pin `KSG_BACKEND_TAG=v0.0.14` to revert to the pre-filter demo.
+  Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`. The `v0.0.14` backend already supports scope query params (`cluster=`, `namespace=`, `name=`, `edge_type=`) and the discovery endpoints `GET /v1/clusters` + `GET /v1/edge-types` — no image change is required for variable filtering.
   ```
 
 - [ ] Step 4: VERIFY-PASS (docs updated). Run:
@@ -564,12 +529,12 @@ Document the variable filter, the `:latest` backend dependency, the discovery en
   grep -c "v1/clusters\|v1/edge-types" README.md CLAUDE.md
   ```
 
-  Expected: `customqueryparam` matches `>= 1` in both files; discovery endpoints matched in both. Visually confirm the four CLAUDE.md edits read correctly.
+  Expected: `customqueryparam` matches `>= 1` in both files; discovery endpoints matched in both. Visually confirm the two CLAUDE.md edits read correctly.
 
 - [ ] Step 5: Commit:
   ```bash
   git add README.md CLAUDE.md
-  git commit -m "docs: document Grafana variable filtering + :latest backend dependency"
+  git commit -m "docs: document Grafana variable filtering + v0.0.14 scope param support"
   ```
 
 ---
@@ -644,7 +609,7 @@ A minimal `@grafana/plugin-e2e` spec that asserts the template variables are pre
 ## Notes for the implementer
 
 - **rtk shell proxy caveat:** This environment's Bash runs through an `rtk` proxy that can summarize/mangle `cat`/`grep`/`git` output. When a verification step's output looks corrupted, re-read files with the Read tool and pipe command output to a file then Read it.
-- **JSON root selector (`clusters`):** Tasks 2-4 assume `/v1/clusters` returns `{ ..., "clusters": [...] }` and `/v1/edge-types` returns `{ ..., "edgeTypes": [...] }` (design §4.2 says to confirm via curl). Task 1 Step 3 captures the real shape — adjust `root_selector` / Custom values accordingly before committing Task 2/4.
+- **JSON shapes (verified in Task 1):** `/v1/clusters` returns `{ "apiVersion":"v1", "clusters":[ {"name":"dr"}, {"name":"prod"} ] }` — root key `clusters`, object array with `name` field; use `root_selector: "clusters"` + `columns: [{ "selector":"name", "text":"name", "type":"string" }]`. `/v1/edge-types` returns `{ "apiVersion":"v1", "edge_types":[ {"type":"pod-runs-on-node",...}, ... ] }` — root key `edge_types` (underscore), 4 types; the Custom `edge_type` variable uses only the 3 drawn types (excludes `pod-runs-on-node`).
 - **UQL vs JSONata:** Tasks 3-4 use Infinity UQL `summarize by` for distinct extraction. If UQL `summarize` does not dedupe as expected on this Infinity version, switch the variable `query.type` to `"json"` with a JSONata `$distinct(...)` parser (design §4.2 names both). Verify in the Grafana variable "Preview of values".
 - **No panel code changes:** Per design §4.4, `normalizeGraph` is structure-agnostic; the panel renders whatever subgraph the backend returns. Do not modify `src/**` for this feature. `KsgPanel`'s existing `elements.length===0 → No graph data` path already handles a heavily-filtered empty result.
 - **Scope boundary:** This plan implements ONLY Feature 1 (Grafana variable filtering). Feature 2 (compound-node collapse via `cytoscape-expand-collapse`) and Feature C (visual reshape) are explicitly out of scope here.
