@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 
 import { SHAPE_BY_KIND } from '../../../../shared/constants/shapeByKind';
@@ -29,5 +29,17 @@ describe('NodeLegend', () => {
       const row = within(legend).getByTestId(`node-legend-row-${kind}`);
       expect(within(row).getByTestId(`shape-glyph-${shape}`)).toBeInTheDocument();
     }
+  });
+
+  it('renders a node collapse toggle and fires onToggleCollapseAll when showCollapseToggle', () => {
+    const onToggle = jest.fn();
+    render(<NodeLegend onToggleCollapseAll={onToggle} allCollapsed={false} showCollapseToggle />);
+    fireEvent.click(screen.getByTestId('node-collapse-toggle'));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no node toggle when showCollapseToggle is false', () => {
+    render(<NodeLegend onToggleCollapseAll={jest.fn()} allCollapsed={false} showCollapseToggle={false} />);
+    expect(screen.queryByTestId('node-collapse-toggle')).not.toBeInTheDocument();
   });
 });

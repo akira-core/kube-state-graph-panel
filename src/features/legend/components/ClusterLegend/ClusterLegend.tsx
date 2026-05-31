@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { useStyles2 } from '@grafana/ui';
+import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import { legendListStyles } from '../../legendStyles';
@@ -11,9 +11,11 @@ export interface ClusterLegendEntry {
 
 export interface ClusterLegendProps {
   clusters: readonly ClusterLegendEntry[];
+  onToggleCollapseAll?: () => void;
+  allCollapsed?: boolean;
 }
 
-function getStyles(): { list: string; row: string; swatch: string } {
+function getStyles(): { list: string; row: string; swatch: string; header: string } {
   return {
     ...legendListStyles(),
     swatch: css({
@@ -24,20 +26,37 @@ function getStyles(): { list: string; row: string; swatch: string } {
       borderStyle: 'solid',
       borderWidth: 1.5,
     }),
+    header: css({ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }),
   };
 }
 
 // Swatches for the clusters present in the data. Colours come from each backend
 // cluster container node (data.clusterColor, assigned in normalize) so they
 // always match the translucent on-canvas backplates. Renders nothing when empty.
-export function ClusterLegend({ clusters }: Readonly<ClusterLegendProps>): React.JSX.Element | null {
+export function ClusterLegend({
+  clusters,
+  onToggleCollapseAll,
+  allCollapsed = false,
+}: Readonly<ClusterLegendProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   if (clusters.length === 0) {
     return null;
   }
   return (
     <div data-testid="cluster-legend">
-      <h4>Clusters</h4>
+      <div className={styles.header}>
+        <h4>Clusters</h4>
+        {onToggleCollapseAll !== undefined && (
+          <IconButton
+            data-testid="cluster-collapse-toggle"
+            name={allCollapsed ? 'angle-down' : 'angle-up'}
+            aria-label={allCollapsed ? 'Expand all clusters' : 'Collapse all clusters'}
+            tooltip={allCollapsed ? 'Expand all clusters' : 'Collapse all clusters'}
+            size="sm"
+            onClick={onToggleCollapseAll}
+          />
+        )}
+      </div>
       <ul className={styles.list}>
         {clusters.map(({ name, color }) => (
           <li key={name} className={styles.row} data-testid={`cluster-legend-row-${name}`}>
