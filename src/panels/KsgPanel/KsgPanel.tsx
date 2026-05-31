@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { LoadingState, type PanelProps } from '@grafana/data';
+import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
 import React, { useMemo } from 'react';
@@ -13,7 +13,8 @@ import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
 export type KsgPanelProps = PanelProps<KsgPanelOptions>;
 
-function getStyles(): { root: string; canvasArea: string; legendArea: string } {
+function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; legendArea: string } {
+  const borderWeak = (theme.colors as unknown as { border: { weak: string } }).border.weak;
   return {
     root: css({
       display: 'flex',
@@ -25,11 +26,20 @@ function getStyles(): { root: string; canvasArea: string; legendArea: string } {
       minWidth: 0,
       position: 'relative',
     }),
+    // Legend sits to the LEFT of the canvas (rendered before it in the DOM).
+    // A hairline divider separates each stacked section (Node kinds / Edge
+    // types / Clusters): a top border on every section after the first.
     legendArea: css({
       width: 200,
       flexShrink: 0,
       padding: '0 8px',
       overflowY: 'auto',
+      borderRight: `1px solid ${borderWeak}`,
+      '& > div + div': {
+        marginTop: 8,
+        paddingTop: 8,
+        borderTop: `1px solid ${borderWeak}`,
+      },
     }),
   };
 }
@@ -89,6 +99,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
 
   return (
     <div className={styles.root}>
+      {options.showLegend && (
+        <aside className={styles.legendArea}>
+          <NodeLegend />
+          <EdgeLegend />
+          <ClusterLegend clusters={clusterEntries} />
+        </aside>
+      )}
       <div className={styles.canvasArea}>
         {emptyMessage !== null ? (
           <EmptyState message={emptyMessage} />
@@ -102,13 +119,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           />
         )}
       </div>
-      {options.showLegend && (
-        <aside className={styles.legendArea}>
-          <NodeLegend />
-          <EdgeLegend />
-          <ClusterLegend clusters={clusterEntries} />
-        </aside>
-      )}
     </div>
   );
 }

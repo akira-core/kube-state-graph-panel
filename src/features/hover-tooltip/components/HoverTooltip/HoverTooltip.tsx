@@ -5,14 +5,30 @@ import React from 'react';
 
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
-import { HOVER_LABEL_WHITELIST, type HoverTooltipProps } from './HoverTooltip.types';
+import { type HoverTooltipProps } from './HoverTooltip.types';
 
 interface TooltipRow {
   key: string;
   value: string;
 }
 
-function getStyles(theme: GrafanaTheme2): { root: string; title: string; row: string; rowKey: string } {
+// title + the structured attributes (kind/namespace/ipAddress, or edgeType) we
+// promote, then the raw backend `labels` map below a divider. We do NOT filter
+// labels here — the backend decides what to send (no panel-side whitelist).
+interface TooltipContent {
+  title: string;
+  attrs: TooltipRow[];
+  labels: TooltipRow[];
+}
+
+function getStyles(theme: GrafanaTheme2): {
+  root: string;
+  title: string;
+  row: string;
+  rowKey: string;
+  labelRow: string;
+  labelsHint: string;
+} {
   const colors = theme.colors as unknown as {
     text: { primary: string; secondary: string };
     background: { secondary: string };
@@ -45,6 +61,7 @@ function getStyles(theme: GrafanaTheme2): { root: string; title: string; row: st
       overflow: 'hidden',
       textOverflow: 'ellipsis',
     }),
+    // Promoted attributes stay single-line (they are short and structured).
     row: css({
       display: 'flex',
       gap: 4,
@@ -56,52 +73,72 @@ function getStyles(theme: GrafanaTheme2): { root: string; title: string; row: st
       color: colors.text.secondary,
       flexShrink: 0,
     }),
+    // Label values can be long (k8s labels), so let them wrap instead of clip.
+    labelRow: css({
+      display: 'flex',
+      gap: 4,
+      overflowWrap: 'anywhere',
+    }),
+    // Hinted divider: a hairline + the word "labels" introducing the raw map.
+    labelsHint: css({
+      marginTop: 6,
+      paddingTop: 6,
+      borderTop: `1px solid ${colors.border.weak}`,
+      color: colors.text.secondary,
+      fontSize: 10,
+      fontWeight: 600,
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+    }),
   };
 }
 
-function buildContent(hovered: HoveredElement): { title: string; rows: TooltipRow[] } {
+// Every string entry of a labels map as rows, skipping keys already promoted to
+// the attributes section (only `namespace` overlaps today).
+function toLabelRows(labels: unknown, promoted: ReadonlySet<string>): TooltipRow[] {
+  if (labels === null || typeof labels !== 'object') {
+    return [];
+  }
+  const rows: TooltipRow[] = [];
+  for (const [key, value] of Object.entries(labels as Record<string, unknown>)) {
+    if (promoted.has(key)) {
+      continue;
+    }
+    if (typeof value === 'string') {
+      rows.push({ key, value });
+    }
+  }
+  return rows;
+}
+
+const NODE_PROMOTED_LABELS: ReadonlySet<string> = new Set(['namespace']);
+const EDGE_PROMOTED_LABELS: ReadonlySet<string> = new Set<string>();
+
+function buildContent(hovered: HoveredElement): TooltipContent {
   const { data, group } = hovered;
   if (group === 'nodes') {
     const labelRaw = data.label;
     const idRaw = data.id;
-    const label = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
-    const rows: TooltipRow[] = [];
+    const title = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
+    const attrs: TooltipRow[] = [];
     if (typeof data.kind === 'string') {
-      rows.push({ key: 'kind', value: data.kind });
+      attrs.push({ key: 'kind', value: data.kind });
     }
     if (typeof data.namespace === 'string') {
-      rows.push({ key: 'namespace', value: data.namespace });
+      attrs.push({ key: 'namespace', value: data.namespace });
     }
     if (Array.isArray(data.ipAddress) && data.ipAddress.length > 0) {
-      rows.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
+      attrs.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
     }
-    const labels = data.labels;
-    if (labels !== null && typeof labels === 'object') {
-      const labelMap = labels as Record<string, unknown>;
-      for (const key of HOVER_LABEL_WHITELIST) {
-        const value = labelMap[key];
-        if (typeof value === 'string') {
-          rows.push({ key, value });
-        }
-      }
-    }
-    return { title: label, rows };
+    return { title, attrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
   }
 
   const title = `${hovered.sourceLabel ?? ''} → ${hovered.targetLabel ?? ''}`;
-  const rows: TooltipRow[] = [];
+  const attrs: TooltipRow[] = [];
   if (typeof data.edgeType === 'string') {
-    rows.push({ key: 'edgeType', value: data.edgeType });
+    attrs.push({ key: 'edgeType', value: data.edgeType });
   }
-  const labels = data.labels;
-  if (labels !== null && typeof labels === 'object') {
-    for (const [key, value] of Object.entries(labels as Record<string, unknown>)) {
-      if (typeof value === 'string') {
-        rows.push({ key, value });
-      }
-    }
-  }
-  return { title, rows };
+  return { title, attrs, labels: toLabelRows(data.labels, EDGE_PROMOTED_LABELS) };
 }
 
 export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Element | null {
@@ -113,13 +150,24 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
     return null;
   }
 
-  const { title, rows } = buildContent(hovered);
+  const { title, attrs, labels } = buildContent(hovered);
 
   return (
     <div className={styles.root} data-testid="hover-tooltip" role="tooltip">
       <div className={styles.title}>{title}</div>
-      {rows.map((row) => (
+      {attrs.map((row) => (
         <div key={row.key} className={styles.row}>
+          <span className={styles.rowKey}>{row.key}:</span>
+          <span>{row.value}</span>
+        </div>
+      ))}
+      {labels.length > 0 && (
+        <div className={styles.labelsHint} data-testid="hover-tooltip-labels-divider">
+          labels
+        </div>
+      )}
+      {labels.map((row) => (
+        <div key={row.key} className={styles.labelRow}>
           <span className={styles.rowKey}>{row.key}:</span>
           <span>{row.value}</span>
         </div>

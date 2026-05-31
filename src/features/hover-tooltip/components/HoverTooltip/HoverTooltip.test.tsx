@@ -120,6 +120,59 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('demo')).toBeInTheDocument();
   });
 
+  it('shows any backend label without a whitelist (e.g. node, zone)', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-7',
+      group: 'nodes',
+      data: {
+        id: 'pod-7',
+        label: 'mongodb-0',
+        kind: 'pod',
+        labels: { cluster: 'prod', node: 'prod/prod-1' },
+      },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // `node` was never whitelisted; it must now appear since the panel shows all.
+    expect(screen.getByText('node:')).toBeInTheDocument();
+    expect(screen.getByText('prod/prod-1')).toBeInTheDocument();
+  });
+
+  it('renders a "labels" divider only when labels are present', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-8',
+      group: 'nodes',
+      data: { id: 'pod-8', label: 'web', kind: 'pod', labels: { cluster: 'prod' } },
+    });
+    const { rerender } = render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByTestId('hover-tooltip-labels-divider')).toBeInTheDocument();
+
+    useHoverElement.mockReturnValue({
+      id: 'pod-bare',
+      group: 'nodes',
+      data: { id: 'pod-bare', label: 'bare', kind: 'others' },
+    });
+    rerender(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.queryByTestId('hover-tooltip-labels-divider')).not.toBeInTheDocument();
+  });
+
+  it('does not duplicate namespace in the labels block', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-ns',
+      group: 'nodes',
+      data: {
+        id: 'pod-ns',
+        label: 'gateway',
+        kind: 'pod',
+        namespace: 'apps',
+        labels: { cluster: 'prod', namespace: 'apps', node: 'prod/prod-1' },
+      },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // namespace is promoted to the attributes block, so it appears exactly once.
+    expect(screen.getAllByText('namespace:')).toHaveLength(1);
+    expect(screen.getByText('apps')).toBeInTheDocument();
+  });
+
   it('renders the cluster label for a pod-calls-pod edge', () => {
     useHoverElement.mockReturnValue({
       id: 'e3',

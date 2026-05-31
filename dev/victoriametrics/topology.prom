@@ -27,10 +27,15 @@
 # cluster: prod — MongoDB headless StatefulSet + the gateway client
 # =====================================================================
 
-# --- K8s nodes (node kind). prod-1 enriched with an ExternalIP + zone label. ---
+# --- K8s nodes (node kind). prod-1 enriched with an ExternalIP + several labels.
+#     Node hover shows the full labels block; pods only carry cluster/namespace/
+#     node (v0.0.14 does not read kube_pod_labels). Label keys are picked so KSM's
+#     label_* flattening round-trips cleanly (zone/region/arch/os; instance-type
+#     would mangle the hyphen). ---
 kube_node_info{cluster="prod",node="prod-1"} 1
 kube_node_info{cluster="prod",node="prod-2"} 1
-kube_node_labels{cluster="prod",node="prod-1",label_topology_kubernetes_io_zone="us-east-1a"} 1
+kube_node_labels{cluster="prod",node="prod-1",label_topology_kubernetes_io_zone="us-east-1a",label_topology_kubernetes_io_region="us-east-1",label_kubernetes_io_arch="amd64",label_kubernetes_io_os="linux"} 1
+kube_node_labels{cluster="prod",node="prod-2",label_topology_kubernetes_io_zone="us-east-1b",label_kubernetes_io_arch="arm64",label_kubernetes_io_os="linux"} 1
 kube_node_status_addresses{cluster="prod",node="prod-1",type="ExternalIP",address="203.0.113.10"} 1
 
 # --- pods (pod kind; labels.node drives the cluster>node>pod nesting). ---
@@ -61,10 +66,11 @@ kube_endpointslice_endpoints{cluster="prod",namespace="data",endpointslice="mong
 # cluster: dr — NATS ClusterIP workload + the consumer client
 # =====================================================================
 
-# --- K8s nodes (node kind). dr-2 enriched with a zone label. ---
+# --- K8s nodes (node kind). dr-1/dr-2 enriched with zone/region/os labels. ---
 kube_node_info{cluster="dr",node="dr-1"} 1
 kube_node_info{cluster="dr",node="dr-2"} 1
-kube_node_labels{cluster="dr",node="dr-2",label_topology_kubernetes_io_zone="eu-west-1b"} 1
+kube_node_labels{cluster="dr",node="dr-1",label_topology_kubernetes_io_zone="eu-west-1a",label_topology_kubernetes_io_region="eu-west-1",label_kubernetes_io_os="linux"} 1
+kube_node_labels{cluster="dr",node="dr-2",label_topology_kubernetes_io_zone="eu-west-1b",label_kubernetes_io_arch="amd64",label_kubernetes_io_os="linux"} 1
 
 # --- pods (consumer on dr-1; nats-0/1 on dr-1, nats-2 on dr-2). ---
 kube_pod_info{cluster="dr",namespace="apps",pod="consumer",uid="u-consumer",node="dr-1",pod_ip="10.1.1.10"} 1

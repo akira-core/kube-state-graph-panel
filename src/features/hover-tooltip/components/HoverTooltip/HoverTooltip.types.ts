@@ -7,11 +7,3 @@ export interface HoverTooltipProps {
   // never re-attach, so the tooltip silently never appears.
   ready?: boolean;
 }
-
-export const HOVER_LABEL_WHITELIST: readonly string[] = [
-  'cluster',
-  'app',
-  'version',
-  'app.kubernetes.io/name',
-  'app.kubernetes.io/instance',
-];
