@@ -72,4 +72,38 @@ describe('useGraphLayout', () => {
       renderHook(() => useGraphLayout({ cyRef, name: 'fcose' }));
     }).not.toThrow();
   });
+
+  it('reruns layout when runToken changes', () => {
+    const cy = makeCy();
+    const { layoutSpy } = stubLayout(cy);
+    const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
+    const { rerender } = renderHook(
+      ({ runToken }: { runToken: number }) => useGraphLayout({ cyRef, name: 'fcose', runToken }),
+      { initialProps: { runToken: 0 } }
+    );
+    expect(layoutSpy).toHaveBeenCalledTimes(1);
+    rerender({ runToken: 1 });
+    expect(layoutSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not rerun layout when runToken is unchanged across renders', () => {
+    const cy = makeCy();
+    const { layoutSpy } = stubLayout(cy);
+    const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
+    const { rerender } = renderHook(
+      ({ runToken }: { runToken: number }) => useGraphLayout({ cyRef, name: 'fcose', runToken }),
+      { initialProps: { runToken: 0 } }
+    );
+    expect(layoutSpy).toHaveBeenCalledTimes(1);
+    rerender({ runToken: 0 });
+    expect(layoutSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('defaults runToken to 0 so existing mount-only callers run layout exactly once', () => {
+    const cy = makeCy();
+    const { layoutSpy } = stubLayout(cy);
+    const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
+    renderHook(() => useGraphLayout({ cyRef, name: 'fcose' })); // no runToken passed
+    expect(layoutSpy).toHaveBeenCalledTimes(1);
+  });
 });
