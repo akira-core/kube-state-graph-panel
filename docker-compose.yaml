@@ -16,7 +16,7 @@ services:
       # plugin still wins.
       - ksg-grafana-plugins:/var/lib/grafana/plugins
 
-  # VictoriaMetrics is the topology data source for the v0.0.13 backend: the
+  # VictoriaMetrics is the topology data source for the v0.0.14 backend: the
   # backend derives the whole graph from PromQL over a [start,end] window, it
   # does NOT read the Kubernetes API. ksg-seeder fills it with synthetic data.
   victoriametrics:
@@ -44,14 +44,14 @@ services:
       - ./dev/victoriametrics:/seed:ro
 
   kube-state-graph:
-    image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-v0.0.13}
+    image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-v0.0.14}
     container_name: ksg-backend
     depends_on:
       - victoriametrics
     ports:
       - '8080:8080'
     environment:
-      # v0.0.13 reads topology from a Prometheus-compatible store, not kubeconfig.
+      # v0.0.14 reads topology from a Prometheus-compatible store, not kubeconfig.
       KSG_PROM_URL: http://victoriametrics:8428
 
 volumes:

@@ -31,4 +31,17 @@ describe('EdgeLegend', () => {
       expect(glyph.querySelector('polygon')?.getAttribute('fill')).toBe(style.color);
     }
   });
+
+  it('does not list pod-runs-on-node as a drawn edge', () => {
+    render(<EdgeLegend />);
+    const legend = screen.getByTestId('edge-legend');
+    expect(within(legend).queryByTestId('edge-legend-row-pod-runs-on-node')).toBeNull();
+  });
+
+  it('explains pod-runs-on-node as compound nesting instead of an edge', () => {
+    render(<EdgeLegend />);
+    const note = screen.getByTestId('edge-legend-nesting-note');
+    expect(note).toHaveTextContent(/pod-runs-on-node/);
+    expect(note).toHaveTextContent(/node box/i);
+  });
 });

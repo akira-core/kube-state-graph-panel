@@ -50,16 +50,21 @@ docker compose up -d
 | Service                            | Role                                                                                                            |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `grafana`                          | hosts the panel (`dist/` bind mount) + provisioned `KSG Demo` dashboard + Infinity datasource                   |
-| `kube-state-graph` (`ksg-backend`) | the v0.0.13 backend; `KSG_PROM_URL` points it at VictoriaMetrics                                                |
+| `kube-state-graph` (`ksg-backend`) | the v0.0.14 backend; `KSG_PROM_URL` points it at VictoriaMetrics                                                |
 | `victoriametrics`                  | the backend's topology data source (PromQL)                                                                     |
 | `ksg-seeder`                       | loops `dev/victoriametrics/seed.sh`, pushing a synthetic fixture that exercises **every** node kind + edge type |
 
-**The v0.0.13 backend derives the whole graph from PromQL over a `[start,end]` window — it does NOT read the Kubernetes API.** So the demo seeds VictoriaMetrics instead of mounting a kubeconfig. Two consequences encoded in the demo:
+**The v0.0.14 backend derives the whole graph from PromQL over a `[start,end]` window — it does NOT read the Kubernetes API.** So the demo seeds VictoriaMetrics instead of mounting a kubeconfig. Two consequences encoded in the demo:
 
 - The dashboard query is `/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}` — the backend's `start`/`end` accept Unix **seconds** or RFC 3339, not millis.
 - The seeder re-pushes the topology gauges every tick (so `last_over_time(...[window])` stays fresh) and **increments** the `traces_service_graph_request_total` counters (so `rate(...[window]) > 0`, otherwise the service-graph edges never appear).
 
-The synthetic fixture spans two clusters (`demo` + `edge`) and covers all 6 node kinds (`pod`/`node`/`pvc`/`service`/`others`/`external`) and all 4 edge types, including one cross-cluster `pod-calls-pod`. To point the demo at a real VictoriaMetrics instead, set `KSG_PROM_URL` on the `kube-state-graph` service and drop `ksg-seeder`. Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`.
+The synthetic fixture spans two clusters with one stateful pattern each (design doc: `docs/superpowers/specs/2026-05-31-ksg-v0014-compound-demo-design.md`):
+
+- **`prod`** — a MongoDB 3-replica StatefulSet behind a **headless** Service (`cluster_ip="None"`): a `<pod>.<svc>.<ns>.svc…` connection string resolves to the **real backing pod** (no Service node). Plus per-replica PVCs and the `gateway` client.
+- **`dr`** — a NATS 3-replica workload behind a **ClusterIP** Service: a `<svc>.<ns>.svc…` connection string resolves to a **Service node** with `service-selects-pod` fan-out to every backing pod. Plus the `consumer` client.
+
+Together they cover all 6 node kinds (`pod`/`node`/`pvc`/`service`/`others`/`external`) and all 4 edge types, including one cross-cluster `pod-calls-pod` (`prod/gateway → dr/consumer`). **v0.0.14 emits compound nodes**: a synthetic `type:"cluster"` group per cluster, with pods nested under their K8s node and node/service/PVC under their cluster (`data.parent`). `pod-runs-on-node` is therefore expressed as nesting and is **not drawn as an edge** in the Cytoscape view the panel consumes (design D31) — the panel legend reflects this. To point the demo at a real VictoriaMetrics instead, set `KSG_PROM_URL` on the `kube-state-graph` service and drop `ksg-seeder`. Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`.
 
 ## Architecture
 

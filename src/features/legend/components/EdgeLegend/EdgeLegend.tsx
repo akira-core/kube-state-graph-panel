@@ -6,10 +6,11 @@ import { COLOR_BY_EDGE_TYPE } from '../../../../shared/constants/colorByEdgeType
 import { legendListStyles } from '../../legendStyles';
 import { EdgeGlyph } from '../EdgeGlyph';
 
-function getStyles(): { list: string; row: string; glyph: string } {
+function getStyles(): { list: string; row: string; glyph: string; note: string } {
   return {
     ...legendListStyles(),
     glyph: css({ display: 'inline-flex', width: 30, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }),
+    note: css({ marginTop: 4, fontSize: 11, opacity: 0.7, lineHeight: 1.3 }),
   };
 }
 
@@ -29,6 +30,13 @@ export function EdgeLegend(): React.JSX.Element {
           </li>
         ))}
       </ul>
+      {/* pod-runs-on-node has no glyph: the backend expresses it as compound
+          nesting, not an edge (design D31). Explain the nesting so the absent
+          edge type does not read as missing data. */}
+      <p className={styles.note} data-testid="edge-legend-nesting-note">
+        Nesting: a pod sits inside its node box (pod-runs-on-node); nodes, services and PVCs sit inside their cluster
+        box.
+      </p>
     </div>
   );
 }
