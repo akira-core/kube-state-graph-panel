@@ -10,13 +10,13 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "border-width": 1.5,
       "color": "rgb(204, 204, 220)",
       "font-size": 11,
-      "height": 36,
+      "height": 40,
       "label": "data(label)",
       "shape": [Function],
       "text-halign": "center",
       "text-margin-y": 4,
       "text-valign": "bottom",
-      "width": 36,
+      "width": 40,
     },
   },
   {
@@ -55,6 +55,19 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "text-halign": "center",
       "text-margin-y": -4,
       "text-valign": "top",
+    },
+  },
+  {
+    "selector": "node.cy-expand-collapse-collapsed-node",
+    "style": {
+      "border-opacity": 0.9,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[?isCluster].cy-expand-collapse-collapsed-node",
+    "style": {
+      "events": "yes",
     },
   },
   {
@@ -97,6 +110,17 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "target-arrow-color": [Function],
       "target-arrow-shape": "triangle",
       "width": 1.5,
+    },
+  },
+  {
+    "selector": "edge.cy-expand-collapse-meta-edge",
+    "style": {
+      "curve-style": "bezier",
+      "line-color": "#94a3b8",
+      "line-style": "solid",
+      "target-arrow-color": "#94a3b8",
+      "target-arrow-shape": "triangle",
+      "width": 2.5,
     },
   },
 ]

@@ -74,8 +74,8 @@ export function getStylesheet({
         'text-valign': 'bottom',
         'text-halign': 'center',
         'text-margin-y': 4,
-        width: 36,
-        height: 36,
+        width: 40,
+        height: 40,
       },
     },
     {
@@ -125,6 +125,24 @@ export function getStylesheet({
         events: 'no',
       },
     },
+    {
+      // Collapsed compound node (cluster or k8s node). Heavier border signals it
+      // can be expanded; the +/- cue is drawn by the extension independently.
+      selector: 'node.cy-expand-collapse-collapsed-node',
+      style: {
+        'border-width': 3,
+        'border-opacity': 0.9,
+      },
+    },
+    {
+      // A COLLAPSED cluster becomes clickable (expand / show detail). Declared
+      // after node[?isCluster] (events:'no') so this events:'yes' wins. Expanded
+      // clusters stay decorative.
+      selector: 'node[?isCluster].cy-expand-collapse-collapsed-node',
+      style: {
+        events: 'yes',
+      },
+    },
     ...statusSelectors,
     {
       // Declared AFTER the container selectors so the selection highlight wins
@@ -148,6 +166,20 @@ export function getStylesheet({
         'line-style': ((ele: cytoscape.EdgeSingular): cytoscape.Css.LineStyle =>
           resolveEdgeStyle(ele.data('edgeType') as EdgeType | undefined, colorMap)
             .lineStyle) as unknown as cytoscape.Css.LineStyle,
+      },
+    },
+    {
+      // Aggregated edge synthesised by expand-collapse when a container is
+      // collapsed. Neutral colour + slightly heavier; exempt from edge-type
+      // filtering (visibility follows endpoints only — see useElementFilter).
+      selector: 'edge.cy-expand-collapse-meta-edge',
+      style: {
+        'curve-style': 'bezier',
+        'target-arrow-shape': 'triangle',
+        width: 2.5,
+        'line-color': FALLBACK_EDGE_STYLE.color,
+        'target-arrow-color': FALLBACK_EDGE_STYLE.color,
+        'line-style': 'solid',
       },
     },
   ];

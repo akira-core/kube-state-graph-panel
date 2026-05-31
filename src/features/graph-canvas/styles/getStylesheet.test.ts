@@ -79,6 +79,32 @@ describe('getStylesheet', () => {
     expect(colorFn(fakeEle({ edgeType: 'nope' }))).toBe(FALLBACK_EDGE_STYLE.color);
   });
 
+  it('enlarges base leaf node to 40x40', () => {
+    const nodeStyle = styleFor('node');
+    expect(nodeStyle.width).toBe(40);
+    expect(nodeStyle.height).toBe(40);
+  });
+
+  it('declares collapsed-node and meta-edge selectors with collapsed-cluster events override after node[?isCluster]', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    expect(selectors).toContain('node.cy-expand-collapse-collapsed-node');
+    expect(selectors).toContain('node[?isCluster].cy-expand-collapse-collapsed-node');
+    expect(selectors).toContain('edge.cy-expand-collapse-meta-edge');
+    // collapsed-cluster events:'yes' override must come AFTER the decorative
+    // node[?isCluster] (events:'no') so it wins the cascade.
+    expect(selectors.indexOf('node[?isCluster].cy-expand-collapse-collapsed-node')).toBeGreaterThan(
+      selectors.indexOf('node[?isCluster]')
+    );
+    const collapsedCluster = sheet.find((s) => s.selector === 'node[?isCluster].cy-expand-collapse-collapsed-node');
+    expect(collapsedCluster?.style?.events).toBe('yes');
+    const metaEdge = sheet.find((s) => s.selector === 'edge.cy-expand-collapse-meta-edge');
+    expect(metaEdge?.style?.['line-color']).toBe('#94a3b8');
+  });
+
   it('styles compound parents as boxes and leaves by kind (headless :parent)', () => {
     const cy = cytoscape({
       headless: true,
