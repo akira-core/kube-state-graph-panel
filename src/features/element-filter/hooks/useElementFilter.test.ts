@@ -11,8 +11,12 @@ describe('useElementFilter', () => {
       styleEnabled: true,
       elements: [
         { group: 'nodes', data: { id: 'a', kind: 'pod' } },
-        { group: 'nodes', data: { id: 'b', kind: 'service' } },
-        { group: 'edges', data: { id: 'e', source: 'a', target: 'b', edgeType: 'service-selects-pod' } },
+        { group: 'nodes', data: { id: 'b', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'c', kind: 'service' } },
+        // a↔b keeps both pods connected (so they survive the orphan pass); a→c is
+        // hidden because endpoint c (a filtered service kind) is hidden.
+        { group: 'edges', data: { id: 'ab', source: 'a', target: 'b', edgeType: 'pod-calls-pod' } },
+        { group: 'edges', data: { id: 'ac', source: 'a', target: 'c', edgeType: 'service-selects-pod' } },
       ],
     });
     const layoutSpy = jest.spyOn(cy, 'layout');
@@ -23,14 +27,16 @@ describe('useElementFilter', () => {
         cyRef,
         elements: cy.elements().jsons() as cytoscape.ElementDefinition[],
         visibleKinds: ['pod'],
-        visibleEdgeTypes: ['service-selects-pod'],
+        visibleEdgeTypes: ['pod-calls-pod', 'service-selects-pod'],
       })
     );
 
     expect(cy.getElementById('a').style('visibility')).toBe('visible');
-    expect(cy.getElementById('b').style('visibility')).toBe('hidden');
-    // Edge auto-hides because endpoint 'b' is hidden
-    expect(cy.getElementById('e').style('visibility')).toBe('hidden');
+    expect(cy.getElementById('b').style('visibility')).toBe('visible');
+    expect(cy.getElementById('c').style('visibility')).toBe('hidden');
+    // Edge auto-hides because endpoint 'c' is hidden
+    expect(cy.getElementById('ac').style('visibility')).toBe('hidden');
+    expect(cy.getElementById('ab').style('visibility')).toBe('visible');
     expect(layoutSpy).not.toHaveBeenCalled();
   });
 
@@ -41,9 +47,15 @@ describe('useElementFilter', () => {
       elements: [
         { group: 'nodes', data: { id: 'a', kind: 'pod' } },
         { group: 'nodes', data: { id: 'b', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'anchor', kind: 'pod' } },
         { group: 'nodes', data: { id: 'c', kind: 'service' } },
-        // meta-edge has no edgeType and is NOT in `elements` → must not be hidden
-        // by the edge-type pass; visibility follows its endpoints.
+        // Real edges keep a & b connected (as in production, where a collapsed
+        // container's real edges remain in `elements` and the meta-edge merely
+        // aggregates them visually).
+        { group: 'edges', data: { id: 'ra', source: 'a', target: 'anchor', edgeType: 'pod-calls-pod' } },
+        { group: 'edges', data: { id: 'rb', source: 'b', target: 'anchor', edgeType: 'pod-calls-pod' } },
+        // meta-edges have no edgeType and are NOT in `elements` → must not be
+        // hidden by the edge-type pass; visibility follows their endpoints.
         { group: 'edges', data: { id: 'meta', source: 'a', target: 'b' } },
         { group: 'edges', data: { id: 'meta2', source: 'a', target: 'c' } },
       ],
@@ -59,16 +71,20 @@ describe('useElementFilter', () => {
         elements: [
           { group: 'nodes', data: { id: 'a', kind: 'pod' } },
           { group: 'nodes', data: { id: 'b', kind: 'pod' } },
+          { group: 'nodes', data: { id: 'anchor', kind: 'pod' } },
           { group: 'nodes', data: { id: 'c', kind: 'service' } },
+          { group: 'edges', data: { id: 'ra', source: 'a', target: 'anchor', edgeType: 'pod-calls-pod' } },
+          { group: 'edges', data: { id: 'rb', source: 'b', target: 'anchor', edgeType: 'pod-calls-pod' } },
         ] as cytoscape.ElementDefinition[],
         visibleKinds: ['pod'],
-        visibleEdgeTypes: [],
+        visibleEdgeTypes: ['pod-calls-pod'],
       })
     );
 
-    // a,b are pods → visible; c is service → hidden.
+    // a,b,anchor are pods (connected) → visible; c is a service → hidden.
+    // meta (a→b): both endpoints visible → visible, despite having no edgeType.
     expect(cy.getElementById('meta').style('visibility')).toBe('visible');
-    // meta2 has a hidden endpoint (c) → hidden.
+    // meta2 (a→c): endpoint c hidden → hidden.
     expect(cy.getElementById('meta2').style('visibility')).toBe('hidden');
   });
 });

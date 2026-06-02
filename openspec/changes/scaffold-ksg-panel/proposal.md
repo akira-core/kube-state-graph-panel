@@ -22,6 +22,7 @@ Kubernetes 集群中的資源拓撲(Pod、Service、Deployment、Ingress 等)及
 - `panel-rendering`:Grafana panel 主體,負責 cytoscape.js 容器掛載、節點/邊樣式對應、佈局演算法選擇、主題適配(light/dark)、互動行為(zoom/pan/click/hover)、hover tooltip 顯示元素 metadata、依 node kind / edge type 過濾顯示、Grafana panel options 面板。
 - `graph-data-integration`:資料來源整合層,負責呼叫 `kube-state-graph` API、依據上游 OpenAPI 產生並維護 TypeScript 型別契約、將 API response 正規化為 cytoscape.js elements、處理錯誤與 loading 狀態。
 - `dev-environment`:本機開發與測試基礎建設,涵蓋 docker-compose 編排(grafana + backend + kind)、kind cluster bootstrap 腳本、sample k8s workloads、hot reload 設定、E2E 測試(以 Playwright 驅動 Grafana UI)。
+- `pod-parent-mode`:Pod compound 視角切換能力(legend 互動按鈕)。涵蓋 `applyPodParentMode` 純函式(`service` 模式把 pod 重新掛到其 service、合成 pod→node 的 `pod-runs-on-node` drawn edge、移除對應 `service-selects-pod` 邊;無 service 的 pod 維持掛 node)、模式相依的可繪製邊集合 `drawnEdgeTypesForMode` 與 legend/stylesheet 適配、模式切換的重新佈局。`panel-rendering` 的「Node Kind / Edge Type 過濾」需求同步擴充 orphan 級聯隱藏(過濾後失去所有可見連線且無可見子節點的節點遞迴隱藏)。
 
 ### Modified Capabilities
 

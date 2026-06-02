@@ -156,7 +156,9 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 
 ### Requirement: Node Kind / Edge Type 過濾
 
-Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `NodeKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`SHAPE_BY_KIND` / `COLOR_BY_EDGE_TYPE`)的全部 keys。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
+Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `NodeKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`SHAPE_BY_KIND` / 當前模式的 `drawnEdgeTypesForMode`)的全部 keys。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
+
+`computeVisibility` 在 kind-pass 與 edge-pass 之後 MUST 再執行 **orphan 級聯隱藏**:任一 kind 可見的節點,若既無可見 incident drawn-edge(在 `visibleEdgeIds` 中以其為 source 或 target 的邊),又無可見子節點(`data.parent` 指向它且仍可見的節點),則 MUST 自 `visibleNodeIds` 移除,並一併移出以其為端點的邊。此判定 MUST 以 fixed-point 迭代直到穩定——移除節點後變空的父容器(K8s `node`、`cluster` 容器)MUST 在後續迭代中遞迴隱藏。orphan 級聯**永遠開啟、無開關**,且作用於最終可見集合,不區分節點是「資料本來就孤立」或「因過濾才孤立」。`cluster` 容器不因 kind 過濾隱藏,但 MUST 在其所有子節點皆不可見時被收掉。meta-edge(expand-collapse 合成)不在 `elements` 內,不參與 orphan 判定;被 collapse 視覺隱藏的子節點仍視為「可見子節點」(未自 `visibleNodeIds` 移除),故 collapsed 父容器 MUST NOT 被誤判為 orphan。
 
 #### Scenario: 過濾節點 kind 後對應節點不可見且位置保留
 
@@ -166,16 +168,36 @@ Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —�
 #### Scenario: 過濾邊 type 後對應邊不可見
 
 - **WHEN** 使用者於 panel options 將 `visibleEdgeTypes` 中的 `service-selects-pod` 取消勾選
-- **THEN** 所有 `data.edgeType === 'service-selects-pod'` 的邊以 `visibility: hidden` 隱藏;節點與其他邊不受影響
+- **THEN** 所有 `data.edgeType === 'service-selects-pod'` 的邊以 `visibility: hidden` 隱藏;其他邊不受影響;未因此變孤立(仍有其他可見邊或可見子節點)的節點維持可見
 
 #### Scenario: 邊在任一端點被隱藏時自動隱藏
 
 - **WHEN** 邊的 source 或 target 節點因 `visibleKinds` 過濾而被隱藏
 - **THEN** 該邊 MUST 也被隱藏(無懸空線),即使該邊的 `edgeType` 仍在 `visibleEdgeTypes` 中
 
+#### Scenario: 過濾後失去所有可見連線的節點級聯隱藏
+
+- **WHEN** 使用者過濾 edge type(或後端 `edge_type` scope 不回傳),導致某節點在 `visibleEdgeIds` 中再無任何以其為端點的邊,且該節點無可見子節點
+- **THEN** 該節點 MUST 以 `visibility: hidden` 隱藏;以其為端點的邊一併隱藏;不觸發 layout 重排
+
+#### Scenario: 變空的容器遞迴隱藏
+
+- **WHEN** 某 K8s `node` 容器底下所有 pod 子節點皆因 orphan 級聯被隱藏,且該 `node` 無其他可見邊
+- **THEN** 該 `node` 容器 MUST 在後續迭代中一併隱藏;若該動作使其所屬 `cluster` 容器再無任何可見子節點,則 `cluster` 容器亦 MUST 隱藏
+
+#### Scenario: 有可見子節點的容器保留
+
+- **WHEN** 某容器(K8s `node` 或 `cluster`)自身無可見 incident edge,但其底下仍有至少一個可見子節點
+- **THEN** 該容器 MUST 維持可見(不被當作 orphan 隱藏)
+
+#### Scenario: 資料本來就孤立的節點預設隱藏
+
+- **WHEN** 上游回傳一個既無任何邊、又無任何子節點的節點(即使使用者未做任何過濾)
+- **THEN** 該節點 MUST 被 orphan 級聯隱藏(規則一致,不保留無連線的孤立節點)
+
 #### Scenario: 過濾不重跑 layout
 
-- **WHEN** 使用者切換 `visibleKinds` 或 `visibleEdgeTypes`
+- **WHEN** 使用者切換 `visibleKinds` 或 `visibleEdgeTypes`(含因此觸發的 orphan 級聯)
 - **THEN** `useElementFilter` 透過 `cy.batch()` 套用 `style('visibility', ...)`;**不**呼叫 `cy.layout(...).run()`;節點位置保持原狀(座標不變)
 
 #### Scenario: 全部 node kind 被過濾顯示 EmptyState
@@ -206,7 +228,7 @@ Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —�
 #### Scenario: `computeVisibility` 純函式可單測
 
 - **WHEN** CI 跑 `npm run test`
-- **THEN** `computeVisibility.test.ts` 覆蓋以下案例皆通過:全部可見、過濾單一 kind、過濾單一 edgeType、過濾節點同時造成邊端點失效、空 elements、unknown kind 預設可見
+- **THEN** `computeVisibility.test.ts` 覆蓋以下案例皆通過:全部可見、過濾單一 kind、過濾單一 edgeType、過濾節點同時造成邊端點失效、空 elements、unknown kind 預設可見、單層 orphan(節點失去唯一邊)、遞迴 orphan(pod→node→cluster 連鎖變空)、有可見子節點的容器保留、資料本來就孤立的節點被隱藏
 
 ### Requirement: 空狀態與錯誤狀態渲染
 

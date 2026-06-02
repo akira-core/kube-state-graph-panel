@@ -4,11 +4,14 @@ import { Alert, useStyles2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
 import React, { useCallback, useMemo, useState } from 'react';
 
+import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
 import { useGraphData } from '../../features/graph-data';
 import { ClusterLegend, EdgeLegend, NodeLegend, StatusLegend, type ClusterLegendEntry } from '../../features/legend';
 import { NodeDetailPanel, type NodeDetailData } from '../../features/node-detail';
+import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
+import type { PodParentMode } from '../../shared/constants/types';
 
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
@@ -47,11 +50,15 @@ function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; le
 
 // Pure resolution of the selected node's detail data from the element list.
 // Module-level so the panel can call it inline (React Compiler memoizes).
-function resolveSelectedNode(
+// Exported for unit testing. A node that is not in `visibleNodeIds` (hidden by
+// kind/edge filtering or orphan cascade) resolves to null so the detail panel
+// never describes a node that is not on the canvas.
+export function resolveSelectedNode(
   elements: cytoscape.ElementDefinition[],
-  selectedNodeId: string | null
+  selectedNodeId: string | null,
+  visibleNodeIds: ReadonlySet<string>
 ): NodeDetailData | null {
-  if (selectedNodeId === null) {
+  if (selectedNodeId === null || !visibleNodeIds.has(selectedNodeId)) {
     return null;
   }
   for (const el of elements) {
@@ -82,17 +89,36 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
 
   const isLoading = data.state === LoadingState.Loading;
   const seriesError = data.errors?.[0]?.message;
-  const { elements, error: normalizeError } = useGraphData(data);
+  const { elements: baseElements, error: normalizeError } = useGraphData(data);
+
+  // Pod-parent view mode — local state, toggled from the legend (Grafana panel
+  // options are read-only at runtime, so this cannot be an option). 'service'
+  // re-parents pods under their selecting Service and swaps the pod↔node /
+  // pod↔service relationships between nesting and drawn edge. Default 'node'
+  // returns the backend's native structure unchanged.
+  const [podParentMode, setPodParentMode] = useState<PodParentMode>('node');
+  const togglePodParentMode = useCallback(() => {
+    setPodParentMode((mode) => (mode === 'node' ? 'service' : 'node'));
+  }, []);
+  const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
 
   // Selected node id drives both the detail panel and (controlled) the cy
   // selection highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
+  // Same visibility set the canvas applies (kind/edge filter + orphan cascade),
+  // computed from the mode-transformed elements. Used to keep the detail panel in
+  // step with the canvas: a selected node that gets hidden closes the panel.
+  const { visibleNodeIds } = useMemo(
+    () => computeVisibility(elements, visibleKinds, visibleEdgeTypes),
+    [elements, visibleKinds, visibleEdgeTypes]
+  );
+
   // Resolve the selected node's display data from elements via a pure helper, so
   // the React Compiler memoizes it (a manual useMemo with a loop + early returns
-  // trips react-hooks/preserve-manual-memoization). Cluster containers are
-  // excluded; a missing id (data refresh removed it) closes the panel.
-  const selectedNode = resolveSelectedNode(elements, selectedNodeId);
+  // trips react-hooks/preserve-manual-memoization). Cluster containers and hidden
+  // nodes are excluded; a missing id (data refresh removed it) closes the panel.
+  const selectedNode = resolveSelectedNode(elements, selectedNodeId, visibleNodeIds);
 
   // Cluster swatches are derived from the backend's compound (cluster) container
   // nodes, so the legend colours always match the on-canvas backplates (single
@@ -226,7 +252,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             allCollapsed={allNodesCollapsed}
             showCollapseToggle={k8sNodeContainerIds.length > 0}
           />
-          <EdgeLegend />
+          <EdgeLegend mode={podParentMode} onToggleMode={togglePodParentMode} />
           <StatusLegend />
         </aside>
       )}
@@ -245,6 +271,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               selectedId={selectedNodeId}
               collapsedIds={collapsedIds}
               onCollapsedChange={setCollapsedIds}
+              podParentMode={podParentMode}
             />
             <NodeDetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
           </>

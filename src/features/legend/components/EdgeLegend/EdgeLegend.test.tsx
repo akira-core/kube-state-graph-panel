@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 
 import { COLOR_BY_EDGE_TYPE } from '../../../../shared/constants/colorByEdgeType';
@@ -43,5 +43,42 @@ describe('EdgeLegend', () => {
     const note = screen.getByTestId('edge-legend-nesting-note');
     expect(note).toHaveTextContent(/pod-runs-on-node/);
     expect(note).toHaveTextContent(/node box/i);
+  });
+
+  describe('service pod-parent mode', () => {
+    it('lists pod-runs-on-node and drops service-selects-pod', () => {
+      render(<EdgeLegend mode="service" />);
+      const legend = screen.getByTestId('edge-legend');
+      expect(within(legend).getByTestId('edge-legend-row-pod-runs-on-node')).toBeInTheDocument();
+      expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
+    });
+
+    it('explains service-selects-pod as nesting in the note', () => {
+      render(<EdgeLegend mode="service" />);
+      const note = screen.getByTestId('edge-legend-nesting-note');
+      expect(note).toHaveTextContent(/service-selects-pod/);
+      expect(note).toHaveTextContent(/service box/i);
+    });
+  });
+
+  describe('mode toggle', () => {
+    it('renders no toggle button when onToggleMode is omitted', () => {
+      render(<EdgeLegend />);
+      expect(screen.queryByTestId('pod-parent-mode-toggle')).toBeNull();
+    });
+
+    it('calls onToggleMode when the toggle is clicked', () => {
+      const onToggleMode = jest.fn();
+      render(<EdgeLegend mode="node" onToggleMode={onToggleMode} />);
+      fireEvent.click(screen.getByTestId('pod-parent-mode-toggle'));
+      expect(onToggleMode).toHaveBeenCalledTimes(1);
+    });
+
+    it('labels the toggle by the action it performs in the current mode', () => {
+      const { rerender } = render(<EdgeLegend mode="node" onToggleMode={jest.fn()} />);
+      expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under services');
+      rerender(<EdgeLegend mode="service" onToggleMode={jest.fn()} />);
+      expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under nodes');
+    });
   });
 });

@@ -170,3 +170,28 @@
 - [x] 20.7 `KsgPanel`:`selectedNodeId` state、由 elements 解析 selectedNode、傳 onSelect/selectedId、渲染 NodeDetailPanel;`KsgPanel.test.tsx` 補選取→開啟→關閉
 - [x] 20.8 驗證:typecheck + lint(0 warning)+ test:ci + build 全綠
 - [ ] 20.9 demo/backend `data.status` 確認(後端未送則 demo 全綠,屬已知限制)
+
+## 21. Orphan 級聯隱藏(element-filter)
+
+> 延伸功能(spec:`panel-rendering` 的「Node Kind / Edge Type 過濾」需求擴充 + 新 `pod-parent-mode` capability)。過濾後失去所有可見連線且無可見子節點的節點遞迴隱藏,含變空的 K8s node / cluster 容器。永遠開啟、無開關;不重跑 layout。
+
+- [x] 21.1 (RED) `computeVisibility.test.ts` 新增失敗測試:單層 orphan(節點失去唯一可見邊→隱藏)、遞迴 orphan(pod 隱藏→node 變空→cluster 變空)、有可見子節點的容器保留、`cluster` 在所有子節點不可見時被收掉、資料本來就孤立的節點被隱藏。並改寫兩個既有測試(`hides nodes whose kind is filtered out`、`keeps unknown kinds visible`)改用連通節點(lone 節點現會被 orphan 收掉)
+- [x] 21.2 (GREEN) `computeVisibility.ts`:於 kind-pass / edge-pass 之後新增 orphan fixed-point pass(建 `parentId → Set<childId>` 索引,迭代移除「無可見 incident drawn-edge 且無可見子節點」者並連帶移出其邊,直到收斂;`cluster` 不因 kind 過濾隱藏但因無可見子節點被收掉)
+- [x] 21.3 `useElementFilter` 行為不變(仍 `visibility: hidden`、不重跑 layout);改寫其兩個既有測試以連通節點呈現 meta-edge 端點(反映真實 collapse 語意),不變更 hook 程式碼
+- [x] 21.4 (REFACTOR) orphan pass 抽為 `hideOrphans` helper(維持純函式),涵蓋邊界:空 elements、全部過濾、unknown kind 的孤立節點;`computeVisibility` 11 測試全綠
+
+## 22. Pod-parent 模式切換(pod-parent-mode feature)
+
+> 延伸功能(spec:新 `pod-parent-mode` capability)。legend 按鈕切 `node ⇄ service`;`service` 模式把有 service 的 pod 巢狀進 service、合成 pod→node 的 `pod-runs-on-node` drawn edge、移除對應 `service-selects-pod` 邊;`pod-runs-on-node` 改為模式相依可繪製。模式為 KsgPanel local state,切換重跑一次 layout。
+
+- [x] 22.1 (RED) `src/shared/constants/drawnEdgeTypesForMode.test.ts`:`node` → `[pod-mounts-pvc, pod-calls-pod, service-selects-pod]`;`service` → `[pod-mounts-pvc, pod-calls-pod, pod-runs-on-node]`
+- [x] 22.2 (GREEN) `colorByEdgeType.ts` 新增涵蓋全 4 種 `EdgeType` 的單一 master 樣式來源 `EDGE_STYLE_BY_TYPE`(`pod-runs-on-node` = 藍實線,與現有三色區隔),`COLOR_BY_EDGE_TYPE` 由其衍生;`drawnEdgeTypesForMode.ts` 導出 `drawnEdgeTypesForMode(mode)`(置於 `shared/constants` 供 element-filter / graph-canvas / legend 共用);`PodParentMode` 型別加到 `types.ts`
+- [x] 22.3 (RED) `src/features/pod-parent-mode/applyPodParentMode.test.ts`:node passthrough、service re-parent + 合成 edge + 移除 select 邊、多 service tie-break(id 字典序最小)、無 service pod 不動、跨 cluster `pod-calls-pod` 不受影響、immutable 不就地修改
+- [x] 22.4 (GREEN) `src/features/pod-parent-mode/applyPodParentMode.ts`:由 `service-selects-pod` 邊建 `podId → serviceId[]`;`service` 模式重設 parent、合成 `pod-runs-on-node` edge(id `ppm:pod-runs-on-node:<podId>`)、移除**所有** `service-selects-pod` 邊;immutable;`normalizeGraph` 不被改動;`index.ts` barrel 導出 `applyPodParentMode`(切換按鈕置於 `EdgeLegend`)
+- [x] 22.5 (RED→GREEN) layout run token 一般化:抽出 `useLayoutRunToken({ collapsedIds, podParentMode })`(取代 inline `useCollapseRunToken`),模式或 collapsed-id 內容變動時 bump、其餘不 bump;`useLayoutRunToken.test.tsx` 5 測試綠
+- [x] 22.6 整合 `KsgPanel`:`podParentMode` local state(`useState<'node'|'service'>('node')`)+ `togglePodParentMode`,以 `applyPodParentMode(baseElements, podParentMode)`(useMemo)取代 elements;傳 `podParentMode` 給 `GraphCanvas`(→ layout run token)
+- [x] 22.7 legend 切換按鈕置於 `EdgeLegend` header(沿用 IconButton `exchange-alt`,aria-label 隨模式),`onClick` 翻轉模式 + 元件測試;`EdgeLegend` 列出邊與註解吃 `drawnEdgeTypesForMode(mode)`;`getStylesheet` colorMap 改用 master `EDGE_STYLE_BY_TYPE`(mode-agnostic);`ALL_EDGE_TYPES`/預設 `visibleEdgeTypes` = 全 4 種;stylesheet snapshot 不變(函式式 resolver)
+- [x] 22.8 collapse × orphan × 模式切換並存:`service` 模式 service 成為 compound 父節點(可 collapse);`k8sNodeContainerIds` 在 service 模式自然為空(node 無子節點),NodeLegend collapse 鈕優雅隱藏;切模式經 diff-patch + `reconcileCollapse` + 單次 layout
+- [x] 22.9 自動驗證:`npm run typecheck` + `npm run lint`(0 warning)+ `npm run test:ci`(165 綠 / 29 suites)+ `npm run build` 全綠;`openspec validate scaffold-ksg-panel --strict` 通過
+- [x] 22.10 對抗式 multi-agent review(4 維度 × 獨立驗證)後修正:(a) **HIGH** `applyPodParentMode` 合成 `pod-runs-on-node` 邊前先驗證 target node 存在(建 `nodeIds` Set,parent 不在其中則不合成,避免 dangling edge)+ 測試;(b) 無 parent 的 pod 不合成邊之契約以測試鎖定;(c) **MEDIUM** detail 面板與畫布同步——`resolveSelectedNode` 加 `visibleNodeIds` 參數,被 orphan/過濾隱藏的選取節點不再顯示於 detail 面板(導出並單測);(d) **LOW** 模式切換時 K8s node collapse 鈕消失為 spec 22.8 既定行為,不需修改
+- [ ] 22.11 demo 手動驗收(需 `docker compose up -d`):過濾後 orphan 消失;切 service 模式 pod 巢狀進 NATS service、出現 pod→node 邊、headless MongoDB pod 維持掛 node;demo dashboard `visibleEdgeTypes` 已含全 4 種(`pod-runs-on-node` 在 service 模式可見)

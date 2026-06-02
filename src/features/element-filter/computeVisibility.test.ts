@@ -2,8 +2,10 @@ import type cytoscape from 'cytoscape';
 
 import { computeVisibility } from './computeVisibility';
 
-const node = (id: string, kind: string): cytoscape.ElementDefinition =>
-  ({ group: 'nodes', data: { id, kind } }) as unknown as cytoscape.ElementDefinition;
+const node = (id: string, kind: string, extra: Record<string, unknown> = {}): cytoscape.ElementDefinition =>
+  ({ group: 'nodes', data: { id, kind, ...extra } }) as unknown as cytoscape.ElementDefinition;
+const cluster = (id: string): cytoscape.ElementDefinition =>
+  ({ group: 'nodes', data: { id, isCluster: true } }) as unknown as cytoscape.ElementDefinition;
 const edge = (id: string, source: string, target: string, edgeType: string): cytoscape.ElementDefinition =>
   ({ group: 'edges', data: { id, source, target, edgeType } }) as unknown as cytoscape.ElementDefinition;
 
@@ -16,9 +18,10 @@ describe('computeVisibility', () => {
   });
 
   it('hides nodes whose kind is filtered out', () => {
-    const elements = [node('a', 'pod'), node('b', 'service')];
-    const { visibleNodeIds } = computeVisibility(elements, ['service'], []);
-    expect([...visibleNodeIds]).toEqual(['b']);
+    // Survivors stay connected so the assertion isolates kind filtering, not orphan cascade.
+    const elements = [node('a', 'pod'), node('b', 'pod'), node('s', 'service'), edge('e', 'a', 'b', 'pod-calls-pod')];
+    const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
+    expect([...visibleNodeIds]).toEqual(['a', 'b']);
   });
 
   it('hides edges whose edgeType is filtered out', () => {
@@ -39,9 +42,78 @@ describe('computeVisibility', () => {
     expect(visibleEdgeIds.size).toBe(0);
   });
 
-  it('keeps unknown kinds visible by default', () => {
-    const elements = [node('cr', 'CustomResource')];
-    const { visibleNodeIds } = computeVisibility(elements, [], []);
-    expect([...visibleNodeIds]).toEqual(['cr']);
+  it('keeps unknown kinds visible by default when connected', () => {
+    // Unknown kind is not subject to kind filtering (forward-compat); it stays because it has a visible edge.
+    const elements = [node('cr', 'CustomResource'), node('b', 'pod'), edge('e', 'cr', 'b', 'pod-calls-pod')];
+    const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
+    expect([...visibleNodeIds]).toEqual(['cr', 'b']);
+  });
+
+  describe('orphan cascade-hide', () => {
+    it('hides a node that loses its only edge to edge-type filtering', () => {
+      const elements = [
+        node('a', 'pod'),
+        node('b', 'pod'),
+        node('v', 'pvc'),
+        edge('e1', 'a', 'b', 'pod-calls-pod'),
+        edge('e2', 'a', 'v', 'pod-mounts-pvc'),
+      ];
+      // Hide pod-mounts-pvc only: v loses its only edge and has no children -> orphan.
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(elements, ['pod', 'pvc'], ['pod-calls-pod']);
+      expect([...visibleNodeIds]).toEqual(['a', 'b']);
+      expect([...visibleEdgeIds]).toEqual(['e1']);
+    });
+
+    it('hides a standalone node with no edges and no children', () => {
+      const elements = [node('a', 'pod')];
+      const { visibleNodeIds } = computeVisibility(elements, ['pod'], []);
+      expect([...visibleNodeIds]).toEqual([]);
+    });
+
+    it('keeps a container visible while it has a visible child', () => {
+      // n is a compound parent with no incident edge; it stays because child p1 stays (p1 has a visible edge).
+      const elements = [
+        cluster('cl'),
+        node('n', 'node', { parent: 'cl' }),
+        node('p1', 'pod', { parent: 'n' }),
+        node('ext', 'external', { parent: 'cl' }),
+        edge('e', 'p1', 'ext', 'pod-calls-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, ['pod', 'node', 'external'], ['pod-calls-pod']);
+      expect(visibleNodeIds.has('n')).toBe(true);
+      expect(visibleNodeIds.has('cl')).toBe(true);
+      expect(visibleNodeIds.has('p1')).toBe(true);
+    });
+
+    it('recursively hides an emptied node container and its cluster', () => {
+      const elements = [
+        cluster('cl'),
+        node('n', 'node', { parent: 'cl' }),
+        node('p1', 'pod', { parent: 'n' }),
+        node('p2', 'pod', { parent: 'n' }),
+        edge('e', 'p1', 'p2', 'pod-calls-pod'),
+      ];
+      // Hide the only edge: pods orphan -> node empties -> cluster empties.
+      const { visibleNodeIds } = computeVisibility(elements, ['pod', 'node'], []);
+      expect([...visibleNodeIds]).toEqual([]);
+    });
+
+    it('keeps a cluster visible when at least one descendant stays', () => {
+      const elements = [
+        cluster('cl'),
+        node('n', 'node', { parent: 'cl' }),
+        node('p1', 'pod', { parent: 'n' }),
+        node('p2', 'pod', { parent: 'n' }),
+        node('v', 'pvc', { parent: 'cl' }),
+        edge('e', 'p1', 'v', 'pod-mounts-pvc'),
+      ];
+      // p1 & v stay (connected); p2 orphans; n stays (has p1); cl stays.
+      const { visibleNodeIds } = computeVisibility(elements, ['pod', 'node', 'pvc'], ['pod-mounts-pvc']);
+      expect(visibleNodeIds.has('cl')).toBe(true);
+      expect(visibleNodeIds.has('n')).toBe(true);
+      expect(visibleNodeIds.has('p1')).toBe(true);
+      expect(visibleNodeIds.has('v')).toBe(true);
+      expect(visibleNodeIds.has('p2')).toBe(false);
+    });
   });
 });

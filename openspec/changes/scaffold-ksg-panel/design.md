@@ -497,6 +497,19 @@ interface KsgPanelOptions {
 
 回滾策略不適用(新專案)。
 
+## 延伸功能:Orphan 級聯隱藏 + Pod-parent 模式切換
+
+> 後續延伸(spec:`panel-rendering` 過濾需求擴充 + 新 `pod-parent-mode` capability;tasks §21–§22)。
+
+**Orphan 級聯隱藏(一致規則)**:`computeVisibility` 在 kind/edge pass 後執行 fixed-point pass,移除「無可見 incident drawn-edge 且無可見子節點」的節點並遞迴收掉變空容器(含 cluster)。採**一致**規則(連資料本來就孤立的節點也收),而非只收「因過濾才孤立」者——規則單一可測,代價是需改寫兩個既有測試(原本以 lone 節點斷言可見)。永遠開啟、無開關;`useElementFilter` 仍只套 `visibility:hidden`、不重跑 layout。
+
+**Pod-parent 模式(node ⇄ service)**:
+
+- 模式為 `KsgPanel` local state(比照 `collapsedIds`),由 `EdgeLegend` 的 IconButton 即時切換——Grafana panel options runtime 唯讀,無法由 panel UI 回寫,故不做成 option。
+- `applyPodParentMode(elements, mode)` 為 `normalizeGraph` 之後的純函式 transform(`normalizeGraph` 維持純 anti-corruption、不吃 options)。`service` 模式:有 `service-selects-pod` 邊的 pod 重掛到 id 字典序最小的 service、合成 `pod-runs-on-node` drawn edge(→原 node)、移除**所有** `service-selects-pod` 邊;無 service 的 pod(headless / 獨立)不動。
+- **D31 不變式刻意鬆動**:`pod-runs-on-node` 從「永不繪製」改為「`service` 模式繪製」。以 `drawnEdgeTypesForMode(mode)` 表達每模式的 drawn 集合(僅驅動 legend 顯示與註解);master `EDGE_STYLE_BY_TYPE` 涵蓋全 4 型別供 stylesheet mode-agnostic 上色;`ALL_EDGE_TYPES`/預設 `visibleEdgeTypes` = 全 4 型別,確保切到 service 模式時 `pod-runs-on-node` 不被預設過濾。
+- 模式切換是結構變更(parent + edge 增刪),故 `useCollapseRunToken` 一般化為 `useLayoutRunToken({ collapsedIds, podParentMode })`,模式變動時 bump token → `useGraphLayout` 單次重跑;diff-patch 照常套用、`reconcileCollapse` 保留可保留的 collapse 狀態。
+
 ## Open Questions
 
 - 上游 `kube-state-graph` 是否已輸出 OpenAPI spec?若無,需要先協調補上 `/openapi.json` 端點,或在本 repo 維護一份手寫 spec 作為過渡。

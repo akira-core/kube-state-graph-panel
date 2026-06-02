@@ -1,6 +1,6 @@
 import type cytoscape from 'cytoscape';
 
-import type { EdgeType, NodeKind } from '../../../../shared/constants/types';
+import type { EdgeType, NodeKind, PodParentMode } from '../../../../shared/constants/types';
 import type { CyStylesheet } from '../../hooks/useCytoscape';
 import type { LayoutName } from '../../hooks/useGraphLayout';
 
@@ -20,4 +20,7 @@ export interface GraphCanvasProps {
   // next Set (not a delta).
   collapsedIds?: Set<string>;
   onCollapsedChange?: (next: Set<string>) => void;
+  // Pod-parent mode. Changing it (re-parent + edge swap) triggers a single
+  // re-layout via the run token. Omitted → treated as 'node' (no extra layout).
+  podParentMode?: PodParentMode;
 }

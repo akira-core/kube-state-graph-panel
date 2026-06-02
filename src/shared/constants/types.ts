@@ -19,3 +19,10 @@ export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
 // border colour (pod/node/pvc) and the detail panel badge. Absent/unknown values
 // are normalised to 'normal'.
 export type NodeStatus = 'normal' | 'warning' | 'critical';
+
+// Which K8s object a pod is compound-nested under (panel-side view toggle, not a
+// wire value). 'node' (default) = backend's view: pod nests in its K8s node,
+// `pod-runs-on-node` is nesting and `service-selects-pod` is drawn. 'service' =
+// pod nests in its selecting Service, `service-selects-pod` becomes nesting and
+// `pod-runs-on-node` is drawn. See features/pod-parent-mode.
+export type PodParentMode = 'node' | 'service';

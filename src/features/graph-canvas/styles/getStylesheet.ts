@@ -1,7 +1,7 @@
 import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
-import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
+import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { FALLBACK_SHAPE, SHAPE_BY_KIND, type CytoscapeNodeShape } from '../../../shared/constants/shapeByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
@@ -39,7 +39,10 @@ function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, Edge
 export function getStylesheet({
   theme,
   shapeMap = SHAPE_BY_KIND,
-  colorMap = COLOR_BY_EDGE_TYPE,
+  // Master map covers all wire edge types (incl. pod-runs-on-node) so the
+  // stylesheet can colour the service-mode pod→node edge; resolving a type with
+  // no edges in the current view is harmless.
+  colorMap = EDGE_STYLE_BY_TYPE,
 }: GetStylesheetInput): CyStylesheet[] {
   // @grafana/data marks these subfields optional but Grafana always populates them at runtime.
   const colors = theme.colors as unknown as {
