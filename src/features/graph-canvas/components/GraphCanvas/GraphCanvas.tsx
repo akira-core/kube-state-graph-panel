@@ -67,6 +67,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   const { containerRef, cyRef, isReady } = useCytoscape({
     elements,
     stylesheet,
+    podParentMode,
     ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: runToken } : {}),
   });
 

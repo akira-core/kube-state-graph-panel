@@ -2,6 +2,8 @@ import { render, act, renderHook } from '@testing-library/react';
 import cytoscape from 'cytoscape';
 import React, { type MutableRefObject } from 'react';
 
+import type { PodParentMode } from '../../../shared/constants/types';
+
 import { useCytoscape, type CyStylesheet } from './useCytoscape';
 
 interface HarnessProps {
@@ -121,6 +123,89 @@ const baseElements: cytoscape.ElementDefinition[] = [
   { group: 'nodes', data: { id: 'cl', isCluster: true } },
   { group: 'nodes', data: { id: 'p1', parent: 'cl', kind: 'pod' } },
 ];
+
+describe('useCytoscape compound re-parenting', () => {
+  const withParent = (parent: string): cytoscape.ElementDefinition[] => [
+    { group: 'nodes', data: { id: 'A', isCluster: true } },
+    { group: 'nodes', data: { id: 'B', isCluster: true } },
+    { group: 'nodes', data: { id: 'p1', parent, kind: 'pod' } },
+  ];
+
+  it('moves a node to its new compound parent when data.parent changes, and back again', () => {
+    // cytoscape only re-nests via node.move({parent}); a bare data('parent') update
+    // does not relocate the node. This mirrors the pod-parent mode toggle: switching
+    // to 'service' and back must move the pod between containers in both directions.
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: withParent('A') });
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({ elements: props.elements, stylesheet: [] }),
+      { initialProps: { elements: withParent('A') } }
+    );
+    result.current.cyRef.current = cy;
+    expect(cy.getElementById('p1').parent().first().id()).toBe('A');
+
+    rerender({ elements: withParent('B') });
+    expect(cy.getElementById('p1').parent().first().id()).toBe('B');
+
+    rerender({ elements: withParent('A') });
+    expect(cy.getElementById('p1').parent().first().id()).toBe('A');
+
+    cy.destroy();
+  });
+});
+
+describe('useCytoscape pod-parent mode rebuild', () => {
+  const nodeMode: cytoscape.ElementDefinition[] = [
+    { group: 'nodes', data: { id: 'node-a', kind: 'node' } },
+    { group: 'nodes', data: { id: 'svc', kind: 'service' } },
+    { group: 'nodes', data: { id: 'p1', parent: 'node-a', kind: 'pod' } },
+  ];
+  const serviceMode: cytoscape.ElementDefinition[] = [
+    { group: 'nodes', data: { id: 'node-a', kind: 'node' } },
+    { group: 'nodes', data: { id: 'svc', kind: 'service' } },
+    { group: 'nodes', data: { id: 'p1', parent: 'svc', kind: 'pod' } },
+    { group: 'edges', data: { id: 'ppm', source: 'p1', target: 'node-a', edgeType: 'pod-runs-on-node' } },
+  ];
+
+  it('re-nests pods on mode change in both directions (collapse-aware path)', () => {
+    // The live bug: toggling node→service→node left pods stuck under the service
+    // because dynamic re-parenting is unreliable under the expand-collapse
+    // extension. The fix rebuilds the element set on mode change so nesting is
+    // applied at add() time. (The real extension is not in the jest env, so this
+    // guards the rebuild branch's correctness rather than the live interference.)
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: nodeMode });
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set<string>() } as MutableRefObject<ReadonlySet<string>>;
+    const suppressRef = { current: false };
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[]; collapseKey: number; podParentMode: PodParentMode }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef,
+          onCollapsedChange: jest.fn(),
+          collapseKey: props.collapseKey,
+          podParentMode: props.podParentMode,
+        }),
+      { initialProps: { elements: nodeMode, collapseKey: 0, podParentMode: 'node' } }
+    );
+    result.current.cyRef.current = cy;
+    expect(cy.getElementById('p1').parent().first().id()).toBe('node-a');
+
+    rerender({ elements: serviceMode, collapseKey: 1, podParentMode: 'service' });
+    expect(cy.getElementById('p1').parent().first().id()).toBe('svc');
+    expect(cy.getElementById('ppm').length).toBe(1);
+
+    rerender({ elements: nodeMode, collapseKey: 2, podParentMode: 'node' });
+    expect(cy.getElementById('p1').parent().first().id()).toBe('node-a');
+    expect(cy.getElementById('ppm').length).toBe(0);
+
+    cy.destroy();
+  });
+});
 
 describe('useCytoscape collapse-aware diff-patch', () => {
   it('expands all, patches, then re-collapses present parents and reports prune in order', () => {

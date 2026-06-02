@@ -76,6 +76,11 @@ Panel SHALL 提供一個 legend 互動按鈕,在 `node`(預設)與 `service` 兩
 - **WHEN** 其他 props 變更但 `podParentMode` 與 collapsed-id 內容皆未變
 - **THEN** run token 不遞增,layout 不重跑
 
+#### Scenario: 切換與還原皆實際改變 compound 巢狀
+
+- **WHEN** 使用者切到 `service` 模式,之後再切回 `node` 模式
+- **THEN** pod 在 `service` 模式 MUST 實際巢狀於其 service 容器,切回 `node` 模式後 MUST 實際巢狀回其 K8s node 容器,雙向皆生效。因為 cytoscape 只在 `add()` 時可靠地建立 compound 巢狀(動態 `data('parent')` / `move()` 在 batch + expand-collapse extension 下不可靠),`useCytoscape` 偵測到 `podParentMode` 改變時 MUST 以整批重建(`cy.elements().remove()` + `cy.add(elements)`)套用新階層,而非 diff-patch;模式切換同時 bump layout run token,重建後重新佈局
+
 ### Requirement: pod-parent-mode 純函式可單測
 
 `applyPodParentMode` 與 `drawnEdgeTypesForMode` MUST 為純函式並具備單元測試覆蓋。

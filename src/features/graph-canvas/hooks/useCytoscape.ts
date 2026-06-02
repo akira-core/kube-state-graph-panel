@@ -1,6 +1,7 @@
 import cytoscape from 'cytoscape';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 
+import type { PodParentMode } from '../../../shared/constants/types';
 import { diffElements } from '../sync/diffElements';
 import { reconcileCollapse } from '../sync/reconcileCollapse';
 
@@ -20,6 +21,11 @@ export interface UseCytoscapeProps {
   // This keeps api.collapse calls in a single place (one update cycle).
   // When undefined (no-collapse path), the effect deps are effectively [elements].
   collapseKey?: number;
+  // Current pod-parent mode. Toggling it re-parents pods between node/service
+  // containers — a compound-hierarchy change that cytoscape applies reliably only
+  // at add() time (dynamic move() is unreliable under batch + expand-collapse), so
+  // a mode change triggers a full element rebuild rather than a diff-patch.
+  podParentMode?: PodParentMode | undefined;
 }
 
 export interface UseCytoscapeReturn {
@@ -44,9 +50,11 @@ export function useCytoscape({
   suppressRef,
   onCollapsedChange,
   collapseKey,
+  podParentMode,
 }: UseCytoscapeProps): UseCytoscapeReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const prevModeRef = useRef(podParentMode);
   const [isReady, setIsReady] = useState(false);
 
   // Init / destroy
@@ -90,24 +98,54 @@ export function useCytoscape({
       api.expandAll();
     }
 
-    // 2) Diff real-vs-incoming and patch (remove → add → update), as before.
-    const current = cy.elements().jsons() as cytoscape.ElementDefinition[];
-    const diff = diffElements(current, elements);
-    if (diff.toAdd.length > 0 || diff.toRemove.length > 0 || diff.toUpdate.length > 0) {
+    // 2) Apply the incoming elements.
+    const modeChanged = prevModeRef.current !== podParentMode;
+    prevModeRef.current = podParentMode;
+
+    const existing = cy.elements();
+    if (modeChanged && existing.length > 0) {
+      // Pod-parent mode flip restructures the compound hierarchy (pods move
+      // between node and service containers). cytoscape only nests reliably at
+      // add() time — dynamic data('parent')/move() is unreliable under batch +
+      // the expand-collapse extension — so rebuild the element set wholesale. The
+      // co-incident run-token bump re-runs the layout, so reset positions are fine.
       cy.batch(() => {
-        if (diff.toRemove.length > 0) {
-          cy.remove(diff.toRemove.map((id) => `#${id}`).join(', '));
-        }
-        if (diff.toAdd.length > 0) {
-          cy.add(diff.toAdd);
-        }
-        for (const el of diff.toUpdate) {
-          const target = cy.getElementById(el.data.id ?? '');
-          if (target.length > 0) {
-            target.data(el.data);
-          }
-        }
+        existing.remove();
+        cy.add(elements);
       });
+    } else {
+      // Diff real-vs-incoming and patch (remove → add → update).
+      const current = cy.elements().jsons() as cytoscape.ElementDefinition[];
+      const diff = diffElements(current, elements);
+      if (diff.toAdd.length > 0 || diff.toRemove.length > 0 || diff.toUpdate.length > 0) {
+        cy.batch(() => {
+          if (diff.toRemove.length > 0) {
+            cy.remove(diff.toRemove.map((id) => `#${id}`).join(', '));
+          }
+          if (diff.toAdd.length > 0) {
+            cy.add(diff.toAdd);
+          }
+          for (const el of diff.toUpdate) {
+            const target = cy.getElementById(el.data.id ?? '');
+            if (target.length === 0) {
+              continue;
+            }
+            // Same-mode incremental parent change (e.g. backend reassigns a pod's
+            // node across a data refresh): capture the model parent BEFORE data()
+            // (which carries data.parent and could mask the change), then re-nest
+            // via move() — cytoscape does not relocate a compound node when only
+            // data('parent') is set. (Mode flips take the rebuild branch above.)
+            const isNode = target.isNode();
+            const parent = target.parent();
+            const nextParent = isNode && typeof el.data.parent === 'string' ? el.data.parent : null;
+            const currentParent = isNode && parent.length > 0 ? parent.first().id() : null;
+            target.data(el.data);
+            if (isNode && nextParent !== currentParent) {
+              target.move({ parent: nextParent });
+            }
+          }
+        });
+      }
     }
 
     // 3) Re-apply collapse to the parents that still exist after the patch.
@@ -127,7 +165,7 @@ export function useCytoscape({
         onCollapsedChange?.(new Set(recollapse));
       }
     }
-  }, [elements, collapseKey]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable; deps are [elements, collapseKey]: collapseKey (undefined on no-collapse path) re-runs the same expandAll→diff→reconcile→collapse cycle when the collapsed-set changes without a data refresh, keeping api.collapse in one place
+  }, [elements, collapseKey, podParentMode]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable. collapseKey (undefined on no-collapse path) re-runs the expandAll→diff→reconcile→collapse cycle when the collapsed-set changes without a data refresh; podParentMode is a dep so a mode flip drives the rebuild branch directly rather than relying on elements/collapseKey changing in lockstep
 
   // Stylesheet swap (no instance rebuild)
   useEffect(() => {
