@@ -2,15 +2,37 @@
 // Node `data.type` and edge `data.type` enums are the source of truth here;
 // see internal/graph/{node,edge}.go in the backend repo.
 
-export type NodeKind = 'pod' | 'node' | 'pvc' | 'service' | 'others' | 'external';
+// Identity is encoded by a per-kind icon (see iconSvgByKind.ts), not by shape, so
+// this enum can grow without exhausting the shape budget. Workload controller
+// kinds (deployment/statefulset/daemonset/job/cronjob) are panel-renderable as
+// soon as the backend emits them; ReplicaSet is intentionally absent — the
+// backend collapses Deployment → ReplicaSet → Pod, so pods attribute directly to
+// their top-level controller and a ReplicaSet node never appears.
+export type NodeKind =
+  | 'pod'
+  | 'node'
+  | 'pvc'
+  | 'service'
+  | 'external'
+  | 'switch'
+  | 'deployment'
+  | 'statefulset'
+  | 'daemonset'
+  | 'job'
+  | 'cronjob';
 
 // Full wire contract: every edge type the backend's core graph can carry.
+// `switch-to-switch` / `node-to-switch` are the physical network-fabric edges
+// added in backend v0.0.18 (pkg/graph/edge.go); they involve neither pods nor
+// controllers, so they are drawn in both pod-parent modes.
 export type EdgeType =
   | 'pod-runs-on-node'
   | 'pod-mounts-pvc'
   | 'pod-calls-pod'
   | 'pod-calls-service'
-  | 'service-selects-pod';
+  | 'service-selects-pod'
+  | 'switch-to-switch'
+  | 'node-to-switch';
 
 // Edge types the panel actually DRAWS. The backend's compound Cytoscape view
 // (the only format this panel consumes) expresses `pod-runs-on-node` as

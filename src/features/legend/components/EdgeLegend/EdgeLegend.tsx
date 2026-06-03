@@ -4,7 +4,7 @@ import React from 'react';
 
 import { EDGE_ENDPOINTS_BY_TYPE, EDGE_STYLE_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
-import type { NodeKind, PodParentMode } from '../../../../shared/constants/types';
+import type { EdgeType, NodeKind, PodParentMode } from '../../../../shared/constants/types';
 import { legendListStyles } from '../../legendStyles';
 import { EdgeGlyph } from '../EdgeGlyph';
 
@@ -23,17 +23,33 @@ function kindLabel(kind: NodeKind): string {
 }
 
 export interface EdgeLegendProps {
-  // Current pod-parent mode; selects which edge types are drawn (and listed).
+  // The edge types to list. Pass the types actually present in the graph (like
+  // the cluster legend) to show only what's drawn. Omit to list every edge type
+  // drawn in the current mode (e.g. in isolated rendering/tests).
+  edgeTypes?: readonly EdgeType[];
+  // Current pod-parent mode; selects the default edge-type set and the toggle label.
   mode?: PodParentMode;
   // When provided, renders a toggle button that flips node ⇄ service mode.
   onToggleMode?: () => void;
 }
 
-export function EdgeLegend({ mode = 'node', onToggleMode }: Readonly<EdgeLegendProps> = {}): React.JSX.Element {
+export function EdgeLegend({
+  edgeTypes,
+  mode = 'node',
+  onToggleMode,
+}: Readonly<EdgeLegendProps> = {}): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
-  const entries = drawnEdgeTypesForMode(mode).map(
+  // Only known edge types can be rendered (the endpoint/style maps key off them);
+  // an unknown type present in the data is drawn on-canvas via the fallback style
+  // but omitted from the legend.
+  const types = (edgeTypes ?? drawnEdgeTypesForMode(mode)).filter((t) => t in EDGE_STYLE_BY_TYPE);
+  const entries = types.map(
     (edgeType) => [edgeType, EDGE_STYLE_BY_TYPE[edgeType], EDGE_ENDPOINTS_BY_TYPE[edgeType]] as const
   );
+  // Mirror ClusterLegend: nothing to show → render nothing.
+  if (entries.length === 0) {
+    return null;
+  }
   const toggleLabel = mode === 'node' ? 'Nest pods under services' : 'Nest pods under nodes';
   return (
     <div data-testid="edge-legend">

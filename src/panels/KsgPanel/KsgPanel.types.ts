@@ -1,5 +1,5 @@
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
-import { SHAPE_BY_KIND } from '../../shared/constants/shapeByKind';
+import { ICON_SVG_BY_KIND } from '../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
 
 export interface KsgPanelOptions {
@@ -9,7 +9,7 @@ export interface KsgPanelOptions {
   visibleEdgeTypes: EdgeType[];
 }
 
-export const ALL_KINDS = Object.keys(SHAPE_BY_KIND) as NodeKind[];
+export const ALL_KINDS = Object.keys(ICON_SVG_BY_KIND) as NodeKind[];
 // All wire edge types: pod-runs-on-node is drawn only in `service` pod-parent
 // mode, so it is a filterable type and a default-visible type (both modes' edges
 // stay visible by default; the type that has no edges in a given mode is inert).

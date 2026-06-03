@@ -1,6 +1,6 @@
 import type cytoscape from 'cytoscape';
 
-import { SHAPE_BY_KIND } from '../../shared/constants/shapeByKind';
+import { ICON_SVG_BY_KIND } from '../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
 
 export interface VisibilitySets {
@@ -8,7 +8,7 @@ export interface VisibilitySets {
   visibleEdgeIds: Set<string>;
 }
 
-const KNOWN_KINDS = new Set<string>(Object.keys(SHAPE_BY_KIND));
+const KNOWN_KINDS = new Set<string>(Object.keys(ICON_SVG_BY_KIND));
 
 function nodeIsVisible(kind: unknown, visibleKinds: Set<NodeKind>): boolean {
   if (typeof kind !== 'string') {

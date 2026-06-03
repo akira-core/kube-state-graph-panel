@@ -50,3 +50,6 @@ ci/
 
 # Dev runtime
 dev/.kube/
+
+# Superpowers brainstorm visual companion
+.superpowers/

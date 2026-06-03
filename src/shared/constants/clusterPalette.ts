@@ -4,15 +4,20 @@
 //     `parent` field untouched; only the colour is a frontend/presentation concern).
 //   * the legend's ClusterLegend — swatches must match the on-canvas boxes.
 //
-// Hues are picked to be distinct from the edge palette (blue/purple/orange/green
-// in colorByEdgeType) so a translucent cluster backplate never reads as an edge.
+// Hues are confined to the cool arc (sky → cyan → indigo → violet → magenta →
+// pink) for two reasons: (1) they MUST stay clear of the STATUS colours — green
+// (#73BF69 normal), yellow (#F2CC0C warning), red (#E02F44 critical) — so a
+// cluster accent is never mistaken for node health; hence no green/lime/amber/
+// orange/red. (2) Translucent backplates still read distinctly from the edge
+// palette. The old amber/lime/teal were dropped precisely because they sat next
+// to the warning/normal status colours.
 export const CLUSTER_PALETTE = [
-  '#14b8a6', // teal
-  '#ec4899', // pink
-  '#f59e0b', // amber
+  '#0ea5e9', // sky blue
+  '#22d3ee', // cyan
+  '#6366f1', // indigo
   '#8b5cf6', // violet
-  '#06b6d4', // cyan
-  '#84cc16', // lime
+  '#c026d3', // fuchsia
+  '#ec4899', // pink
 ] as const;
 
 // Deterministic colour for a cluster, keyed by a stable hash of its name. A given

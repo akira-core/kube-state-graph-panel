@@ -1,4 +1,14 @@
 import { CLUSTER_PALETTE, colorForCluster } from './clusterPalette';
+import { STATUS_COLOR } from './colorByStatus';
+
+describe('CLUSTER_PALETTE', () => {
+  it('shares no colour with the status palette (a cluster accent must never read as node health)', () => {
+    const statusColors = new Set(Object.values(STATUS_COLOR).map((c) => c.toLowerCase()));
+    for (const color of CLUSTER_PALETTE) {
+      expect(statusColors.has(color.toLowerCase())).toBe(false);
+    }
+  });
+});
 
 describe('colorForCluster', () => {
   it('is deterministic for a given name', () => {

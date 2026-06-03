@@ -3,27 +3,23 @@ import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
-import { FALLBACK_SHAPE, SHAPE_BY_KIND, type CytoscapeNodeShape } from '../../../shared/constants/shapeByKind';
+import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
+import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 import type { CyStylesheet } from '../hooks/useCytoscape';
 
 export interface GetStylesheetInput {
   theme: GrafanaTheme2;
-  shapeMap?: Record<string, CytoscapeNodeShape>;
   colorMap?: Record<string, EdgeStyle>;
 }
 
 const NODE_SIZE = 40;
-const HEXAGON_ASPECT = 2 / Math.sqrt(3);
 
-function resolveShape(kind: string | undefined, map: Record<string, CytoscapeNodeShape>): CytoscapeNodeShape {
-  if (kind !== undefined && kind in map) {
-    const shape = map[kind];
-    if (shape !== undefined) {
-      return shape;
-    }
-  }
-  return FALLBACK_SHAPE;
+// Per-node icon as a theme-tinted data-URI. Clusters carry no resource icon (the
+// node[?isCluster] selector overrides background-image to 'none'); every other
+// node resolves its kind icon, unknown kinds included (fallback glyph).
+function resolveIconUri(kind: string | undefined, iconColor: string): string {
+  return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
 }
 
 function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, EdgeStyle>): EdgeStyle {
@@ -38,7 +34,6 @@ function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, Edge
 
 export function getStylesheet({
   theme,
-  shapeMap = SHAPE_BY_KIND,
   // Master map covers all wire edge types (incl. pod-runs-on-node) so the
   // stylesheet can colour the service-mode pod→node edge; resolving a type with
   // no edges in the current view is harmless.
@@ -52,6 +47,9 @@ export function getStylesheet({
     primary: { main: string };
   };
   const textColor = colors.text.primary;
+  // Tint icons with the primary text colour: on the dark node fill the secondary
+  // (muted) colour was too low-contrast to read the glyph. Matches the label.
+  const iconColor = textColor;
   const bgColor = colors.background.secondary;
   const borderColor = colors.border.medium;
   const selectedColor = colors.primary.main;
@@ -65,31 +63,25 @@ export function getStylesheet({
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
-  // Derive hexagon-shaped kinds from the single-source shapeMap so this follows
-  // any future shape reassignment. They keep the base height and only widen, so
-  // width:height settles at 2:√3 — a regular hexagon. Leaf-only selector; cluster
-  // / node:parent containers override `shape` to round-rectangle, so the width
-  // bump never reaches a compound box.
-  const hexagonKinds = Object.entries(shapeMap)
-    .filter(([, shape]) => shape === 'hexagon')
-    .map(([kind]) => kind);
-  const hexagonSelectors: CyStylesheet[] =
-    hexagonKinds.length > 0
-      ? [
-          {
-            selector: hexagonKinds.map((kind) => `node[kind="${kind}"]`).join(', '),
-            style: { width: NODE_SIZE * HEXAGON_ASPECT },
-          },
-        ]
-      : [];
-
   const stylesheet: CyStylesheet[] = [
     {
+      // Leaf nodes share one neutral container shape; identity is the centered
+      // kind icon (background-image), tinted per theme. Inset to 60% (background-fit
+      // none + background-width/height) so the container + status border stay
+      // visible around the glyph. The on-canvas glyph only renders once the SVG
+      // carries an XML header (see iconSvgByKind.ts) — that, not the fit mode, was
+      // why earlier attempts showed the icon in the legend <img> but blank on-canvas.
       selector: 'node',
       style: {
-        shape: ((ele: cytoscape.NodeSingular): CytoscapeNodeShape =>
-          resolveShape(ele.data('kind') as NodeKind | undefined, shapeMap)) as unknown as cytoscape.Css.NodeShape,
+        shape: 'round-rectangle',
         'background-color': bgColor,
+        'background-image': ((ele: cytoscape.NodeSingular): string =>
+          resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor)) as unknown as string,
+        'background-fit': 'none',
+        'background-clip': 'none',
+        'background-width': '60%',
+        'background-height': '60%',
+        'background-image-opacity': 1,
         'border-color': borderColor,
         'border-width': 1.5,
         label: 'data(label)',
@@ -102,7 +94,6 @@ export function getStylesheet({
         height: NODE_SIZE,
       },
     },
-    ...hexagonSelectors,
     {
       // Any compound parent (a node that has children — e.g. a K8s node boxing
       // its pods) renders as a neutral, labelled container. cytoscape's native
@@ -114,6 +105,11 @@ export function getStylesheet({
         shape: 'round-rectangle',
         'background-color': borderColor,
         'background-opacity': 0.05,
+        // Compound containers (e.g. a K8s node boxing its pods) carry NO resource
+        // icon — a `contain`-fitted glyph would fill the whole box behind its
+        // children. The box stays a labelled backplate. (A small corner badge is
+        // a deferred nicety.)
+        'background-image': 'none',
         'border-color': borderColor,
         'border-width': 1,
         'border-opacity': 0.6,
@@ -134,6 +130,9 @@ export function getStylesheet({
       selector: 'node[?isCluster]',
       style: {
         shape: 'round-rectangle',
+        // Cluster boxes are pure grouping backplates — no resource icon (the base
+        // mapper would otherwise paint the fallback glyph here).
+        'background-image': 'none',
         'background-color': 'data(clusterColor)',
         'background-opacity': 0.07,
         'border-color': 'data(clusterColor)',

@@ -167,8 +167,8 @@ describe('normalizeGraph', () => {
     expect(result.errors).toContain('payload.edges is missing or not an array');
   });
 
-  it("normalizes the 'others' node golden payload (embedded :// id, no ipAddress)", () => {
-    const rawOthers = {
+  it('normalizes an external node with an embedded :// id (preserved verbatim, no ipAddress)', () => {
+    const rawExternalUrl = {
       apiVersion: 'v1',
       clusters: ['cluster-alpha'],
       elements: {
@@ -183,9 +183,9 @@ describe('normalizeGraph', () => {
           },
           {
             data: {
-              id: 'others/http://api.example.com',
+              id: 'external/http://api.example.com',
               name: 'http://api.example.com',
-              type: 'others',
+              type: 'external',
               labels: {},
             },
           },
@@ -196,23 +196,23 @@ describe('normalizeGraph', () => {
               id: '5bca0ff4-9abc-5d57-8ef2-2c7b949add06',
               type: 'pod-calls-pod',
               source: 'cluster-alpha/p1',
-              target: 'others/http://api.example.com',
+              target: 'external/http://api.example.com',
               labels: { cluster: 'cluster-alpha' },
             },
           },
         ],
       },
     };
-    const result = normalizeGraph(rawOthers);
+    const result = normalizeGraph(rawExternalUrl);
     expect(result.errors).toEqual([]);
     expect(result.elements).toHaveLength(3);
 
-    const others = result.elements.find((e) => e.data.id === 'others/http://api.example.com');
-    expect(others?.group).toBe('nodes');
-    expect(others?.data.kind).toBe('others');
-    expect(others?.data.id).toBe('others/http://api.example.com'); // embedded :// preserved verbatim
-    expect(others?.data.label).toBe('http://api.example.com');
-    expect(others?.data.ipAddress).toBeUndefined();
+    const ext = result.elements.find((e) => e.data.id === 'external/http://api.example.com');
+    expect(ext?.group).toBe('nodes');
+    expect(ext?.data.kind).toBe('external');
+    expect(ext?.data.id).toBe('external/http://api.example.com'); // embedded :// preserved verbatim
+    expect(ext?.data.label).toBe('http://api.example.com');
+    expect(ext?.data.ipAddress).toBeUndefined();
 
     const edge = result.elements.find((e) => e.data.id === '5bca0ff4-9abc-5d57-8ef2-2c7b949add06');
     expect(edge?.group).toBe('edges');

@@ -149,7 +149,7 @@ describe('HoverTooltip', () => {
     useHoverElement.mockReturnValue({
       id: 'pod-bare',
       group: 'nodes',
-      data: { id: 'pod-bare', label: 'bare', kind: 'others' },
+      data: { id: 'pod-bare', label: 'bare', kind: 'external' },
     });
     rerender(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.queryByTestId('hover-tooltip-labels-divider')).not.toBeInTheDocument();

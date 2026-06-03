@@ -11,7 +11,8 @@ import { ClusterLegend, EdgeLegend, NodeLegend, StatusLegend, type ClusterLegend
 import { NodeDetailPanel, type NodeDetailData } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
-import type { PodParentMode } from '../../shared/constants/types';
+import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
+import type { EdgeType, PodParentMode } from '../../shared/constants/types';
 
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
@@ -139,6 +140,43 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
+  // Node kinds present in the graph (first-seen order), so the node legend lists
+  // only what's on screen — same principle as the cluster swatches. Cluster
+  // containers carry no kind and are excluded.
+  const presentKinds = useMemo<string[]>(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isCluster === true || typeof d.kind !== 'string' || seen.has(d.kind)) {
+        continue;
+      }
+      seen.add(d.kind);
+      ordered.push(d.kind);
+    }
+    return ordered;
+  }, [elements]);
+
+  // Edge types present in the graph, ordered by the canonical edge-style map for
+  // a stable legend. `elements` is already mode-transformed (applyPodParentMode),
+  // so this is exactly the set of drawn edges currently on screen.
+  const presentEdgeTypes = useMemo<EdgeType[]>(() => {
+    const present = new Set<string>();
+    for (const el of elements) {
+      if (el.group !== 'edges') {
+        continue;
+      }
+      const t = (el.data as cytoscape.EdgeDataDefinition).edgeType;
+      if (typeof t === 'string') {
+        present.add(t);
+      }
+    }
+    return (Object.keys(EDGE_STYLE_BY_TYPE) as EdgeType[]).filter((t) => present.has(t));
+  }, [elements]);
+
   // Collapsed parent-container ids. Lives here so the legend toggles (siblings of
   // GraphCanvas) and the canvas share one source. GraphCanvas reports the full
   // next Set via onCollapsedChange (cue events / data-refresh prune).
@@ -248,11 +286,12 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             allCollapsed={allClustersCollapsed}
           />
           <NodeLegend
+            kinds={presentKinds}
             onToggleCollapseAll={toggleNodes}
             allCollapsed={allNodesCollapsed}
             showCollapseToggle={k8sNodeContainerIds.length > 0}
           />
-          <EdgeLegend mode={podParentMode} onToggleMode={togglePodParentMode} />
+          <EdgeLegend edgeTypes={presentEdgeTypes} mode={podParentMode} onToggleMode={togglePodParentMode} />
           <StatusLegend />
         </aside>
       )}

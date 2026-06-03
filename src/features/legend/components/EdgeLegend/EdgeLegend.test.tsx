@@ -59,6 +59,20 @@ describe('EdgeLegend', () => {
     expect(screen.queryByTestId('edge-legend-nesting-note')).toBeNull();
   });
 
+  it('lists only the edge types passed in (present in the graph)', () => {
+    render(<EdgeLegend edgeTypes={['switch-to-switch', 'pod-mounts-pvc']} />);
+    const legend = screen.getByTestId('edge-legend');
+    expect(within(legend).getByTestId('edge-legend-row-switch-to-switch')).toBeInTheDocument();
+    expect(within(legend).getByTestId('edge-legend-row-pod-mounts-pvc')).toBeInTheDocument();
+    expect(within(legend).queryByTestId('edge-legend-row-pod-calls-pod')).toBeNull();
+    expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
+  });
+
+  it('renders nothing when no edge types are present', () => {
+    const { container } = render(<EdgeLegend edgeTypes={[]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   describe('service pod-parent mode', () => {
     it('lists pod-runs-on-node and drops service-selects-pod', () => {
       render(<EdgeLegend mode="service" />);

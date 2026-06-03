@@ -22,6 +22,8 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
   'pod-calls-pod': { from: 'pod', to: 'pod' },
   'pod-calls-service': { from: 'pod', to: 'service' },
   'service-selects-pod': { from: 'service', to: 'pod' },
+  'switch-to-switch': { from: 'switch', to: 'switch' },
+  'node-to-switch': { from: 'node', to: 'switch' },
 };
 
 // Single source of truth for edge styling, keyed by upstream edge `data.type`,
@@ -40,6 +42,10 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   // (solid vs dashed) keeps the two directions distinguishable.
   'pod-calls-service': { color: '#10b981', lineStyle: 'solid' },
   'service-selects-pod': { color: '#10b981', lineStyle: 'dashed' },
+  // Physical network fabric (backend v0.0.18). Both share the infra cyan; line
+  // style distinguishes switch↔switch (solid) from node→switch (dashed).
+  'switch-to-switch': { color: '#06b6d4', lineStyle: 'solid' },
+  'node-to-switch': { color: '#06b6d4', lineStyle: 'dashed' },
 };
 
 // The edges drawn in the default `node` mode. Derived from the master map so the
@@ -50,6 +56,8 @@ export const COLOR_BY_EDGE_TYPE: Record<DrawnEdgeType, EdgeStyle> = {
   'pod-calls-pod': EDGE_STYLE_BY_TYPE['pod-calls-pod'],
   'pod-calls-service': EDGE_STYLE_BY_TYPE['pod-calls-service'],
   'service-selects-pod': EDGE_STYLE_BY_TYPE['service-selects-pod'],
+  'switch-to-switch': EDGE_STYLE_BY_TYPE['switch-to-switch'],
+  'node-to-switch': EDGE_STYLE_BY_TYPE['node-to-switch'],
 };
 
 export const FALLBACK_EDGE_STYLE: EdgeStyle = { color: '#94a3b8', lineStyle: 'solid' };
