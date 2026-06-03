@@ -44,7 +44,7 @@ Panel SHALL 透過 cytoscape.js 在指定 DOM 容器中渲染 nodes 與 edges,�
 
 ### Requirement: 邊顏色依關係類型對應
 
-系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將上游 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉 MUST 對齊後端輸出:`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `service-selects-pod`。
+系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將上游 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉 MUST 對齊後端輸出:`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod`。`pod-calls-service` 與 `service-selects-pod` 共用同一服務色(綠),以線型(實線/虛線)區分方向。`colorByEdgeType.ts` 同時匯出 `EDGE_ENDPOINTS_BY_TYPE`(每個 edge type 的來源/目標 `NodeKind`),供 legend 將 edge type 渲染為 `<from> → <to>`。
 
 #### Scenario: 已知邊類型對應到正確顏色
 
@@ -113,12 +113,12 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 
 ### Requirement: 圖例 (Legend)
 
-Panel SHALL 提供 legend 元件,顯示當前圖中出現的節點形狀與邊類型對應說明,legend 的形狀/顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`shapeByKind.ts` / `colorByEdgeType.ts`)。
+Panel SHALL 提供 legend 元件,顯示當前圖中出現的節點形狀與邊類型對應說明,legend 的形狀/顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`shapeByKind.ts` / `colorByEdgeType.ts`)。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`)。Edge legend MUST NOT 顯示額外的 nesting 說明文字。
 
 #### Scenario: Legend 與圖中元素一致
 
-- **WHEN** Panel 收到含 pod / service / node 節點與 pod-runs-on-node / service-selects-pod 邊的資料
-- **THEN** Legend 區域顯示三種節點形狀與兩種邊顏色的對應說明,且形狀/顏色與 canvas 中渲染一致
+- **WHEN** Panel 收到含 pod / service / node 節點與 pod-mounts-pvc / service-selects-pod 邊的資料
+- **THEN** Legend 區域顯示對應節點形狀,且每種 edge type 以 `<from> → <to>`(箭頭 glyph 置中)呈現,顏色/線型與 canvas 中渲染一致
 
 ### Requirement: Hover Tooltip 顯示元素 metadata
 

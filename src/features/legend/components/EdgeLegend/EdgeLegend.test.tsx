@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 
-import { COLOR_BY_EDGE_TYPE } from '../../../../shared/constants/colorByEdgeType';
+import { COLOR_BY_EDGE_TYPE, EDGE_ENDPOINTS_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
 
 import { EdgeLegend } from './EdgeLegend';
 
@@ -14,15 +14,31 @@ describe('EdgeLegend', () => {
     expect(items).toHaveLength(edgeTypes.length);
   });
 
-  it('shows a label for every edge type', () => {
+  it('renders each edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
+    const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
     for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE)) {
-      expect(within(legend).getByText(edgeType)).toBeInTheDocument();
+      const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
+      const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType as keyof typeof EDGE_ENDPOINTS_BY_TYPE];
+      // pod→pod renders 'pod' twice, so count occurrences rather than getByText.
+      const expected = [label(from), label(to)];
+      for (const text of new Set(expected)) {
+        const occurrences = expected.filter((value) => value === text).length;
+        expect(within(row).getAllByText(text)).toHaveLength(occurrences);
+      }
     }
   });
 
-  it('draws a same-colour arrow glyph next to every edge type', () => {
+  it('lists the pod → svc edge (pod-calls-service)', () => {
+    render(<EdgeLegend />);
+    const legend = screen.getByTestId('edge-legend');
+    const row = within(legend).getByTestId('edge-legend-row-pod-calls-service');
+    expect(within(row).getByText('pod')).toBeInTheDocument();
+    expect(within(row).getByText('svc')).toBeInTheDocument();
+  });
+
+  it('places a same-colour arrow glyph between the endpoints of every edge type', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE)) {
@@ -38,11 +54,9 @@ describe('EdgeLegend', () => {
     expect(within(legend).queryByTestId('edge-legend-row-pod-runs-on-node')).toBeNull();
   });
 
-  it('explains pod-runs-on-node as compound nesting instead of an edge', () => {
+  it('renders no explanatory note', () => {
     render(<EdgeLegend />);
-    const note = screen.getByTestId('edge-legend-nesting-note');
-    expect(note).toHaveTextContent(/pod-runs-on-node/);
-    expect(note).toHaveTextContent(/node box/i);
+    expect(screen.queryByTestId('edge-legend-nesting-note')).toBeNull();
   });
 
   describe('service pod-parent mode', () => {
@@ -51,13 +65,6 @@ describe('EdgeLegend', () => {
       const legend = screen.getByTestId('edge-legend');
       expect(within(legend).getByTestId('edge-legend-row-pod-runs-on-node')).toBeInTheDocument();
       expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
-    });
-
-    it('explains service-selects-pod as nesting in the note', () => {
-      render(<EdgeLegend mode="service" />);
-      const note = screen.getByTestId('edge-legend-nesting-note');
-      expect(note).toHaveTextContent(/service-selects-pod/);
-      expect(note).toHaveTextContent(/service box/i);
     });
   });
 

@@ -5,7 +5,12 @@
 export type NodeKind = 'pod' | 'node' | 'pvc' | 'service' | 'others' | 'external';
 
 // Full wire contract: every edge type the backend's core graph can carry.
-export type EdgeType = 'pod-runs-on-node' | 'pod-mounts-pvc' | 'pod-calls-pod' | 'service-selects-pod';
+export type EdgeType =
+  | 'pod-runs-on-node'
+  | 'pod-mounts-pvc'
+  | 'pod-calls-pod'
+  | 'pod-calls-service'
+  | 'service-selects-pod';
 
 // Edge types the panel actually DRAWS. The backend's compound Cytoscape view
 // (the only format this panel consumes) expresses `pod-runs-on-node` as

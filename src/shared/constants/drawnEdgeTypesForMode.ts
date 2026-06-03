@@ -7,8 +7,8 @@ import type { EdgeType, PodParentMode } from './types';
 // nesting (not drawn), and the pod↔node relationship is the drawn
 // `pod-runs-on-node` edge synthesised by features/pod-parent-mode.
 const DRAWN_BY_MODE: Record<PodParentMode, readonly EdgeType[]> = {
-  node: ['pod-mounts-pvc', 'pod-calls-pod', 'service-selects-pod'],
-  service: ['pod-mounts-pvc', 'pod-calls-pod', 'pod-runs-on-node'],
+  node: ['pod-mounts-pvc', 'pod-calls-pod', 'pod-calls-service', 'service-selects-pod'],
+  service: ['pod-mounts-pvc', 'pod-calls-pod', 'pod-calls-service', 'pod-runs-on-node'],
 };
 
 export function drawnEdgeTypesForMode(mode: PodParentMode): EdgeType[] {

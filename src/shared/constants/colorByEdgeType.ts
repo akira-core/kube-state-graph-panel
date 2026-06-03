@@ -1,4 +1,4 @@
-import type { DrawnEdgeType, EdgeType } from './types';
+import type { DrawnEdgeType, EdgeType, NodeKind } from './types';
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
@@ -6,6 +6,23 @@ export interface EdgeStyle {
   color: string;
   lineStyle: LineStyle;
 }
+
+// Source → target node kinds for each edge type. The legend renders an edge type
+// as `<from> → <to>` (the arrow replacing the verb), so it needs the endpoints
+// explicitly rather than parsing the hyphenated wire string. Single source of
+// truth, keyed by the same `data.type` enum as `EDGE_STYLE_BY_TYPE`.
+export interface EdgeEndpoints {
+  from: NodeKind;
+  to: NodeKind;
+}
+
+export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
+  'pod-runs-on-node': { from: 'pod', to: 'node' },
+  'pod-mounts-pvc': { from: 'pod', to: 'pvc' },
+  'pod-calls-pod': { from: 'pod', to: 'pod' },
+  'pod-calls-service': { from: 'pod', to: 'service' },
+  'service-selects-pod': { from: 'service', to: 'pod' },
+};
 
 // Single source of truth for edge styling, keyed by upstream edge `data.type`,
 // covering ALL wire edge types. The stylesheet resolves a colour/line-style per
@@ -19,6 +36,9 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   'pod-runs-on-node': { color: '#3b82f6', lineStyle: 'solid' },
   'pod-mounts-pvc': { color: '#a855f7', lineStyle: 'dotted' },
   'pod-calls-pod': { color: '#f97316', lineStyle: 'solid' },
+  // pod→service and service→pod share the service colour (green); the line style
+  // (solid vs dashed) keeps the two directions distinguishable.
+  'pod-calls-service': { color: '#10b981', lineStyle: 'solid' },
   'service-selects-pod': { color: '#10b981', lineStyle: 'dashed' },
 };
 
@@ -28,6 +48,7 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
 export const COLOR_BY_EDGE_TYPE: Record<DrawnEdgeType, EdgeStyle> = {
   'pod-mounts-pvc': EDGE_STYLE_BY_TYPE['pod-mounts-pvc'],
   'pod-calls-pod': EDGE_STYLE_BY_TYPE['pod-calls-pod'],
+  'pod-calls-service': EDGE_STYLE_BY_TYPE['pod-calls-service'],
   'service-selects-pod': EDGE_STYLE_BY_TYPE['service-selects-pod'],
 };
 
