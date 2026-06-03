@@ -66,21 +66,20 @@ export function getStylesheet({
   const stylesheet: CyStylesheet[] = [
     {
       // Leaf nodes share one neutral container shape; identity is the centered
-      // kind icon (background-image), tinted per theme. Inset to 60% (background-fit
-      // none + background-width/height) so the container + status border stay
-      // visible around the glyph. The on-canvas glyph only renders once the SVG
-      // carries an XML header (see iconSvgByKind.ts) — that, not the fit mode, was
-      // why earlier attempts showed the icon in the legend <img> but blank on-canvas.
+      // kind icon (background-image), tinted per theme. `background-fit: contain`
+      // scales the glyph to fill the node box; the SVG art carries its own ~17%
+      // viewBox margin, so the strokes get close to but never touch the container
+      // / status border. The on-canvas glyph only renders once the SVG carries an
+      // XML header (see iconSvgByKind.ts) — that, not the fit mode, was why earlier
+      // attempts showed the icon in the legend <img> but blank on-canvas.
       selector: 'node',
       style: {
         shape: 'round-rectangle',
         'background-color': bgColor,
         'background-image': ((ele: cytoscape.NodeSingular): string =>
           resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor)) as unknown as string,
-        'background-fit': 'none',
+        'background-fit': 'contain',
         'background-clip': 'none',
-        'background-width': '60%',
-        'background-height': '60%',
         'background-image-opacity': 1,
         'border-color': borderColor,
         'border-width': 1.5,

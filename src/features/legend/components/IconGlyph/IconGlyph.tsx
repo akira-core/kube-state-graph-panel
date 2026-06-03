@@ -11,11 +11,14 @@ export interface IconGlyphProps {
   size?: number;
 }
 
+// Default legend glyph size (≈1.2× the original 22px for better legibility).
+const DEFAULT_SIZE = 26;
+
 // Legend key for a node kind: the same per-kind icon the canvas draws, tinted to
 // the theme's secondary text colour so the legend reads as a true key. Rendered
 // as an <img> with the inline data-URI (reusing tintSvgToDataUri) so no
 // dangerouslySetInnerHTML is needed and the glyph stays crisp.
-export function IconGlyph({ kind, size = 22 }: Readonly<IconGlyphProps>): React.JSX.Element {
+export function IconGlyph({ kind, size = DEFAULT_SIZE }: Readonly<IconGlyphProps>): React.JSX.Element {
   const theme = useTheme2();
   // @grafana/data marks this optional but Grafana always populates it at runtime.
   // Primary text colour so the legend glyph reads as a true key to the canvas icon.

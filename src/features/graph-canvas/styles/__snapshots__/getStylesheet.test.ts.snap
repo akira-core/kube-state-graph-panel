@@ -7,11 +7,9 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     "style": {
       "background-clip": "none",
       "background-color": "#22252b",
-      "background-fit": "none",
-      "background-height": "60%",
+      "background-fit": "contain",
       "background-image": [Function],
       "background-image-opacity": 1,
-      "background-width": "60%",
       "border-color": "rgba(204, 204, 220, 0.2)",
       "border-width": 1.5,
       "color": "rgb(204, 204, 220)",

@@ -69,11 +69,9 @@ describe('getStylesheet', () => {
     expect(bgFn(fakeEle({}))).toBe(fallbackUri);
   });
 
-  it('insets the icon to 60% (background-fit none + width/height) so the status border stays visible', () => {
+  it('fills the node with the icon via background-fit:contain (SVG viewBox margin keeps it off the border)', () => {
     const nodeStyle = styleFor('node');
-    expect(nodeStyle['background-fit']).toBe('none');
-    expect(nodeStyle['background-width']).toBe('60%');
-    expect(nodeStyle['background-height']).toBe('60%');
+    expect(nodeStyle['background-fit']).toBe('contain');
   });
 
   it('maps every backend edge type to its color and line style', () => {

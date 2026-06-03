@@ -13,8 +13,8 @@ function getStyles(): { list: string; row: string; glyph: string; header: string
     // Fixed square box keeps every icon glyph equal width and height.
     glyph: css({
       display: 'inline-flex',
-      width: 26,
-      height: 26,
+      width: 30,
+      height: 30,
       flexShrink: 0,
       alignItems: 'center',
       justifyContent: 'center',
