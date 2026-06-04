@@ -18,8 +18,19 @@ import { HoverTooltip } from './HoverTooltip';
 const cyRefStub = { current: null as cytoscape.Core | null };
 
 describe('HoverTooltip', () => {
+  // jsdom does no layout (offsetWidth/Height === 0), which would make the
+  // width/height-dependent flip + clamp math vacuous. Stub a realistic box size
+  // (280×80) so the positioning assertions actually exercise the w/h terms.
+  let owSpy: jest.SpyInstance;
+  let ohSpy: jest.SpyInstance;
   beforeEach(() => {
     useHoverElement.mockReset();
+    owSpy = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(280);
+    ohSpy = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(80);
+  });
+  afterEach(() => {
+    owSpy.mockRestore();
+    ohSpy.mockRestore();
   });
 
   it('renders nothing when no element is hovered', () => {
@@ -185,5 +196,58 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('pod-calls-pod')).toBeInTheDocument();
     expect(screen.getByText('cluster:')).toBeInTheDocument();
     expect(screen.getByText('cluster-alpha')).toBeInTheDocument();
+  });
+
+  it('positions the tooltip beside the hovered element (anchor + offset), not in a corner', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-1',
+      group: 'nodes',
+      data: { id: 'pod-1', label: 'web', kind: 'pod' },
+      position: { x: 100, y: 50 },
+      viewport: { width: 800, height: 600 },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // box 280×80 fits with room: left=100+14=114, top=50+14=64 (no flip).
+    expect(screen.getByTestId('hover-tooltip')).toHaveStyle({ left: '114px', top: '64px' });
+  });
+
+  it('flips to the left/top of the anchor when it would overflow the right/bottom edge', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-edge',
+      group: 'nodes',
+      data: { id: 'pod-edge', label: 'edge', kind: 'pod' },
+      position: { x: 798, y: 598 },
+      viewport: { width: 800, height: 600 },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // w=280: 798+14+280 > 796 → flip left = 798-14-280 = 504 (clamped within [4,516]).
+    // h=80:  598+14+80  > 596 → flip top  = 598-14-80  = 504 (clamped within [4,516]).
+    expect(screen.getByTestId('hover-tooltip')).toHaveStyle({ left: '504px', top: '504px' });
+  });
+
+  it('pins to the EDGE_MARGIN corner when the box is larger than the viewport', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-big',
+      group: 'nodes',
+      data: { id: 'pod-big', label: 'big', kind: 'pod' },
+      position: { x: 100, y: 60 },
+      viewport: { width: 200, height: 120 }, // narrower/shorter than the 280×80 box
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // w(280)>vw(200) and h(80)<vh — both clamps floor to EDGE_MARGIN(4) without going negative.
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).toHaveStyle({ left: '4px' });
+    // box is also capped to the viewport so it scrolls instead of overflowing.
+    expect(tip).toHaveStyle({ maxWidth: '192px', maxHeight: '112px' });
+  });
+
+  it('falls back to a safe corner when no rendered position is available', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-nopos',
+      group: 'nodes',
+      data: { id: 'pod-nopos', label: 'web', kind: 'pod' },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByTestId('hover-tooltip')).toHaveStyle({ left: '4px', top: '4px' });
   });
 });

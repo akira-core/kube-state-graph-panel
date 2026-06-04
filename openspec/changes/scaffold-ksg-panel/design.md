@@ -275,7 +275,7 @@ src/
 │   │   │   └── EdgeLegend/
 │   │   └── index.ts
 │   │
-│   ├── hover-tooltip/              # Hover tooltip(固定 canvas 右上角)
+│   ├── hover-tooltip/              # Hover tooltip(浮動於 hovered 元素旁)
 │   │   ├── components/
 │   │   │   └── HoverTooltip/
 │   │   │       ├── HoverTooltip.tsx
@@ -381,9 +381,9 @@ src/
 
 **Trade-offs:** type-aware lint 較慢(每次 lint 需 `tsc --project`),但於 monorepo 規模可控,且 CI 平行化即可吸收。
 
-### Hover Tooltip:固定 canvas 右上角面板,`pointer-events: none`,內容依元素類型動態切換
+### Hover Tooltip:浮動於 hovered 元素旁,`pointer-events: none`,內容依元素類型動態切換
 
-**Decision:** 新增 feature `src/features/hover-tooltip/`,提供 `HoverTooltip` 元件與 `useHoverElement(cy)` hook。Tooltip 於 `GraphCanvas` JSX 中作為 sibling 渲染,以 `position: absolute; top: 8px; right: 8px; pointer-events: none;` 固定於 canvas wrapper 右上角,寬度約 280px,使用 `@grafana/ui` theme tokens 與半透明背景(背景 `theme.colors.background.secondary` + `opacity: 0.92`)。
+**Decision:** 新增 feature `src/features/hover-tooltip/`,提供 `HoverTooltip` 元件與 `useHoverElement(cy)` hook。Tooltip 於 `GraphCanvas` JSX 中作為 sibling 渲染,以 `position: absolute` 浮動定位於被 hover 元素附近(node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移 14px),並翻轉 / 夾擠於 canvas wrapper 邊界內(超出右 / 下緣時翻轉至元素左 / 上側),以 inline max-width/height 收斂於 viewport 內(超長則內部捲動),`pointer-events: none`,寬度約 280px,使用 `@grafana/ui` theme tokens 與半透明背景(背景 `theme.colors.background.secondary` + `opacity: 0.92`)。
 
 `useHoverElement(cy)` 在 init 時於 cytoscape instance 註冊 `cy.on('mouseover', 'node, edge', ...)` 與對應 `mouseout`、`remove` listener,並透過 `useSyncExternalStore` 暴露目前 hovered element id(snapshot 為 `{ id, group } | null`)。React 端僅 `HoverTooltip` 訂閱該 store,**不觸發 GraphCanvas 重新 render**。
 
@@ -396,7 +396,7 @@ Tooltip 內容依 `group`:
 
 **Why:**
 
-- **固定角落** vs cursor-follow:零幾何計算(無智慧避讓邏輯)、視覺位置可預測、絕對不覆蓋圖形或連線,符合「不擋圖」硬需求。
+- **浮動於元素旁**(取代初版固定角落):tooltip 緊鄰 hovered 元素,以固定偏移 + 邊界翻轉 / 夾擠避免超出 canvas;`pointer-events: none` 確保仍不擋圖互動。眼球焦點與內容相鄰,優於需移到角落。
 - **`pointer-events: none`**:hover 過 tooltip 區域不會觸發 mouseout 抖動,也不阻擋下方節點點擊。
 - **`useSyncExternalStore`**:與 design.md §6 既定模式一致,cytoscape 為單一真實源,避免 effect 中 setState 引發額外 render。
 - **內容為白名單而非全 labels**:k8s labels 可能上百個,全列會超出 280px 卡片並讓 SRE 找不到重點;白名單與 `kube-state-graph` 上游輸出之常用 labels 對齊,後續可由 panel options 開放自訂。
@@ -408,7 +408,7 @@ Tooltip 內容依 `group`:
 - _將 tooltip 改為 click-to-pin sidebar_:雖然提供更詳細資料,但 hover 即時回饋是 SRE 掃圖時最低成本互動,留 sidebar 給後續 change。
 - _把 hover state 放進 React state 並讓 GraphCanvas 重新 render_:每次 hover 都重渲整個 canvas wrapper,違反 design.md §1「instance 為唯一真實源」與 §6「不要每次 props 變動 on/off」。
 
-**Trade-offs:** 固定角落讓眼球需從 hover 位置移到右上角,初次使用者可能誤以為無回饋;mitigation:tooltip 出現時加入 1 條從 hovered element 到 tooltip 左下角的細虛線「leader line」(scaffold 階段先不做,留作未來增強)。
+**Trade-offs:** 浮動於元素旁需少量幾何(偏移 + 邊界翻轉 / 夾擠 + max-size 收斂),換取 hover 焦點與內容相鄰;初版的固定角落 + 「leader line」構想已被取代。
 
 ### Element Filter:Panel options `MultiSelect`,`visibility: hidden`,不重跑 layout
 

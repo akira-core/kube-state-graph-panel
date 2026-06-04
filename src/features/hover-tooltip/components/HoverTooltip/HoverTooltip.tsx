@@ -1,7 +1,7 @@
 import { css } from '@emotion/css';
 import type { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
@@ -35,10 +35,10 @@ function getStyles(theme: GrafanaTheme2): {
     border: { weak: string };
   };
   return {
+    // Floats next to the hovered element; left/top are set inline from the
+    // element's rendered position (see HoverTooltip), clamped within the canvas.
     root: css({
       position: 'absolute',
-      top: 8,
-      right: 8,
       width: 280,
       pointerEvents: 'none',
       background: colors.background.secondary,
@@ -52,7 +52,10 @@ function getStyles(theme: GrafanaTheme2): {
       boxShadow: theme.shadows.z2,
       transition: 'opacity 150ms ease-in-out',
       zIndex: 10,
-      overflow: 'hidden',
+      // Long label lists scroll within the box instead of overflowing the panel;
+      // max-width/height are set inline from the viewport (see HoverTooltip).
+      overflowY: 'auto',
+      overflowX: 'hidden',
     }),
     title: css({
       fontWeight: 600,
@@ -141,10 +144,49 @@ function buildContent(hovered: HoveredElement): TooltipContent {
   return { title, attrs, labels: toLabelRows(data.labels, EDGE_PROMOTED_LABELS) };
 }
 
+// Gap between the hovered element's anchor and the tooltip box, and the minimum
+// distance kept from the canvas edges when clamping.
+const TOOLTIP_OFFSET = 14;
+const EDGE_MARGIN = 4;
+// Safe fallback (top-left-ish) when no rendered position is available.
+const FALLBACK_COORDS = { left: EDGE_MARGIN, top: EDGE_MARGIN };
+
 export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Element | null {
   const { cyRef, ready = false } = props;
   const styles = useStyles2(getStyles);
   const hovered = useHoverElement({ cyRef, ready });
+  const ref = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number }>(FALLBACK_COORDS);
+
+  // After layout, place the box beside the anchor and clamp/flip it inside the
+  // canvas. useLayoutEffect runs before paint, so the corrected position shows
+  // on the first visible frame (no flash at the fallback corner).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null || hovered === null || hovered.position === undefined) {
+      setCoords(FALLBACK_COORDS);
+      return;
+    }
+    const { position } = hovered;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const vw = hovered.viewport?.width ?? position.x + w + TOOLTIP_OFFSET + EDGE_MARGIN;
+    const vh = hovered.viewport?.height ?? position.y + h + TOOLTIP_OFFSET + EDGE_MARGIN;
+
+    let left = position.x + TOOLTIP_OFFSET;
+    if (left + w > vw - EDGE_MARGIN) {
+      left = position.x - TOOLTIP_OFFSET - w; // flip to the element's left
+    }
+    left = Math.max(EDGE_MARGIN, Math.min(left, vw - w - EDGE_MARGIN));
+
+    let top = position.y + TOOLTIP_OFFSET;
+    if (top + h > vh - EDGE_MARGIN) {
+      top = position.y - TOOLTIP_OFFSET - h; // flip above the element
+    }
+    top = Math.max(EDGE_MARGIN, Math.min(top, vh - h - EDGE_MARGIN));
+
+    setCoords({ left, top });
+  }, [hovered]);
 
   if (hovered === null) {
     return null;
@@ -152,8 +194,23 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
 
   const { title, attrs, labels } = buildContent(hovered);
 
+  // Cap the box to the canvas so an oversized tooltip (many label rows, or a
+  // panel narrower/shorter than the box) scrolls within bounds instead of
+  // spilling over the panel edge.
+  const vp = hovered.viewport;
+  const sizeStyle =
+    vp !== undefined
+      ? { maxWidth: Math.max(0, vp.width - 2 * EDGE_MARGIN), maxHeight: Math.max(0, vp.height - 2 * EDGE_MARGIN) }
+      : {};
+
   return (
-    <div className={styles.root} data-testid="hover-tooltip" role="tooltip">
+    <div
+      ref={ref}
+      className={styles.root}
+      style={{ left: coords.left, top: coords.top, ...sizeStyle }}
+      data-testid="hover-tooltip"
+      role="tooltip"
+    >
       <div className={styles.title}>{title}</div>
       {attrs.map((row) => (
         <div key={row.key} className={styles.row}>

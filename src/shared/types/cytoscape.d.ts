@@ -1,6 +1,6 @@
 import 'cytoscape';
 
-import type { NodeKind, EdgeType, NodeStatus } from '../constants/types';
+import type { NodeKind, EdgeType, NodeStatus, NodeAlert } from '../constants/types';
 
 declare module 'cytoscape' {
   interface NodeDataDefinition {
@@ -8,6 +8,7 @@ declare module 'cytoscape' {
     status?: NodeStatus; // mapped from upstream data.status; normalize defaults to 'normal'
     namespace?: string; // extracted from upstream data.labels.namespace
     ipAddress?: string[]; // mapped from upstream data.ipaddress (moved out of labels in 524057b)
+    alerts?: NodeAlert[]; // mapped from upstream data.alerts (omitted when absent/empty)
     labels?: Record<string, string>;
     // Compound (cluster) container nodes — see normalize.ts. The grouping
     // structure (the native `parent` field) comes from the backend untouched;

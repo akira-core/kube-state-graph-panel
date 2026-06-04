@@ -122,7 +122,7 @@ Panel SHALL 提供 legend 元件,顯示當前圖中出現的節點形狀與邊�
 
 ### Requirement: Hover Tooltip 顯示元素 metadata
 
-Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 元件;tooltip MUST 固定渲染於 cytoscape canvas wrapper 右上角(`position: absolute; top: 8px; right: 8px`),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動,且樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
+Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 元件;tooltip MUST 浮動定位於被 hover 元素附近(`position: absolute`,node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移),並夾擠 / 翻轉於 cytoscape canvas wrapper 邊界內(偏移後超出右 / 下緣時翻轉至元素左側並夾於 wrapper 內,不超出可視範圍),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動,且樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
 
 #### Scenario: Hover 節點顯示節點 metadata
 
@@ -133,6 +133,12 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 
 - **WHEN** 使用者滑鼠 hover 於任一邊
 - **THEN** `HoverTooltip` 顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
+
+#### Scenario: Tooltip 定位於 hovered 元素附近
+
+- **WHEN** 使用者 hover 於某節點
+- **THEN** tooltip 以該節點 rendered 位置加固定偏移定位(動態 `left` / `top`),而非固定於角落
+- **AND** 當偏移後 tooltip 會超出 canvas 右 / 下緣時,翻轉至節點左側並夾擠於 wrapper 邊界內
 
 #### Scenario: Tooltip 不阻擋圖形互動
 
@@ -263,7 +269,9 @@ Panel SHALL 依節點 `data.status` 對 `pod` / `node` / `pvc` 渲染狀態外�
 
 ### Requirement: Node Detail 面板
 
-Panel SHALL 在點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,顯示節點 name、kind、status 三項,以及 `Alert Name` / `Alert Content` 兩個預留空區段;並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。cluster 容器不可點選。
+Panel SHALL 在點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,顯示節點 name、kind、status 三項,以及一個**告警表格**(`@grafana/ui` `InteractiveTable`,欄位 Pod / Service / Alert / Severity / Time);並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。cluster 容器不可點選。
+
+告警資料來自上游 graph JSON 節點的選用欄位 `alerts: NodeAlert[]`(`normalizeGraph` 攜帶至 `data.alerts`,缺值或空陣列→無列);`severity` 沿用 `NodeStatus` 列舉並以單一資料源 `STATUS_COLOR` 著色,非列舉值 fallback 為中性色且不報錯。Time 欄 MUST 為可點擊元素;點擊時以該告警時間(`time`,Unix 秒)為中心、固定 ±5 分鐘(300 秒),呼叫 `onChangeTimeRange({ from: (time-300)*1000, to: (time+300)*1000 })`(毫秒)倒帶 dashboard 時間範圍。節點無告警時 MUST 顯示「No alerts」訊息而非空表格。
 
 #### Scenario: 點節點開啟面板
 
@@ -280,3 +288,27 @@ Panel SHALL 在點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟
 
 - **WHEN** 面板開啟時使用者點擊另一個節點
 - **THEN** 面板切換為新點擊的節點
+
+#### Scenario: 顯示告警表格
+
+- **WHEN** 選取的節點帶有 `data.alerts`(一或多筆)
+- **THEN** detail 面板以 `InteractiveTable` 逐列顯示告警,欄位為 Pod / Service / Alert / Severity / Time
+- **AND** Pod 或 Service 缺值時該格顯示 `—`
+
+#### Scenario: Severity 著色
+
+- **WHEN** 告警 `severity` 為 `normal` / `warning` / `critical`
+- **THEN** 該列 Severity 以對應 `STATUS_COLOR` 著色徽章呈現
+- **WHEN** `severity` 不在列舉中
+- **THEN** 以中性 / `normal` 色 fallback,不報錯
+
+#### Scenario: 點 Time 倒帶時間範圍
+
+- **WHEN** 使用者點擊某列的 Time 欄,該告警時間為 `t`(Unix 秒)
+- **THEN** panel 呼叫 `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })`(±5 分鐘,毫秒)
+- **AND** dashboard 時間範圍倒帶至該窗
+
+#### Scenario: 無告警空狀態
+
+- **WHEN** 選取的節點無 `alerts` 欄位或為空陣列
+- **THEN** detail 面板顯示「No alerts」訊息,不渲染表格

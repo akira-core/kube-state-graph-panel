@@ -81,7 +81,7 @@ src/
 │   ├── graph-data/                    # PanelData → ElementDefinition[] normalize boundary
 │   ├── legend/
 │   ├── theme/                         # Grafana theme → stylesheet adapter
-│   ├── hover-tooltip/                 # right-corner tooltip via mouseover events
+│   ├── hover-tooltip/                 # tooltip floating beside the hovered element via mouseover events
 │   └── element-filter/                # node-kind / edge-type visibility filter
 └── shared/                            # constants, types, cross-feature primitives
 ```

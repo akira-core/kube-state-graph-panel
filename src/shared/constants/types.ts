@@ -47,6 +47,23 @@ export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
 // are normalised to 'normal'.
 export type NodeStatus = 'normal' | 'warning' | 'critical';
 
+// Alert severity reuses the NodeStatus scale so the detail-panel alert table
+// colours alerts from the single source STATUS_COLOR — no second colour map.
+export type AlertSeverity = NodeStatus;
+
+// A single alert attached to a node, carried on the optional upstream graph-JSON
+// node field `alerts` and surfaced in the detail panel's alert table.
+// `time` is Unix epoch SECONDS (matches the backend start/end convention); the
+// panel converts to milliseconds only at the render / time-rewind boundary.
+export interface NodeAlert {
+  pod?: string;
+  service?: string;
+  name: string; // alert name
+  severity: AlertSeverity;
+  time: number; // Unix epoch seconds
+  id?: string; // optional stable row id; synthesised from name+time+index if absent
+}
+
 // Which K8s object a pod is compound-nested under (panel-side view toggle, not a
 // wire value). 'node' (default) = backend's view: pod nests in its K8s node,
 // `pod-runs-on-node` is nesting and `service-selects-pod` is drawn. 'service' =

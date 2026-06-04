@@ -4,6 +4,7 @@ import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
+import { AlertTable } from '../AlertTable';
 
 import type { NodeDetailPanelProps } from './NodeDetailPanel.types';
 
@@ -92,7 +93,12 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-export function NodeDetailPanel({ node, onClose }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
+export function NodeDetailPanel({
+  node,
+  onClose,
+  onAlertTimeClick,
+  timeZone,
+}: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   if (node === null) {
     return null;
@@ -119,13 +125,15 @@ export function NodeDetailPanel({ node, onClose }: Readonly<NodeDetailPanelProps
         </span>
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
-      <div className={styles.section} data-testid="node-detail-section-alert-name">
-        <div className={styles.sectionTitle}>Alert Name</div>
-        <div className={styles.sectionBody} />
-      </div>
-      <div className={styles.section} data-testid="node-detail-section-alert-content">
-        <div className={styles.sectionTitle}>Alert Content</div>
-        <div className={styles.sectionBody} />
+      <div className={styles.section} data-testid="node-detail-section-alerts">
+        <div className={styles.sectionTitle}>Alerts</div>
+        <div className={styles.sectionBody}>
+          <AlertTable
+            alerts={node.alerts ?? []}
+            onAlertTimeClick={onAlertTimeClick}
+            {...(timeZone !== undefined ? { timeZone } : {})}
+          />
+        </div>
       </div>
     </div>
   );

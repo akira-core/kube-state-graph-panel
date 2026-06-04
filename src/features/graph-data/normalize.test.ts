@@ -376,4 +376,64 @@ describe('normalizeGraph', () => {
     expect(elements.every((e) => e.data.parent === undefined)).toBe(true);
     expect(elements.some((e) => (e.data as Record<string, unknown>).isCluster === true)).toBe(false);
   });
+
+  describe('node alerts', () => {
+    const withAlerts = (alerts: unknown): ReturnType<typeof normalizeGraph> =>
+      normalizeGraph({
+        elements: {
+          nodes: [{ data: { id: 'p1', type: 'pod', name: 'mongo-0', alerts } }],
+          edges: [],
+        },
+      });
+
+    it('carries a well-formed alerts array onto data.alerts', () => {
+      const { elements, errors } = withAlerts([
+        { pod: 'mongo-0', service: 'mongo', name: 'HighMem', severity: 'critical', time: 1717500000, id: 'a1' },
+        { name: 'Restart', severity: 'warning', time: 1717500300 },
+      ]);
+      expect(errors).toEqual([]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { pod: 'mongo-0', service: 'mongo', name: 'HighMem', severity: 'critical', time: 1717500000, id: 'a1' },
+        { name: 'Restart', severity: 'warning', time: 1717500300 },
+      ]);
+    });
+
+    it('drops malformed alert entries (bad/missing name, severity or time) and keeps valid ones', () => {
+      const { elements } = withAlerts([
+        { name: 'ok', severity: 'warning', time: 1717500000 },
+        { name: 'epoch0', severity: 'warning', time: 0 }, // 0 is a valid Unix second
+        { severity: 'critical', time: 1717500000 }, // missing name
+        { name: 'badSev', severity: 'fatal', time: 1717500000 }, // severity not in enum
+        { name: 'strTime', severity: 'warning', time: '1717500000' }, // time not a number
+        { name: 'nanTime', severity: 'warning', time: NaN }, // non-finite
+        { name: 'infTime', severity: 'warning', time: Infinity }, // non-finite
+        { name: 'negTime', severity: 'warning', time: -5 }, // negative epoch
+        'nope', // not an object
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'ok', severity: 'warning', time: 1717500000 },
+        { name: 'epoch0', severity: 'warning', time: 0 },
+      ]);
+    });
+
+    it('omits the alerts field when absent, empty, or all entries malformed', () => {
+      expect(withAlerts(undefined).elements[0]?.data.alerts).toBeUndefined();
+      expect(withAlerts([]).elements[0]?.data.alerts).toBeUndefined();
+      expect(withAlerts([{ name: 'x' }]).elements[0]?.data.alerts).toBeUndefined();
+    });
+
+    it('never carries alerts on a cluster container node', () => {
+      const { elements } = normalizeGraph({
+        elements: {
+          nodes: [
+            {
+              data: { id: 'c1', type: 'cluster', name: 'demo', alerts: [{ name: 'x', severity: 'warning', time: 1 }] },
+            },
+          ],
+          edges: [],
+        },
+      });
+      expect(elements[0]?.data.alerts).toBeUndefined();
+    });
+  });
 });

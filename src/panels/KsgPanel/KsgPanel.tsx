@@ -18,6 +18,10 @@ import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
 export type KsgPanelProps = PanelProps<KsgPanelOptions>;
 
+// Clicking an alert's time rewinds the dashboard to a fixed ±5-minute window
+// centred on that alert (alert time is Unix seconds; AbsoluteTimeRange is ms).
+const ALERT_REWIND_HALF_WINDOW_SEC = 300;
+
 function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; legendArea: string } {
   const borderWeak = (theme.colors as unknown as { border: { weak: string } }).border.weak;
   return {
@@ -73,6 +77,7 @@ export function resolveSelectedNode(
         label: typeof d.label === 'string' ? d.label : selectedNodeId,
         ...(d.kind !== undefined ? { kind: d.kind } : {}),
         ...(d.status !== undefined ? { status: d.status } : {}),
+        ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
       };
     }
   }
@@ -80,7 +85,7 @@ export function resolveSelectedNode(
 }
 
 export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
-  const { options, data } = props;
+  const { options, data, onChangeTimeRange, timeZone } = props;
   const styles = useStyles2(getStyles);
   const stylesheet = useGraphTheme();
 
@@ -106,6 +111,18 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // Selected node id drives both the detail panel and (controlled) the cy
   // selection highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Rewind the dashboard time range to a fixed ±5m window around the clicked
+  // alert's time (seconds → ms for AbsoluteTimeRange).
+  const handleAlertTimeClick = useCallback(
+    (timeSec: number) => {
+      onChangeTimeRange({
+        from: (timeSec - ALERT_REWIND_HALF_WINDOW_SEC) * 1000,
+        to: (timeSec + ALERT_REWIND_HALF_WINDOW_SEC) * 1000,
+      });
+    },
+    [onChangeTimeRange]
+  );
 
   // Same visibility set the canvas applies (kind/edge filter + orphan cascade),
   // computed from the mode-transformed elements. Used to keep the detail panel in
@@ -312,7 +329,12 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               onCollapsedChange={setCollapsedIds}
               podParentMode={podParentMode}
             />
-            <NodeDetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+            <NodeDetailPanel
+              node={selectedNode}
+              onClose={() => setSelectedNodeId(null)}
+              onAlertTimeClick={handleAlertTimeClick}
+              timeZone={timeZone}
+            />
           </>
         )}
       </div>

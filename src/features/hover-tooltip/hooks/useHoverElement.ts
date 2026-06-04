@@ -7,6 +7,12 @@ export interface HoveredElement {
   data: Record<string, unknown>;
   sourceLabel?: string;
   targetLabel?: string;
+  // Rendered (pixel) anchor within the cytoscape container — node centre for a
+  // node, cursor point for an edge. Optional: absent under headless cytoscape or
+  // synthetic events, where the tooltip falls back to a safe corner.
+  position?: { x: number; y: number };
+  // Container size at hover time, used to clamp/flip the tooltip on-screen.
+  viewport?: { width: number; height: number };
 }
 
 export interface UseHoverElementProps {
@@ -50,6 +56,13 @@ export function useHoverElement({ cyRef, ready }: UseHoverElementProps): Hovered
         group: isNode ? 'nodes' : 'edges',
         data,
       };
+      // Anchor: a node's rendered centre keeps the tooltip pinned beside the
+      // node; an edge has no single point, so use the cursor's rendered position.
+      const anchor = isNode ? target.renderedPosition() : evt.renderedPosition;
+      if (anchor !== undefined && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
+        next.position = { x: anchor.x, y: anchor.y };
+        next.viewport = { width: cy.width(), height: cy.height() };
+      }
       if (!isNode) {
         const source = typeof data.source === 'string' ? data.source : '';
         const target2 = typeof data.target === 'string' ? data.target : '';

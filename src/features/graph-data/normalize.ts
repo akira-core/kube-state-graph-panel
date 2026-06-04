@@ -2,7 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { EdgeType, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -35,6 +35,43 @@ function isNonEmptyStringArray(v: unknown): v is string[] {
 
 function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
+}
+
+// Project the optional upstream `alerts` array onto typed NodeAlert[]. Anti-corruption
+// boundary: malformed entries (missing/ill-typed name, severity or time) are dropped,
+// not thrown — consistent with the partial-parse contract. Returns undefined when no
+// valid alert survives so the node carries no `alerts` field at all.
+function parseAlerts(v: unknown): NodeAlert[] | undefined {
+  if (!Array.isArray(v)) {
+    return undefined;
+  }
+  const alerts: NodeAlert[] = [];
+  for (const entry of v) {
+    if (!isPlainObject(entry)) {
+      continue;
+    }
+    // `time` must be a finite, non-negative Unix-seconds value: NaN/±Infinity
+    // would render "Invalid date" and yield a {from:NaN,to:NaN} rewind; a
+    // negative epoch would rewind to a bogus pre-1970 window. Drop all of them.
+    if (
+      !isString(entry.name) ||
+      !isNodeStatus(entry.severity) ||
+      typeof entry.time !== 'number' ||
+      !Number.isFinite(entry.time) ||
+      entry.time < 0
+    ) {
+      continue;
+    }
+    alerts.push({
+      name: entry.name,
+      severity: entry.severity,
+      time: entry.time,
+      ...(isString(entry.pod) ? { pod: entry.pod } : {}),
+      ...(isString(entry.service) ? { service: entry.service } : {}),
+      ...(isString(entry.id) ? { id: entry.id } : {}),
+    });
+  }
+  return alerts.length > 0 ? alerts : undefined;
 }
 
 // Upstream entries are cytoscape-shaped ({ data: {...} }); tolerate flat objects too.
@@ -102,6 +139,9 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     const identity = isCluster
       ? { isCluster: true, cluster: label, clusterColor: colorForCluster(label) }
       : { kind: d.type as NodeKind, status: isNodeStatus(d.status) ? d.status : FALLBACK_STATUS };
+    // Alerts ride on any non-cluster node; cluster containers never carry them
+    // (and are excluded from the detail panel that consumes them).
+    const alerts = isCluster ? undefined : parseAlerts(d.alerts);
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -112,6 +152,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
         ...(isString(d.parent) ? { parent: d.parent } : {}),
         ...(isString(namespace) ? { namespace } : {}),
         ...(isNonEmptyStringArray(d.ipaddress) ? { ipAddress: d.ipaddress } : {}),
+        ...(alerts !== undefined ? { alerts } : {}),
         ...(labels !== undefined ? { labels } : {}),
       },
     });

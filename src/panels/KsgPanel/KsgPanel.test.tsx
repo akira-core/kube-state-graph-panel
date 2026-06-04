@@ -7,7 +7,8 @@ import {
   type PanelProps,
   type TimeRange,
 } from '@grafana/data';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import type cytoscape from 'cytoscape';
 import React from 'react';
 
 // Spy is hoisted above jest.mock so the factory closure can capture it.
@@ -27,7 +28,7 @@ jest.mock('../../features/graph-canvas', () => {
   };
 });
 
-import { KsgPanel } from './KsgPanel';
+import { KsgPanel, resolveSelectedNode } from './KsgPanel';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
 const stubTimeRange: TimeRange = {
@@ -192,5 +193,56 @@ describe('KsgPanel', () => {
   it('does not render the cluster legend when there are no clusters', () => {
     render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
     expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();
+  });
+
+  it('resolveSelectedNode carries a node\'s alerts onto the detail data', () => {
+    const alerts = [{ name: 'HighMem', severity: 'critical' as const, time: 1717500000 }];
+    const elements: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'p1', label: 'mongo-0', kind: 'pod', alerts } },
+    ];
+    const node = resolveSelectedNode(elements, 'p1', new Set(['p1']));
+    expect(node?.alerts).toEqual(alerts);
+  });
+
+  it('rewinds the dashboard time range to a ±5m window when an alert time is clicked', () => {
+    const onChangeTimeRange = jest.fn();
+    const payload = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'p1',
+              type: 'pod',
+              name: 'mongo-0',
+              alerts: [{ pod: 'mongo-0', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 }],
+            },
+          },
+          { data: { id: 'p2', type: 'pod', name: 'web' } },
+        ],
+        edges: [{ data: { id: 'e1', type: 'pod-calls-pod', source: 'p1', target: 'p2' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          onChangeTimeRange,
+        })}
+      />
+    );
+    // Drive selection through the onSelect prop the panel hands GraphCanvas.
+    const calls = graphCanvasSpy.mock.calls as Array<[{ onSelect?: (id: string) => void }]>;
+    const onSelect = calls.at(-1)?.[0].onSelect;
+    act(() => {
+      onSelect?.('p1');
+    });
+    expect(screen.getByText('HighMemory')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('alert-time'));
+    expect(onChangeTimeRange).toHaveBeenCalledWith({ from: 1717499700000, to: 1717500300000 });
   });
 });
