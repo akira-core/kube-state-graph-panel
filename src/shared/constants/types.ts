@@ -47,9 +47,12 @@ export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
 // are normalised to 'normal'.
 export type NodeStatus = 'normal' | 'warning' | 'critical';
 
-// Alert severity reuses the NodeStatus scale so the detail-panel alert table
-// colours alerts from the single source STATUS_COLOR — no second colour map.
-export type AlertSeverity = NodeStatus;
+// Alert severity is a DISTINCT scale from node health status: an alert is by
+// definition not-normal (so no 'normal' tier) and carries an 'info' tier that
+// node status never has. The backend sends node.status and alert.severity as
+// separate attributes; the detail-panel alert table colours from SEVERITY_COLOR
+// (see colorBySeverity.ts), not STATUS_COLOR.
+export type AlertSeverity = 'info' | 'warning' | 'critical';
 
 // A single alert attached to a node, carried on the optional upstream graph-JSON
 // node field `alerts` and surfaced in the detail panel's alert table.

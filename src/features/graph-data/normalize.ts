@@ -2,7 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { AlertSeverity, EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -37,6 +37,12 @@ function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
 
+// Alert severity is a separate scale from node status: 'info'/'warning'/'critical'
+// (no 'normal'). Backend sends node.status and alert.severity independently.
+function isAlertSeverity(v: unknown): v is AlertSeverity {
+  return v === 'info' || v === 'warning' || v === 'critical';
+}
+
 // Project the optional upstream `alerts` array onto typed NodeAlert[]. Anti-corruption
 // boundary: malformed entries (missing/ill-typed name, severity or time) are dropped,
 // not thrown — consistent with the partial-parse contract. Returns undefined when no
@@ -55,7 +61,7 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
     // negative epoch would rewind to a bogus pre-1970 window. Drop all of them.
     if (
       !isString(entry.name) ||
-      !isNodeStatus(entry.severity) ||
+      !isAlertSeverity(entry.severity) ||
       typeof entry.time !== 'number' ||
       !Number.isFinite(entry.time) ||
       entry.time < 0

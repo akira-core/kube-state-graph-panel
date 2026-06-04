@@ -404,6 +404,7 @@ describe('normalizeGraph', () => {
         { name: 'epoch0', severity: 'warning', time: 0 }, // 0 is a valid Unix second
         { severity: 'critical', time: 1717500000 }, // missing name
         { name: 'badSev', severity: 'fatal', time: 1717500000 }, // severity not in enum
+        { name: 'normalSev', severity: 'normal', time: 1717500000 }, // 'normal' is node status, not alert severity
         { name: 'strTime', severity: 'warning', time: '1717500000' }, // time not a number
         { name: 'nanTime', severity: 'warning', time: NaN }, // non-finite
         { name: 'infTime', severity: 'warning', time: Infinity }, // non-finite
@@ -413,6 +414,20 @@ describe('normalizeGraph', () => {
       expect(elements[0]?.data.alerts).toEqual([
         { name: 'ok', severity: 'warning', time: 1717500000 },
         { name: 'epoch0', severity: 'warning', time: 0 },
+      ]);
+    });
+
+    it('accepts info/warning/critical severities and rejects node-status "normal"', () => {
+      const { elements } = withAlerts([
+        { name: 'i', severity: 'info', time: 1717500000 },
+        { name: 'w', severity: 'warning', time: 1717500001 },
+        { name: 'c', severity: 'critical', time: 1717500002 },
+        { name: 'n', severity: 'normal', time: 1717500003 }, // dropped: not an alert severity
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'i', severity: 'info', time: 1717500000 },
+        { name: 'w', severity: 'warning', time: 1717500001 },
+        { name: 'c', severity: 'critical', time: 1717500002 },
       ]);
     });
 

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
-import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
+import { SEVERITY_COLOR } from '../../../../shared/constants/colorBySeverity';
 import type { NodeAlert } from '../../../../shared/constants/types';
 
 import { AlertTable } from './AlertTable';
@@ -27,17 +27,23 @@ describe('AlertTable', () => {
     expect(screen.getAllByText('—')).toHaveLength(2); // pod + service
   });
 
-  it('colours the severity badge from STATUS_COLOR', () => {
+  it('colours the severity badge from SEVERITY_COLOR', () => {
     render(<AlertTable alerts={alerts} onAlertTimeClick={jest.fn()} timeZone="utc" />);
     const badges = screen.getAllByTestId('alert-severity');
-    expect(badges[0]).toHaveStyle({ backgroundColor: STATUS_COLOR.critical });
-    expect(badges[1]).toHaveStyle({ backgroundColor: STATUS_COLOR.warning });
+    expect(badges[0]).toHaveStyle({ backgroundColor: SEVERITY_COLOR.critical });
+    expect(badges[1]).toHaveStyle({ backgroundColor: SEVERITY_COLOR.warning });
   });
 
-  it('falls back to the normal colour for an unknown severity', () => {
+  it('colours an info severity badge from SEVERITY_COLOR', () => {
+    const info: NodeAlert[] = [{ name: 'Rollout', severity: 'info', time: 1717500000 }];
+    render(<AlertTable alerts={info} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: SEVERITY_COLOR.info });
+  });
+
+  it('falls back to the info colour for an unknown severity', () => {
     const junk = [{ name: 'X', severity: 'fatal' as NodeAlert['severity'], time: 1717500000 }];
     render(<AlertTable alerts={junk} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: STATUS_COLOR.normal });
+    expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: SEVERITY_COLOR.info });
   });
 
   it('calls onAlertTimeClick with the alert time in SECONDS when a time cell is clicked', () => {
