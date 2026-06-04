@@ -29,10 +29,11 @@ function extractJsonFromFrames(series: DataFrame[]): unknown {
     // (values[0]); its backend/JSON parser instead leaves fields empty and stashes
     // the parsed response in meta.custom.data. Probe both shapes so the panel
     // renders regardless of which Infinity parsing mode the query is configured for.
-    const candidates: unknown[] = frame.fields.map(
-      (field) => (field.values as unknown as ArrayLike<unknown>)[0]
-    );
-    const metaData = frame.meta?.custom?.data;
+    const candidates: unknown[] = frame.fields.map((field) => (field.values as unknown as ArrayLike<unknown>)[0]);
+    // @grafana/data types meta.custom as Record<string, any>, so this access is
+    // `any`; pin it to `unknown` at the boundary (the candidates array is unknown[]
+    // and every value is narrowed below before use).
+    const metaData: unknown = frame.meta?.custom?.data;
     if (metaData !== undefined) {
       candidates.push(metaData);
     }
