@@ -24,6 +24,17 @@ function frameWithFieldValue(value: unknown): DataFrame {
   };
 }
 
+// Infinity's backend/JSON parser leaves fields empty and stashes the parsed
+// response in meta.custom.data instead of fields[].values[0].
+function frameWithMetaData(data: unknown): DataFrame {
+  return {
+    name: 'graph',
+    length: 0,
+    fields: [],
+    meta: { custom: { data } },
+  };
+}
+
 function panelData(series: DataFrame[]): PanelData {
   return {
     state: LoadingState.Done,
@@ -103,6 +114,35 @@ describe('useGraphData', () => {
     const { result } = renderHook(() => useGraphData(data));
     expect(typeof result.current.error).toBe('string');
     expect(result.current.error).not.toBe('');
+  });
+
+  it('parses an object payload stashed in meta.custom.data (Infinity backend parser)', () => {
+    const payload = { nodes: [{ id: 'a', type: 'pod' }], edges: [] };
+    const data = panelData([frameWithMetaData(payload)]);
+    const { result } = renderHook(() => useGraphData(data));
+    expect(result.current.elements).toHaveLength(1);
+    const first = result.current.elements[0] as { data: { id: string } };
+    expect(first.data.id).toBe('a');
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('parses a JSON string payload stashed in meta.custom.data', () => {
+    const payload = { elements: { nodes: [{ id: 'a', type: 'pod' }], edges: [] } };
+    const data = panelData([frameWithMetaData(JSON.stringify(payload))]);
+    const { result } = renderHook(() => useGraphData(data));
+    expect(result.current.elements).toHaveLength(1);
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('prefers a graph payload in fields over meta.custom.data', () => {
+    const frame: DataFrame = {
+      ...frameWithFieldValue(JSON.stringify({ nodes: [{ id: 'field-node', type: 'pod' }], edges: [] })),
+      meta: { custom: { data: { nodes: [{ id: 'meta-node', type: 'pod' }], edges: [] } } },
+    };
+    const { result } = renderHook(() => useGraphData(panelData([frame])));
+    expect(result.current.elements).toHaveLength(1);
+    const first = result.current.elements[0] as { data: { id: string } };
+    expect(first.data.id).toBe('field-node');
   });
 
   it('memoizes result across renders with same data.series reference', () => {

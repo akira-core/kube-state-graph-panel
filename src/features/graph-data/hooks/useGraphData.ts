@@ -25,9 +25,18 @@ function looksLikeGraphPayload(value: unknown): boolean {
 function extractJsonFromFrames(series: DataFrame[]): unknown {
   let fallback: unknown;
   for (const frame of series) {
-    for (const field of frame.fields) {
-      const values = field.values as unknown as ArrayLike<unknown>;
-      const raw = values[0];
+    // Infinity's frontend "table" parser flattens the JSON object into fields
+    // (values[0]); its backend/JSON parser instead leaves fields empty and stashes
+    // the parsed response in meta.custom.data. Probe both shapes so the panel
+    // renders regardless of which Infinity parsing mode the query is configured for.
+    const candidates: unknown[] = frame.fields.map(
+      (field) => (field.values as unknown as ArrayLike<unknown>)[0]
+    );
+    const metaData = frame.meta?.custom?.data;
+    if (metaData !== undefined) {
+      candidates.push(metaData);
+    }
+    for (const raw of candidates) {
       let candidate: unknown = raw;
       if (typeof raw === 'string') {
         try {
