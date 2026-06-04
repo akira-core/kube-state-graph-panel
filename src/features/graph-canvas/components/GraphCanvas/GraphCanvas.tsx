@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
 import { useStyles2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 
 import { useElementFilter } from '../../../element-filter';
 import { HoverTooltip } from '../../../hover-tooltip';
+import { buildSwitchConstraints, computeSwitchTiers } from '../../../switch-topology';
 import { useCytoscape } from '../../hooks/useCytoscape';
 import { useExpandCollapse } from '../../hooks/useExpandCollapse';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
@@ -62,6 +63,12 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   // edges) — so layout reruns once per real structural change, not per render.
   const runToken = useLayoutRunToken({ collapsedIds, podParentMode });
 
+  // Derive switch-fabric tier constraints from the current graph. Applied by
+  // useGraphLayout only when the active layout is fcose; null (no-op) when there
+  // are no switches. useGraphLayout reads the latest value at layout-run time, so
+  // a refresh-driven identity change here does not by itself rerun the layout.
+  const switchConstraints = useMemo(() => buildSwitchConstraints(computeSwitchTiers(elements)), [elements]);
+
   const collapseEnabled = onCollapsedChange !== undefined;
 
   const { containerRef, cyRef, isReady } = useCytoscape({
@@ -71,7 +78,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: runToken } : {}),
   });
 
-  useGraphLayout({ cyRef, name: layout, runToken });
+  useGraphLayout({ cyRef, name: layout, runToken, switchConstraints });
   useGraphResize({ cyRef, containerRef });
   useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes });
   useExpandCollapse({

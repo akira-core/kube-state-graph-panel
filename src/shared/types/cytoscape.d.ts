@@ -16,6 +16,10 @@ declare module 'cytoscape' {
     isCluster?: boolean; // true only on a backend-provided cluster container node
     cluster?: string; // cluster name carried on the container node
     clusterColor?: string; // accent colour assigned in normalize so the stylesheet stays pure
+    // Optional backend-supplied network tier for `switch` nodes. Absent today
+    // (backend exposes no tier metadata); when present it wins over the tier the
+    // panel derives structurally — see features/switch-topology/computeSwitchTiers.
+    tier?: number;
   }
 
   interface EdgeDataDefinition {

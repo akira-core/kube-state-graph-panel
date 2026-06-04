@@ -119,6 +119,15 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "edge[edgeType='node-to-switch'], edge[edgeType='switch-to-switch']",
+    "style": {
+      "curve-style": "taxi",
+      "taxi-direction": "vertical",
+      "taxi-turn": "50%",
+      "taxi-turn-min-distance": 5,
+    },
+  },
+  {
     "selector": "edge.cy-expand-collapse-meta-edge",
     "style": {
       "curve-style": "bezier",

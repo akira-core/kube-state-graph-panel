@@ -139,4 +139,45 @@ describe('getStylesheet', () => {
     expect(Number(cy.getElementById('cluster:demo').style('background-opacity'))).toBeCloseTo(0.07);
     cy.destroy();
   });
+
+  const SWITCH_EDGE_SELECTOR = "edge[edgeType='node-to-switch'], edge[edgeType='switch-to-switch']";
+
+  it('routes switch-fabric edges orthogonally (taxi) while other edges stay bezier', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'n1', kind: 'node' } },
+        { group: 'nodes', data: { id: 'sw1', kind: 'switch' } },
+        { group: 'nodes', data: { id: 'sw2', kind: 'switch' } },
+        { group: 'nodes', data: { id: 'p1', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'p2', kind: 'pod' } },
+        { group: 'edges', data: { id: 'e_n2s', source: 'n1', target: 'sw1', edgeType: 'node-to-switch' } },
+        { group: 'edges', data: { id: 'e_s2s', source: 'sw1', target: 'sw2', edgeType: 'switch-to-switch' } },
+        { group: 'edges', data: { id: 'e_other', source: 'p1', target: 'p2', edgeType: 'pod-calls-pod' } },
+      ],
+    });
+    expect(cy.getElementById('e_n2s').style('curve-style')).toBe('taxi');
+    expect(cy.getElementById('e_s2s').style('curve-style')).toBe('taxi');
+    expect(cy.getElementById('e_other').style('curve-style')).toBe('bezier');
+    cy.destroy();
+  });
+
+  it('keeps the switch-edge selector to routing only, so colour/line-style are preserved from the base edge rule', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const switchSel = sheet.find((s) => s.selector === SWITCH_EDGE_SELECTOR);
+    expect(switchSel?.style?.['curve-style']).toBe('taxi');
+    expect(switchSel?.style?.['taxi-direction']).toBe('vertical');
+    // The selector must NOT redefine colour or line-style — those cascade from the
+    // base `edge` rule so switch edges keep their cyan solid/dashed styling.
+    expect(switchSel?.style?.['line-color']).toBeUndefined();
+    expect(switchSel?.style?.['line-style']).toBeUndefined();
+    // Declared after the base `edge` rule so its curve-style wins.
+    const selectors = sheet.map((s) => s.selector);
+    expect(selectors.indexOf(SWITCH_EDGE_SELECTOR)).toBeGreaterThan(selectors.indexOf('edge'));
+  });
 });
