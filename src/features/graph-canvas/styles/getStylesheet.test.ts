@@ -137,6 +137,16 @@ describe('getStylesheet', () => {
     // The cluster container carries NO resource icon and gets its accent backplate.
     expect(cy.getElementById('cluster:demo').style('background-image')).toBe('none');
     expect(Number(cy.getElementById('cluster:demo').style('background-opacity'))).toBeCloseTo(0.07);
+    // A K8s node container is tinted with its parent cluster's accent (same colour
+    // as the cluster backplate), so node and cluster read as one family.
+    expect(cy.getElementById('demo/node-a').style('background-color')).toBe(
+      cy.getElementById('cluster:demo').style('background-color')
+    );
+    // A drawn leaf node (no children → not :parent) keeps the base node fill, not
+    // the cluster tint.
+    expect(cy.getElementById('leaf-node').style('background-color')).not.toBe(
+      cy.getElementById('cluster:demo').style('background-color')
+    );
     cy.destroy();
   });
 

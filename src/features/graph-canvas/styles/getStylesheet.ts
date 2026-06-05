@@ -102,8 +102,17 @@ export function getStylesheet({
       selector: 'node:parent',
       style: {
         shape: 'round-rectangle',
-        'background-color': borderColor,
-        'background-opacity': 0.05,
+        // Tint a K8s node container with its parent cluster's accent so node and
+        // cluster read as one family (the on-canvas counterpart of the "Nodes"
+        // legend swatch, which takes the same colour). Falls back to the neutral
+        // border colour when the node has no cluster parent. Cluster containers
+        // also match node:parent but their parent() is empty (top-level) → neutral
+        // here, then node[?isCluster] below overrides with their own colour.
+        'background-color': ((ele: cytoscape.NodeSingular): string => {
+          const parentColor = ele.parent().data('clusterColor') as unknown;
+          return typeof parentColor === 'string' ? parentColor : borderColor;
+        }) as unknown as string,
+        'background-opacity': 0.1,
         // Compound containers (e.g. a K8s node boxing its pods) carry NO resource
         // icon — a `contain`-fitted glyph would fill the whole box behind its
         // children. The box stays a labelled backplate. (A small corner badge is

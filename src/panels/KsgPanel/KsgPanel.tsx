@@ -1,19 +1,27 @@
 import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
-import { Alert, useStyles2 } from '@grafana/ui';
+import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
 import { useGraphData } from '../../features/graph-data';
-import { ClusterLegend, EdgeLegend, NodeLegend, StatusLegend, type ClusterLegendEntry } from '../../features/legend';
+import {
+  ClusterLegend,
+  EdgeLegend,
+  NodeContainerLegend,
+  NodeLegend,
+  StatusLegend,
+  type ClusterLegendEntry,
+} from '../../features/legend';
 import { NodeDetailPanel, type NodeDetailData } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, PodParentMode } from '../../shared/constants/types';
 
+import { deriveNodeContainers } from './deriveNodeContainers';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 
 export type KsgPanelProps = PanelProps<KsgPanelOptions>;
@@ -87,6 +95,7 @@ export function resolveSelectedNode(
 export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const { options, data, onChangeTimeRange, timeZone } = props;
   const styles = useStyles2(getStyles);
+  const theme = useTheme2();
   const stylesheet = useGraphTheme();
 
   // Backwards-compatible options read — older dashboards may lack new fields
@@ -176,6 +185,23 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     }
     return ordered;
   }, [elements]);
+
+  // K8s `node` containers (swatched by their cluster) + whether any node is a
+  // drawn leaf. In the default cluster>node>pod layout a node is a labelled
+  // container with no icon, so it is swatched in the "Nodes" section and dropped
+  // from the icon Node-kinds legend; only when a node is drawn as a leaf (service
+  // / controller mode, with pod-runs-on-node edges) does it earn its icon slot.
+  const { nodeEntries, nodeKindLeafExists } = useMemo(
+    () => deriveNodeContainers(elements, (theme.colors as unknown as { border: { weak: string } }).border.weak),
+    [elements, theme]
+  );
+
+  // The kinds shown in the icon Node-kinds legend: drop `node` while it is only a
+  // container (it lives in the "Nodes" swatch section instead).
+  const nodeLegendKinds = useMemo(
+    () => (nodeKindLeafExists ? presentKinds : presentKinds.filter((kind) => kind !== 'node')),
+    [presentKinds, nodeKindLeafExists]
+  );
 
   // Edge types present in the graph, ordered by the canonical edge-style map for
   // a stable legend. `elements` is already mode-transformed (applyPodParentMode),
@@ -302,12 +328,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          <NodeLegend
-            kinds={presentKinds}
-            onToggleCollapseAll={toggleNodes}
-            allCollapsed={allNodesCollapsed}
-            showCollapseToggle={k8sNodeContainerIds.length > 0}
-          />
+          <NodeContainerLegend nodes={nodeEntries} onToggleCollapseAll={toggleNodes} allCollapsed={allNodesCollapsed} />
+          <NodeLegend kinds={nodeLegendKinds} />
           <EdgeLegend edgeTypes={presentEdgeTypes} mode={podParentMode} onToggleMode={togglePodParentMode} />
           <StatusLegend />
         </aside>
