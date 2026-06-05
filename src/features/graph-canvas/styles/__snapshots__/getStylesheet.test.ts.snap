@@ -119,7 +119,7 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
-    "selector": "edge[edgeType='node-to-switch'], edge[edgeType='switch-to-switch']",
+    "selector": "edge[edgeType='switch-to-switch']",
     "style": {
       "curve-style": "taxi",
       "taxi-direction": "vertical",

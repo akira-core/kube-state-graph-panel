@@ -192,12 +192,14 @@ export function getStylesheet({
       },
     },
     {
-      // Switch-fabric edges route orthogonally (taxi) so the many edges converging
-      // on one switch share clean right-angle channels instead of overlapping
-      // béziers. Declared AFTER the base `edge` selector so its curve-style wins;
-      // it sets only routing props, leaving line-color / line-style / arrow from
-      // the `edge` selector intact (colour + solid/dashed are preserved).
-      selector: "edge[edgeType='node-to-switch'], edge[edgeType='switch-to-switch']",
+      // Switch↔switch fabric edges route orthogonally (taxi) so the many edges
+      // converging on one switch share clean right-angle channels instead of
+      // overlapping béziers. node→switch is intentionally EXCLUDED — a k8s node
+      // links to its switch as a direct (bézier) uplink, kept visually separate
+      // from the switch fabric (own indigo colour). Declared AFTER the base `edge`
+      // selector so its curve-style wins; sets only routing props, leaving
+      // line-color / arrow from the `edge` selector intact.
+      selector: "edge[edgeType='switch-to-switch']",
       style: {
         'curve-style': 'taxi',
         'taxi-direction': 'vertical',

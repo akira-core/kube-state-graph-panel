@@ -34,18 +34,20 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
 // `node` mode the backend expresses it as compound nesting (design D31) so no
 // such edge exists. Which types are *drawn* (and shown in the legend) per mode is
 // derived by `drawnEdgeTypesForMode`.
+// All edges are SOLID — direction is conveyed by the arrowhead, and same-direction
+// distinctions by colour. (No dashed/dotted strokes.) Same-colour pairs
+// (pod→service / service→pod share green) differ only by arrow direction.
 export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   'pod-runs-on-node': { color: '#3b82f6', lineStyle: 'solid' },
-  'pod-mounts-pvc': { color: '#a855f7', lineStyle: 'dotted' },
+  'pod-mounts-pvc': { color: '#a855f7', lineStyle: 'solid' },
   'pod-calls-pod': { color: '#f97316', lineStyle: 'solid' },
-  // pod→service and service→pod share the service colour (green); the line style
-  // (solid vs dashed) keeps the two directions distinguishable.
   'pod-calls-service': { color: '#10b981', lineStyle: 'solid' },
-  'service-selects-pod': { color: '#10b981', lineStyle: 'dashed' },
-  // Physical network fabric (backend v0.0.18). Both share the infra cyan; line
-  // style distinguishes switch↔switch (solid) from node→switch (dashed).
+  'service-selects-pod': { color: '#10b981', lineStyle: 'solid' },
+  // Physical network fabric (backend v0.0.18). switch↔switch is the cyan fabric
+  // (taxi-routed); node→switch is a distinct indigo direct uplink so the two are
+  // separable by colour now that neither uses a dashed stroke.
   'switch-to-switch': { color: '#06b6d4', lineStyle: 'solid' },
-  'node-to-switch': { color: '#06b6d4', lineStyle: 'dashed' },
+  'node-to-switch': { color: '#6366f1', lineStyle: 'solid' },
 };
 
 // The edges drawn in the default `node` mode. Derived from the master map so the

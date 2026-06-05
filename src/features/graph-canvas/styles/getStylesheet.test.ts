@@ -140,9 +140,9 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
-  const SWITCH_EDGE_SELECTOR = "edge[edgeType='node-to-switch'], edge[edgeType='switch-to-switch']";
+  const SWITCH_EDGE_SELECTOR = "edge[edgeType='switch-to-switch']";
 
-  it('routes switch-fabric edges orthogonally (taxi) while other edges stay bezier', () => {
+  it('routes switch↔switch fabric orthogonally (taxi); node→switch + other edges stay bezier (direct)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
@@ -158,7 +158,8 @@ describe('getStylesheet', () => {
         { group: 'edges', data: { id: 'e_other', source: 'p1', target: 'p2', edgeType: 'pod-calls-pod' } },
       ],
     });
-    expect(cy.getElementById('e_n2s').style('curve-style')).toBe('taxi');
+    // node→switch is a direct uplink (NOT taxi-routed with the switch fabric).
+    expect(cy.getElementById('e_n2s').style('curve-style')).toBe('bezier');
     expect(cy.getElementById('e_s2s').style('curve-style')).toBe('taxi');
     expect(cy.getElementById('e_other').style('curve-style')).toBe('bezier');
     cy.destroy();
@@ -173,7 +174,7 @@ describe('getStylesheet', () => {
     expect(switchSel?.style?.['curve-style']).toBe('taxi');
     expect(switchSel?.style?.['taxi-direction']).toBe('vertical');
     // The selector must NOT redefine colour or line-style — those cascade from the
-    // base `edge` rule so switch edges keep their cyan solid/dashed styling.
+    // base `edge` rule so switch-fabric edges keep their cyan solid styling.
     expect(switchSel?.style?.['line-color']).toBeUndefined();
     expect(switchSel?.style?.['line-style']).toBeUndefined();
     // Declared after the base `edge` rule so its curve-style wins.
