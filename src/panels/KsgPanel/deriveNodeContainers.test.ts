@@ -18,9 +18,25 @@ describe('deriveNodeContainers', () => {
       node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
       node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
     ];
-    const { nodeEntries, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL);
+    const { nodeEntries, nodeContainerIds, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL);
     expect(nodeEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
+    expect(nodeContainerIds).toEqual(['node/worker-0']);
     expect(showNodeKindIcon).toBe(false);
+  });
+
+  it('returns every node-container id (not name-deduped) for the collapse toggle', () => {
+    const els = [
+      node({ id: 'cluster/prod', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
+      node({ id: 'node/w-1', kind: 'node', parent: 'cluster/prod', label: 'worker' }),
+      node({ id: 'node/w-2', kind: 'node', parent: 'cluster/prod', label: 'worker' }),
+      node({ id: 'pod/a', kind: 'pod', parent: 'node/w-1', label: 'a' }),
+      node({ id: 'pod/b', kind: 'pod', parent: 'node/w-2', label: 'b' }),
+    ];
+    const { nodeEntries, nodeContainerIds } = deriveNodeContainers(els, NEUTRAL);
+    // swatches dedupe by name (one "worker") …
+    expect(nodeEntries).toEqual([{ name: 'worker', color: '#0ea5e9' }]);
+    // … but BOTH container ids must collapse/expand together.
+    expect(nodeContainerIds).toEqual(['node/w-1', 'node/w-2']);
   });
 
   it('keeps a collapsed container in the swatch list AND puts node in the icon legend', () => {

@@ -6,6 +6,7 @@ import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/col
 import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
+import { themeColors } from '../../../shared/theme/themeColors';
 import type { CyStylesheet } from '../hooks/useCytoscape';
 
 export interface GetStylesheetInput {
@@ -56,13 +57,7 @@ export function getStylesheet({
   // no edges in the current view is harmless.
   colorMap = EDGE_STYLE_BY_TYPE,
 }: GetStylesheetInput): CyStylesheet[] {
-  // @grafana/data marks these subfields optional but Grafana always populates them at runtime.
-  const colors = theme.colors as unknown as {
-    text: { primary: string };
-    background: { secondary: string };
-    border: { medium: string };
-    primary: { main: string };
-  };
+  const colors = themeColors(theme);
   const textColor = colors.text.primary;
   // Tint icons with the primary text colour: on the dark node fill the secondary
   // (muted) colour was too low-contrast to read the glyph. Matches the label.

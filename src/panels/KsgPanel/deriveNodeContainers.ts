@@ -10,8 +10,12 @@ export interface NodeContainerDerivation {
   // parent cluster's accent (falls back to a neutral colour when the node has no
   // cluster parent). Rendered as swatches in the "Nodes" legend section. Includes
   // COLLAPSED containers too — the swatch + its collapse toggle stay available so
-  // the node can always be expanded again.
+  // the node can always be expanded again. Deduped by display name.
   nodeEntries: NodeContainerEntry[];
+  // Every K8s-node container id (NOT name-deduped) — the single source for "which
+  // nodes are collapsible boxes", consumed by the node collapse toggle. Same set
+  // the swatches derive from, so the toggle and the legend never disagree.
+  nodeContainerIds: string[];
   // True when `node` should appear in the icon Node-kinds legend — i.e. it renders
   // as an actual glyph somewhere: either a DRAWN LEAF (service / controller mode,
   // with pod-runs-on-node edges) OR a COLLAPSED container (which shows its kind
@@ -45,6 +49,7 @@ export function deriveNodeContainers(
   }
 
   const nodeEntries: NodeContainerEntry[] = [];
+  const nodeContainerIds: string[] = [];
   const seenNames = new Set<string>();
   let showNodeKindIcon = false;
   for (const el of elements) {
@@ -62,6 +67,7 @@ export function deriveNodeContainers(
     }
     // A container. Collapsed containers render as a glyph, so they too put `node`
     // in the icon legend; either way the container keeps its "Nodes" swatch.
+    nodeContainerIds.push(d.id);
     if (collapsedIds.has(d.id)) {
       showNodeKindIcon = true;
     }
@@ -74,5 +80,5 @@ export function deriveNodeContainers(
     nodeEntries.push({ name, color: parentColor ?? fallbackColor });
   }
 
-  return { nodeEntries, showNodeKindIcon };
+  return { nodeEntries, nodeContainerIds, showNodeKindIcon };
 }

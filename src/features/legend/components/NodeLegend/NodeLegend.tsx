@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { IconButton, useStyles2 } from '@grafana/ui';
+import { useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import { CATEGORY_ORDER, categoryForKind, type NodeCategory } from '../../../../shared/constants/categoryByKind';
@@ -7,7 +7,7 @@ import { ICON_SVG_BY_KIND } from '../../../../shared/constants/iconSvgByKind';
 import { legendListStyles } from '../../legendStyles';
 import { IconGlyph } from '../IconGlyph';
 
-function getStyles(): { list: string; row: string; glyph: string; header: string; group: string; groupTitle: string } {
+function getStyles(): { list: string; row: string; glyph: string; group: string; groupTitle: string } {
   return {
     ...legendListStyles(),
     // Fixed square box keeps every icon glyph equal width and height.
@@ -19,7 +19,6 @@ function getStyles(): { list: string; row: string; glyph: string; header: string
       alignItems: 'center',
       justifyContent: 'center',
     }),
-    header: css({ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }),
     group: css({ marginBottom: 6 }),
     groupTitle: css({
       fontSize: 10,
@@ -54,17 +53,9 @@ export interface NodeLegendProps {
   // cluster legend) to show only what's on screen. Omit to list every known
   // kind (the full key set), e.g. in isolated rendering/tests.
   kinds?: readonly string[];
-  onToggleCollapseAll?: () => void;
-  allCollapsed?: boolean;
-  showCollapseToggle?: boolean;
 }
 
-export function NodeLegend({
-  kinds,
-  onToggleCollapseAll,
-  allCollapsed = false,
-  showCollapseToggle = false,
-}: Readonly<NodeLegendProps> = {}): React.JSX.Element | null {
+export function NodeLegend({ kinds }: Readonly<NodeLegendProps> = {}): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   const presentKinds = kinds ?? Object.keys(ICON_SVG_BY_KIND);
   const grouped = kindsByCategory(presentKinds);
@@ -74,19 +65,7 @@ export function NodeLegend({
   }
   return (
     <div data-testid="node-legend">
-      <div className={styles.header}>
-        <h4>Node kinds</h4>
-        {showCollapseToggle && onToggleCollapseAll !== undefined && (
-          <IconButton
-            data-testid="node-collapse-toggle"
-            name={allCollapsed ? 'plus-circle' : 'minus-circle'}
-            aria-label={allCollapsed ? 'Expand all nodes' : 'Collapse all nodes'}
-            tooltip={allCollapsed ? 'Expand all nodes' : 'Collapse all nodes'}
-            size="sm"
-            onClick={onToggleCollapseAll}
-          />
-        )}
-      </div>
+      <h4>Node kinds</h4>
       {CATEGORY_ORDER.filter((category) => (grouped.get(category)?.length ?? 0) > 0).map((category) => (
         <div key={category} className={styles.group} data-testid={`node-legend-group-${category}`}>
           <div className={styles.groupTitle}>{category}</div>

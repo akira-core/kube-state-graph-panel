@@ -20,9 +20,11 @@ import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, PodParentMode } from '../../shared/constants/types';
+import { themeColors } from '../../shared/theme/themeColors';
 
 import { deriveNodeContainers } from './deriveNodeContainers';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
+import { useCollapseGroup } from './useCollapseGroup';
 
 export type KsgPanelProps = PanelProps<KsgPanelOptions>;
 
@@ -31,7 +33,7 @@ export type KsgPanelProps = PanelProps<KsgPanelOptions>;
 const ALERT_REWIND_HALF_WINDOW_SEC = 300;
 
 function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; legendArea: string } {
-  const borderWeak = (theme.colors as unknown as { border: { weak: string } }).border.weak;
+  const borderWeak = themeColors(theme).border.weak;
   return {
     root: css({
       display: 'flex',
@@ -214,13 +216,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // section and dropped from Node-kinds. It earns its icon slot only when it
   // renders as a glyph: a drawn leaf (service / controller mode) or a COLLAPSED
   // container (which shows its kind icon once its children are hidden).
-  const { nodeEntries, showNodeKindIcon } = useMemo(
-    () =>
-      deriveNodeContainers(
-        elements,
-        (theme.colors as unknown as { border: { weak: string } }).border.weak,
-        collapsedIds
-      ),
+  const { nodeEntries, nodeContainerIds, showNodeKindIcon } = useMemo(
+    () => deriveNodeContainers(elements, themeColors(theme).border.weak, collapsedIds),
     [elements, theme, collapsedIds]
   );
 
@@ -246,63 +243,19 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return ids;
   }, [elements]);
 
-  // K8s node container ids = node-kind nodes that are a parent of some node.
-  const k8sNodeContainerIds = useMemo<string[]>(() => {
-    const parentIds = new Set<string>();
-    for (const el of elements) {
-      if (el.group === 'nodes') {
-        const p = (el.data as cytoscape.NodeDataDefinition).parent;
-        if (typeof p === 'string') {
-          parentIds.add(p);
-        }
-      }
-    }
-    const ids: string[] = [];
-    for (const el of elements) {
-      if (el.group !== 'nodes') {
-        continue;
-      }
-      const d = el.data as cytoscape.NodeDataDefinition;
-      if (d.kind === 'node' && typeof d.id === 'string' && parentIds.has(d.id)) {
-        ids.push(d.id);
-      }
-    }
-    return ids;
-  }, [elements]);
-
-  const allClustersCollapsed =
-    clusterContainerIds.length > 0 && clusterContainerIds.every((id) => collapsedIds.has(id));
-  const allNodesCollapsed = k8sNodeContainerIds.length > 0 && k8sNodeContainerIds.every((id) => collapsedIds.has(id));
-
-  const toggleClusters = useCallback(() => {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      const collapseThem = !clusterContainerIds.every((id) => prev.has(id));
-      for (const id of clusterContainerIds) {
-        if (collapseThem) {
-          next.add(id);
-        } else {
-          next.delete(id);
-        }
-      }
-      return next;
-    });
-  }, [clusterContainerIds]);
-
-  const toggleNodes = useCallback(() => {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      const collapseThem = !k8sNodeContainerIds.every((id) => prev.has(id));
-      for (const id of k8sNodeContainerIds) {
-        if (collapseThem) {
-          next.add(id);
-        } else {
-          next.delete(id);
-        }
-      }
-      return next;
-    });
-  }, [k8sNodeContainerIds]);
+  // K8s node container ids come from deriveNodeContainers (single source for
+  // "which nodes are collapsible boxes"), so the collapse toggle and the "Nodes"
+  // swatches can never reference different node sets.
+  const { allCollapsed: allClustersCollapsed, toggle: toggleClusters } = useCollapseGroup(
+    clusterContainerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
+  const { allCollapsed: allNodesCollapsed, toggle: toggleNodes } = useCollapseGroup(
+    nodeContainerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
 
   if (seriesError !== undefined) {
     return (

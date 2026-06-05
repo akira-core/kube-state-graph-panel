@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import React from 'react';
 
 import { categoryForKind } from '../../../../shared/constants/categoryByKind';
@@ -58,17 +58,5 @@ describe('NodeLegend', () => {
   it('renders nothing when no kinds are present', () => {
     const { container } = render(<NodeLegend kinds={[]} />);
     expect(container).toBeEmptyDOMElement();
-  });
-
-  it('renders a node collapse toggle and fires onToggleCollapseAll when showCollapseToggle', () => {
-    const onToggle = jest.fn();
-    render(<NodeLegend onToggleCollapseAll={onToggle} allCollapsed={false} showCollapseToggle />);
-    fireEvent.click(screen.getByTestId('node-collapse-toggle'));
-    expect(onToggle).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders no node toggle when showCollapseToggle is false', () => {
-    render(<NodeLegend onToggleCollapseAll={jest.fn()} allCollapsed={false} showCollapseToggle={false} />);
-    expect(screen.queryByTestId('node-collapse-toggle')).not.toBeInTheDocument();
   });
 });

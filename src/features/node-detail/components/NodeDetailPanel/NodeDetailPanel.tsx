@@ -4,6 +4,7 @@ import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
+import { themeColors } from '../../../../shared/theme/themeColors';
 import { AlertTable } from '../AlertTable';
 
 import type { NodeDetailPanelProps } from './NodeDetailPanel.types';
@@ -19,11 +20,7 @@ function getStyles(theme: GrafanaTheme2): {
   sectionTitle: string;
   sectionBody: string;
 } {
-  const colors = theme.colors as unknown as {
-    text: { primary: string; secondary: string };
-    background: { secondary: string };
-    border: { weak: string };
-  };
+  const colors = themeColors(theme);
   return {
     // Floating overlay docked to the bottom of the canvas (mirrors HoverTooltip's
     // absolute placement, but interactive: pointer-events on). The z-index MUST

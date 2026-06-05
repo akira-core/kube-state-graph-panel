@@ -3,6 +3,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
 import React, { useLayoutEffect, useRef, useState } from 'react';
 
+import { themeColors } from '../../../../shared/theme/themeColors';
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
 import { type HoverTooltipProps } from './HoverTooltip.types';
@@ -29,11 +30,7 @@ function getStyles(theme: GrafanaTheme2): {
   labelRow: string;
   labelsHint: string;
 } {
-  const colors = theme.colors as unknown as {
-    text: { primary: string; secondary: string };
-    background: { secondary: string };
-    border: { weak: string };
-  };
+  const colors = themeColors(theme);
   return {
     // Floats next to the hovered element; left/top are set inline from the
     // element's rendered position (see HoverTooltip), clamped within the canvas.

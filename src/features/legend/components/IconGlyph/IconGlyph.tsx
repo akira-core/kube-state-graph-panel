@@ -3,6 +3,7 @@ import React from 'react';
 
 import { iconSvgForKind } from '../../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../../shared/icon/tintSvgToDataUri';
+import { themeColors } from '../../../../shared/theme/themeColors';
 
 export interface IconGlyphProps {
   /** Backend node kind; unknown kinds resolve to the fallback glyph. */
@@ -20,9 +21,7 @@ const DEFAULT_SIZE = 26;
 // dangerouslySetInnerHTML is needed and the glyph stays crisp.
 export function IconGlyph({ kind, size = DEFAULT_SIZE }: Readonly<IconGlyphProps>): React.JSX.Element {
   const theme = useTheme2();
-  // @grafana/data marks this optional but Grafana always populates it at runtime.
   // Primary text colour so the legend glyph reads as a true key to the canvas icon.
-  const colors = theme.colors as unknown as { text: { primary: string } };
-  const src = tintSvgToDataUri(iconSvgForKind(kind), colors.text.primary);
+  const src = tintSvgToDataUri(iconSvgForKind(kind), themeColors(theme).text.primary);
   return <img src={src} width={size} height={size} alt={`${kind} icon`} data-testid={`icon-glyph-${kind}`} />;
 }
