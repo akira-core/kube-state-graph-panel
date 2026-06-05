@@ -32,7 +32,7 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "border-color": "rgba(204, 204, 220, 0.2)",
       "border-opacity": 0.6,
       "border-width": 1,
-      "color": "rgb(204, 204, 220)",
+      "color": [Function],
       "font-size": 11,
       "label": "data(label)",
       "padding": "14px",

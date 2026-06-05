@@ -4,20 +4,22 @@
 //     `parent` field untouched; only the colour is a frontend/presentation concern).
 //   * the legend's ClusterLegend — swatches must match the on-canvas boxes.
 //
-// Hues are confined to the cool arc (sky → cyan → indigo → violet → magenta →
-// pink) for two reasons: (1) they MUST stay clear of the STATUS colours — green
-// (#73BF69 normal), yellow (#F2CC0C warning), red (#E02F44 critical) — so a
-// cluster accent is never mistaken for node health; hence no green/lime/amber/
-// orange/red. (2) Translucent backplates still read distinctly from the edge
-// palette. The old amber/lime/teal were dropped precisely because they sat next
-// to the warning/normal status colours.
+// Muted, professional cool tones — desaturated steel-blue / slate / plum rather
+// than neon accents, so a board full of clusters reads calm, not busy. Hues stay
+// on the cool arc (blue → indigo → violet → muted teal) for two reasons: (1) they
+// MUST stay clear of the STATUS colours — green (#73BF69 normal), yellow (#F2CC0C
+// warning), red (#E02F44 critical) — so a cluster accent is never mistaken for
+// node health; hence no green/lime/amber/orange/red. (2) At these medium
+// lightnesses they read as legible label text on the dark theme AND as faint
+// translucent backplates. Used as the box tint, the legend swatch, and (now) the
+// expanded node-container label colour.
 export const CLUSTER_PALETTE = [
-  '#0ea5e9', // sky blue
-  '#22d3ee', // cyan
-  '#6366f1', // indigo
-  '#8b5cf6', // violet
-  '#c026d3', // fuchsia
-  '#ec4899', // pink
+  '#3f7fbf', // steel blue
+  '#3f9f9f', // teal
+  '#6b6fc8', // indigo
+  '#8a63b5', // violet
+  '#b05f8f', // muted rose
+  '#5a96c8', // sky blue
 ] as const;
 
 // Deterministic colour for a cluster, keyed by a stable hash of its name. A given

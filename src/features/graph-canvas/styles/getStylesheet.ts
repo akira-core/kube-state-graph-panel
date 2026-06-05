@@ -28,6 +28,17 @@ function resolveIconUri(kind: string | undefined, iconColor: string): string {
   return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
 }
 
+// Colour for a node that is a compound container (a K8s node boxing pods): its
+// parent cluster's accent, falling back to `fallback` when it has no cluster
+// parent. Used for BOTH the box tint and the container label, so node and cluster
+// read as one family. A COLLAPSED node is no longer `:parent` (expand-collapse
+// removes its children), so it stops matching node:parent and reverts to the base
+// node styling — exactly the "white label once collapsed" behaviour we want.
+function resolveParentClusterColor(ele: cytoscape.NodeSingular, fallback: string): string {
+  const parentColor = ele.parent().data('clusterColor') as unknown;
+  return typeof parentColor === 'string' ? parentColor : fallback;
+}
+
 function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, EdgeStyle>): EdgeStyle {
   if (edgeType !== undefined && edgeType in map) {
     const style = map[edgeType];
@@ -114,10 +125,8 @@ export function getStylesheet({
         // border colour when the node has no cluster parent. Cluster containers
         // also match node:parent but their parent() is empty (top-level) → neutral
         // here, then node[?isCluster] below overrides with their own colour.
-        'background-color': ((ele: cytoscape.NodeSingular): string => {
-          const parentColor = ele.parent().data('clusterColor') as unknown;
-          return typeof parentColor === 'string' ? parentColor : borderColor;
-        }) as unknown as string,
+        'background-color': ((ele: cytoscape.NodeSingular): string =>
+          resolveParentClusterColor(ele, borderColor)) as unknown as string,
         'background-opacity': 0.1,
         // Compound containers (e.g. a K8s node boxing its pods) carry NO resource
         // icon — a `contain`-fitted glyph would fill the whole box behind its
@@ -128,7 +137,12 @@ export function getStylesheet({
         'border-width': 1,
         'border-opacity': 0.6,
         label: 'data(label)',
-        color: textColor,
+        // Label takes the cluster accent too, matching the box tint and the "Nodes"
+        // swatch. A collapsed node drops out of node:parent and reverts to the base
+        // node's plain text colour (white) — the requested expanded-vs-collapsed
+        // distinction falls straight out of the selector.
+        color: ((ele: cytoscape.NodeSingular): string =>
+          resolveParentClusterColor(ele, textColor)) as unknown as string,
         'font-size': 11,
         'text-valign': 'top',
         'text-halign': 'center',

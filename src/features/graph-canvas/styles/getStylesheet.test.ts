@@ -146,11 +146,14 @@ describe('getStylesheet', () => {
     expect(cy.getElementById('demo/node-a').style('background-color')).toBe(
       cy.getElementById('cluster:demo').style('background-color')
     );
+    // Its LABEL takes the cluster accent too (matching the box + legend swatch).
+    expect(cy.getElementById('demo/node-a').style('color')).toBe(cy.getElementById('cluster:demo').style('color'));
     // A drawn leaf node (no children → not :parent) keeps the base node fill, not
-    // the cluster tint.
+    // the cluster tint, and the plain (white) base label colour.
     expect(cy.getElementById('leaf-node').style('background-color')).not.toBe(
       cy.getElementById('cluster:demo').style('background-color')
     );
+    expect(cy.getElementById('leaf-node').style('color')).not.toBe(cy.getElementById('cluster:demo').style('color'));
     cy.destroy();
   });
 
