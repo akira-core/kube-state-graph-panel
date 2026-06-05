@@ -20,7 +20,7 @@ import type { NodeKind } from './types';
 // needs to change to swap in a richer set later (e.g. Argo CD's resource icons).
 
 const SVG_OPEN =
-  '<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">';
+  '<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">';
 const SVG_CLOSE = '</svg>';
 
 const icon = (inner: string): string => `${SVG_OPEN}${inner}${SVG_CLOSE}`;
@@ -34,11 +34,13 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   service: icon(
     '<circle cx="12" cy="5.5" r="2.2"/><circle cx="6" cy="18.5" r="2.2"/><circle cx="18" cy="18.5" r="2.2"/><path d="M12 7.7 V13 M12 13 L6.8 16.6 M12 13 L17.2 16.6"/>'
   ),
+  // Rack-switch chassis: front-panel port row + status LED. Reads as hardware.
   switch: icon(
-    '<rect x="3" y="5.5" width="18" height="9" rx="1.5"/><circle cx="6.5" cy="8" r="0.8"/><circle cx="9.5" cy="8" r="0.8"/><line x1="6" y1="14.5" x2="6" y2="18"/><line x1="10" y1="14.5" x2="10" y2="18"/><line x1="14" y1="14.5" x2="14" y2="18"/><line x1="18" y1="14.5" x2="18" y2="18"/>'
+    '<rect x="2.5" y="8" width="19" height="8" rx="1.5"/><rect x="5" y="10.4" width="2" height="3.2" rx="0.4"/><rect x="8" y="10.4" width="2" height="3.2" rx="0.4"/><rect x="11" y="10.4" width="2" height="3.2" rx="0.4"/><rect x="14" y="10.4" width="2" height="3.2" rx="0.4"/><circle cx="18.7" cy="12" r="0.9"/>'
   ),
+  // Cloud: "outside the cluster / internet". Plump rounded cloud (single stroke).
   external: icon(
-    '<circle cx="12" cy="12" r="8"/><line x1="4" y1="12" x2="20" y2="12"/><path d="M12 4 a12 8 0 0 1 0 16 a12 8 0 0 1 0-16"/>'
+    '<path d="M7 18C4.8 18 3 16.2 3 14C3 12.1 4.4 10.5 6.2 10.1C6.8 7.7 9.2 6 12 6C14.8 6 17.2 7.7 17.8 10.1C19.6 10.5 21 12.1 21 14C21 16.2 19.2 18 17 18Z"/>'
   ),
   deployment: icon(
     '<rect x="3.5" y="6" width="17" height="12" rx="2"/><circle cx="8" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="16" cy="12" r="1.4"/>'
