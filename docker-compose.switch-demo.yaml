@@ -1,0 +1,30 @@
+# Backend-free demo of the switch-tier layout.
+#
+# Runs ONLY Grafana with the panel — no kube-state-graph / VictoriaMetrics /
+# seeder. The switch-fabric fixture is embedded in the dashboard
+# `provisioning/dashboards/ksg-switch-demo.json` as an Infinity **inline** target,
+# so the level-fixed tier algorithm (readSwitchLevels -> buildSwitchConstraints)
+# can be seen with zero backend.
+#
+#   npm run build                                       # produce dist/
+#   docker compose -f docker-compose.switch-demo.yaml up
+#   open http://localhost:3000/d/ksg-switch-demo
+#
+# Note: the other provisioned dashboard (KSG Demo) still points at the backend and
+# will show a datasource error here — that is expected; open "KSG Switch Demo".
+services:
+  grafana:
+    extends:
+      file: .config/docker-compose-base.yaml
+      service: grafana
+    # No depends_on: this demo needs no backend container.
+    environment:
+      # Infinity backs the provisioned ksg-default datasource; the inline target
+      # needs the plugin present but never calls its URL.
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+    volumes:
+      # Persist the installed plugin across restarts (same pattern as the full demo).
+      - ksg-grafana-plugins:/var/lib/grafana/plugins
+
+volumes:
+  ksg-grafana-plugins:

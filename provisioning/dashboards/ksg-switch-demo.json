@@ -1,0 +1,62 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ksg-default"
+      },
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "layout": "fcose",
+        "showLegend": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "inline",
+          "format": "table",
+          "data": "{\"elements\":{\"nodes\":[{\"data\":{\"id\":\"sw/access-a\",\"name\":\"access-a\",\"type\":\"switch\",\"labels\":{\"level\":\"0\",\"role\":\"access\"}}},{\"data\":{\"id\":\"sw/access-b\",\"name\":\"access-b\",\"type\":\"switch\",\"labels\":{\"level\":\"0\",\"role\":\"access\"}}},{\"data\":{\"id\":\"sw/access-c\",\"name\":\"access-c\",\"type\":\"switch\",\"labels\":{\"level\":\"0\",\"role\":\"access\"}}},{\"data\":{\"id\":\"sw/dist-a\",\"name\":\"dist-a\",\"type\":\"switch\",\"labels\":{\"level\":\"1\",\"role\":\"distribution\"}}},{\"data\":{\"id\":\"sw/dist-b\",\"name\":\"dist-b\",\"type\":\"switch\",\"labels\":{\"level\":\"1\",\"role\":\"distribution\"}}},{\"data\":{\"id\":\"sw/core\",\"name\":\"core\",\"type\":\"switch\",\"labels\":{\"level\":\"2\",\"role\":\"core\"}}},{\"data\":{\"id\":\"node/worker-0\",\"name\":\"worker-0\",\"type\":\"node\",\"status\":\"normal\"}},{\"data\":{\"id\":\"node/worker-1\",\"name\":\"worker-1\",\"type\":\"node\",\"status\":\"normal\"}},{\"data\":{\"id\":\"node/worker-2\",\"name\":\"worker-2\",\"type\":\"node\",\"status\":\"normal\"}}],\"edges\":[{\"data\":{\"id\":\"e-n0\",\"source\":\"node/worker-0\",\"target\":\"sw/access-a\",\"type\":\"node-to-switch\"}},{\"data\":{\"id\":\"e-n1\",\"source\":\"node/worker-1\",\"target\":\"sw/access-b\",\"type\":\"node-to-switch\"}},{\"data\":{\"id\":\"e-n2\",\"source\":\"node/worker-2\",\"target\":\"sw/access-c\",\"type\":\"node-to-switch\"}},{\"data\":{\"id\":\"e-s0\",\"source\":\"sw/access-a\",\"target\":\"sw/dist-a\",\"type\":\"switch-to-switch\"}},{\"data\":{\"id\":\"e-s1\",\"source\":\"sw/access-b\",\"target\":\"sw/dist-a\",\"type\":\"switch-to-switch\"}},{\"data\":{\"id\":\"e-s2\",\"source\":\"sw/access-c\",\"target\":\"sw/dist-b\",\"type\":\"switch-to-switch\"}},{\"data\":{\"id\":\"e-s3\",\"source\":\"sw/dist-a\",\"target\":\"sw/core\",\"type\":\"switch-to-switch\"}},{\"data\":{\"id\":\"e-s4\",\"source\":\"sw/dist-b\",\"target\":\"sw/core\",\"type\":\"switch-to-switch\"}}]}}"
+        }
+      ],
+      "title": "Switch Fabric — level-fixed tiers (no backend)",
+      "type": "marz32one-ksg-panel"
+    }
+  ],
+  "preload": false,
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "ksg",
+    "switch",
+    "demo"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "KSG Switch Demo (backend-free)",
+  "uid": "ksg-switch-demo",
+  "version": 1,
+  "weekStart": ""
+}
