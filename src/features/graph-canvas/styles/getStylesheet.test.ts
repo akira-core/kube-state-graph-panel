@@ -110,7 +110,11 @@ describe('getStylesheet', () => {
     const collapsedCluster = sheet.find((s) => s.selector === 'node[?isCluster].cy-expand-collapse-collapsed-node');
     expect(collapsedCluster?.style?.events).toBe('yes');
     const metaEdge = sheet.find((s) => s.selector === 'edge.cy-expand-collapse-meta-edge');
-    expect(metaEdge?.style?.['line-color']).toBe('#94a3b8');
+    // The meta-edge keeps its real edge-type colour (cascades from the base `edge`
+    // rule), so this rule must NOT pin a colour — it only bumps the width as the
+    // collapsed-boundary cue.
+    expect(metaEdge?.style?.['line-color']).toBeUndefined();
+    expect(metaEdge?.style?.width).toBe(2.5);
   });
 
   it('styles compound parents as boxes, leaves as icon containers, and clusters without an icon (headless :parent)', () => {

@@ -235,17 +235,18 @@ export function getStylesheet({
       style: { opacity: 0.12 },
     },
     {
-      // Aggregated edge synthesised by expand-collapse when a container is
-      // collapsed. Neutral colour + slightly heavier; exempt from edge-type
-      // filtering (visibility follows endpoints only — see useElementFilter).
+      // Boundary edge re-pointed to a collapsed container by expand-collapse. The
+      // extension preserves the original edge's `data.edgeType`, so colour +
+      // arrow + line-style cascade from the base `edge` rule above — the edge KEEPS
+      // its real relationship colour. This rule only bumps the width (and forces a
+      // direct bezier, since taxi routing makes no sense pointing at a collapsed
+      // box) so "this crosses into a collapsed container" still reads at a glance.
+      // Exempt from edge-type filtering (visibility follows endpoints only — see
+      // useElementFilter).
       selector: 'edge.cy-expand-collapse-meta-edge',
       style: {
         'curve-style': 'bezier',
-        'target-arrow-shape': 'triangle',
         width: 2.5,
-        'line-color': FALLBACK_EDGE_STYLE.color,
-        'target-arrow-color': FALLBACK_EDGE_STYLE.color,
-        'line-style': 'solid',
       },
     },
   ];
