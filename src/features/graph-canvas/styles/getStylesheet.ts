@@ -15,6 +15,12 @@ export interface GetStylesheetInput {
 
 const NODE_SIZE = 40;
 
+// Class added to elements OUTSIDE the focus set when a node is selected, so the
+// selection stands out by dimming everything else (a colour-only highlight reads
+// too weakly on a dense graph). Applied/removed imperatively by GraphCanvas; the
+// opacity rules live in the stylesheet below.
+export const FADED_CLASS = 'ksg-faded';
+
 // Per-node icon as a theme-tinted data-URI. Clusters carry no resource icon (the
 // node[?isCluster] selector overrides background-image to 'none'); every other
 // node resolves its kind icon, unknown kinds included (fallback glyph).
@@ -186,6 +192,12 @@ export function getStylesheet({
       },
     },
     {
+      // Focus dimming: a node OUTSIDE the selected node's neighbourhood/ancestry
+      // fades back so the selection (and what it connects to) reads clearly.
+      selector: `node.${FADED_CLASS}`,
+      style: { opacity: 0.2 },
+    },
+    {
       selector: 'edge',
       style: {
         'curve-style': 'bezier',
@@ -215,6 +227,12 @@ export function getStylesheet({
         'taxi-turn': '50%',
         'taxi-turn-min-distance': 5,
       } as unknown as cytoscape.Css.Edge,
+    },
+    {
+      // Focus dimming for edges (see node.FADED_CLASS). Slightly lower than nodes
+      // so faded connections recede further than faded glyphs.
+      selector: `edge.${FADED_CLASS}`,
+      style: { opacity: 0.12 },
     },
     {
       // Aggregated edge synthesised by expand-collapse when a container is

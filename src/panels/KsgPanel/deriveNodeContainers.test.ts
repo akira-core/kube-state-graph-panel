@@ -18,9 +18,22 @@ describe('deriveNodeContainers', () => {
       node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
       node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
     ];
-    const { nodeEntries, nodeKindLeafExists } = deriveNodeContainers(els, NEUTRAL);
+    const { nodeEntries, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL);
     expect(nodeEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
-    expect(nodeKindLeafExists).toBe(false);
+    expect(showNodeKindIcon).toBe(false);
+  });
+
+  it('keeps a collapsed container in the swatch list AND puts node in the icon legend', () => {
+    const els = [
+      node({ id: 'cluster/prod', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
+      node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
+      node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
+    ];
+    const { nodeEntries, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL, new Set(['node/worker-0']));
+    // Still swatched (so its expand toggle stays available)…
+    expect(nodeEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
+    // …and now also earns the icon slot (it renders as a glyph while collapsed).
+    expect(showNodeKindIcon).toBe(true);
   });
 
   it('falls back to the neutral colour when a node container has no cluster parent', () => {
@@ -38,9 +51,9 @@ describe('deriveNodeContainers', () => {
       node({ id: 'pod/a', kind: 'pod', label: 'a' }),
       edge({ id: 'e', source: 'pod/a', target: 'node/w', edgeType: 'pod-runs-on-node' }),
     ];
-    const { nodeEntries, nodeKindLeafExists } = deriveNodeContainers(els, NEUTRAL);
+    const { nodeEntries, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL);
     expect(nodeEntries).toEqual([]);
-    expect(nodeKindLeafExists).toBe(true);
+    expect(showNodeKindIcon).toBe(true);
   });
 
   it('colours each node by its own cluster across multiple clusters', () => {

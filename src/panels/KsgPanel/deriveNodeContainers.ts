@@ -8,22 +8,26 @@ export interface NodeContainerEntry {
 export interface NodeContainerDerivation {
   // K8s `node` compound containers present in the graph, each coloured by its
   // parent cluster's accent (falls back to a neutral colour when the node has no
-  // cluster parent). Rendered as swatches in the "Nodes" legend section.
+  // cluster parent). Rendered as swatches in the "Nodes" legend section. Includes
+  // COLLAPSED containers too — the swatch + its collapse toggle stay available so
+  // the node can always be expanded again.
   nodeEntries: NodeContainerEntry[];
-  // True when at least one `node`-kind element is a DRAWN LEAF (not a compound
-  // container) — i.e. the drawn-node mode (service / controller) where the node
-  // is an icon node with `pod-runs-on-node` edges and so belongs in the icon
-  // Node-kinds legend. Drives whether `node` is listed there.
-  nodeKindLeafExists: boolean;
+  // True when `node` should appear in the icon Node-kinds legend — i.e. it renders
+  // as an actual glyph somewhere: either a DRAWN LEAF (service / controller mode,
+  // with pod-runs-on-node edges) OR a COLLAPSED container (which shows its kind
+  // icon on canvas once expand-collapse removes its children). An expanded
+  // container shows no icon, so it alone does not earn the icon slot.
+  showNodeKindIcon: boolean;
 }
 
-// Mode-agnostic split of `node`-kind elements into compound containers vs drawn
-// leaves, based purely on whether each is some other element's parent. A node
-// that boxes pods (cluster > node > pod) is a container; a node that pods point
-// at via a drawn `pod-runs-on-node` edge is a leaf. Pure + deterministic.
+// Mode-agnostic split of `node`-kind elements into compound containers vs glyphs.
+// A node that boxes pods (cluster > node > pod) is an (expanded) container; a node
+// that pods point at via a drawn `pod-runs-on-node` edge is a leaf; a collapsed
+// container renders as a glyph too. Pure + deterministic.
 export function deriveNodeContainers(
   elements: readonly cytoscape.ElementDefinition[],
-  fallbackColor: string
+  fallbackColor: string,
+  collapsedIds: ReadonlySet<string> = new Set<string>()
 ): NodeContainerDerivation {
   const parentIds = new Set<string>();
   const clusterColorById = new Map<string, string>();
@@ -42,7 +46,7 @@ export function deriveNodeContainers(
 
   const nodeEntries: NodeContainerEntry[] = [];
   const seenNames = new Set<string>();
-  let nodeKindLeafExists = false;
+  let showNodeKindIcon = false;
   for (const el of elements) {
     if (el.group !== 'nodes') {
       continue;
@@ -52,8 +56,14 @@ export function deriveNodeContainers(
       continue;
     }
     if (!parentIds.has(d.id)) {
-      nodeKindLeafExists = true;
+      // A drawn leaf node → it shows its icon.
+      showNodeKindIcon = true;
       continue;
+    }
+    // A container. Collapsed containers render as a glyph, so they too put `node`
+    // in the icon legend; either way the container keeps its "Nodes" swatch.
+    if (collapsedIds.has(d.id)) {
+      showNodeKindIcon = true;
     }
     const name = typeof d.label === 'string' ? d.label : d.id;
     if (seenNames.has(name)) {
@@ -64,5 +74,5 @@ export function deriveNodeContainers(
     nodeEntries.push({ name, color: parentColor ?? fallbackColor });
   }
 
-  return { nodeEntries, nodeKindLeafExists };
+  return { nodeEntries, showNodeKindIcon };
 }

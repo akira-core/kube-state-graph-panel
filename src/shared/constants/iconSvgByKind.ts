@@ -27,9 +27,8 @@ const icon = (inner: string): string => `${SVG_OPEN}${inner}${SVG_CLOSE}`;
 
 export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   pod: icon('<polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5"/>'),
-  node: icon(
-    '<rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="6.5" cy="14.5" r="1"/>'
-  ),
+  // Desktop computer: a monitor screen on a stand. Reads as "a machine / host".
+  node: icon('<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v3M8.5 19h7"/>'),
   pvc: icon('<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6 v12 a7 2.6 0 0 0 14 0 V6"/>'),
   service: icon(
     '<circle cx="12" cy="5.5" r="2.2"/><circle cx="6" cy="18.5" r="2.2"/><circle cx="18" cy="18.5" r="2.2"/><path d="M12 7.7 V13 M12 13 L6.8 16.6 M12 13 L17.2 16.6"/>'

@@ -11,6 +11,7 @@ import { useExpandCollapse } from '../../hooks/useExpandCollapse';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
 import { useGraphResize } from '../../hooks/useGraphResize';
 import { useLayoutRunToken } from '../../hooks/useLayoutRunToken';
+import { useSelectionFocus } from '../../hooks/useSelectionFocus';
 
 import type { GraphCanvasProps } from './GraphCanvas.types';
 import { selectSingle } from './selectSingle';
@@ -130,6 +131,11 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     selectSingle(cy, selectedId ?? null);
     // isReady re-runs this once the instance exists (cyRef is a stable ref).
   }, [cyRef, selectedId, isReady]);
+
+  // Dim everything outside the selected node's focus set so the selection reads
+  // clearly (colour alone is too subtle on a dense graph). Re-applies after a
+  // rebuild (mode/data change) since that drops the imperative classes.
+  useSelectionFocus({ cyRef, selectedId: selectedId ?? null, isReady, elements });
 
   return (
     <div className={styles.root} data-testid="graph-canvas-root">

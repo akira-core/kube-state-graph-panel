@@ -108,6 +108,12 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node.ksg-faded",
+    "style": {
+      "opacity": 0.2,
+    },
+  },
+  {
     "selector": "edge",
     "style": {
       "curve-style": "bezier",
@@ -125,6 +131,12 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "taxi-direction": "vertical",
       "taxi-turn": "50%",
       "taxi-turn-min-distance": 5,
+    },
+  },
+  {
+    "selector": "edge.ksg-faded",
+    "style": {
+      "opacity": 0.12,
     },
   },
   {

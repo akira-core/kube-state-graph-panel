@@ -186,23 +186,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return ordered;
   }, [elements]);
 
-  // K8s `node` containers (swatched by their cluster) + whether any node is a
-  // drawn leaf. In the default cluster>node>pod layout a node is a labelled
-  // container with no icon, so it is swatched in the "Nodes" section and dropped
-  // from the icon Node-kinds legend; only when a node is drawn as a leaf (service
-  // / controller mode, with pod-runs-on-node edges) does it earn its icon slot.
-  const { nodeEntries, nodeKindLeafExists } = useMemo(
-    () => deriveNodeContainers(elements, (theme.colors as unknown as { border: { weak: string } }).border.weak),
-    [elements, theme]
-  );
-
-  // The kinds shown in the icon Node-kinds legend: drop `node` while it is only a
-  // container (it lives in the "Nodes" swatch section instead).
-  const nodeLegendKinds = useMemo(
-    () => (nodeKindLeafExists ? presentKinds : presentKinds.filter((kind) => kind !== 'node')),
-    [presentKinds, nodeKindLeafExists]
-  );
-
   // Edge types present in the graph, ordered by the canonical edge-style map for
   // a stable legend. `elements` is already mode-transformed (applyPodParentMode),
   // so this is exactly the set of drawn edges currently on screen.
@@ -224,6 +207,29 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // GraphCanvas) and the canvas share one source. GraphCanvas reports the full
   // next Set via onCollapsedChange (cue events / data-refresh prune).
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  // K8s `node` containers (swatched by their cluster) + whether `node` should also
+  // appear in the icon Node-kinds legend. In the default cluster>node>pod layout a
+  // node is a labelled container with no icon, so it is swatched in the "Nodes"
+  // section and dropped from Node-kinds. It earns its icon slot only when it
+  // renders as a glyph: a drawn leaf (service / controller mode) or a COLLAPSED
+  // container (which shows its kind icon once its children are hidden).
+  const { nodeEntries, showNodeKindIcon } = useMemo(
+    () =>
+      deriveNodeContainers(
+        elements,
+        (theme.colors as unknown as { border: { weak: string } }).border.weak,
+        collapsedIds
+      ),
+    [elements, theme, collapsedIds]
+  );
+
+  // The kinds shown in the icon Node-kinds legend: drop `node` while it only
+  // renders as an (expanded) container — it lives in the "Nodes" swatch section.
+  const nodeLegendKinds = useMemo(
+    () => (showNodeKindIcon ? presentKinds : presentKinds.filter((kind) => kind !== 'node')),
+    [presentKinds, showNodeKindIcon]
+  );
 
   // Cluster container ids = backend cluster containers (isCluster).
   const clusterContainerIds = useMemo<string[]>(() => {

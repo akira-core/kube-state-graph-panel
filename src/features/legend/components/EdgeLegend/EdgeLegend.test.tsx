@@ -6,19 +6,23 @@ import { COLOR_BY_EDGE_TYPE, EDGE_ENDPOINTS_BY_TYPE } from '../../../../shared/c
 import { EdgeLegend } from './EdgeLegend';
 
 describe('EdgeLegend', () => {
-  it('renders one entry per edge type in COLOR_BY_EDGE_TYPE', () => {
+  // The pod↔service pair (pod-calls-service + service-selects-pod) collapses to a
+  // single bidirectional row, so the default legend has one fewer row than the
+  // master map has edge types.
+  const SVC_PAIR = ['pod-calls-service', 'service-selects-pod'];
+
+  it('renders one row per edge type, collapsing the pod↔svc pair into one', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
-    const edgeTypes = Object.keys(COLOR_BY_EDGE_TYPE);
     const items = within(legend).getAllByRole('listitem');
-    expect(items).toHaveLength(edgeTypes.length);
+    expect(items).toHaveLength(Object.keys(COLOR_BY_EDGE_TYPE).length - 1);
   });
 
-  it('renders each edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
+  it('renders each non-merged edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
-    for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE)) {
+    for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE).filter((t) => !SVC_PAIR.includes(t))) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType as keyof typeof EDGE_ENDPOINTS_BY_TYPE];
       // pod→pod renders 'pod' twice, so count occurrences rather than getByText.
@@ -30,18 +34,27 @@ describe('EdgeLegend', () => {
     }
   });
 
-  it('lists the pod → svc edge (pod-calls-service)', () => {
+  it('collapses pod-calls-service + service-selects-pod into one bidirectional pod ↔ svc row', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
-    const row = within(legend).getByTestId('edge-legend-row-pod-calls-service');
+    // The two single-direction svc rows are gone…
+    expect(within(legend).queryByTestId('edge-legend-row-pod-calls-service')).toBeNull();
+    expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
+    // …replaced by one merged row with both endpoints and a two-headed arrow.
+    const row = within(legend).getByTestId('edge-legend-row-pod-svc');
     expect(within(row).getByText('pod')).toBeInTheDocument();
     expect(within(row).getByText('svc')).toBeInTheDocument();
+    expect(within(row).getByTestId('edge-glyph-arrow-start')).toBeInTheDocument();
+    // Coloured with the shared svc-edge green.
+    expect(within(row).getByTestId('edge-glyph').querySelector('polygon')?.getAttribute('fill')).toBe(
+      COLOR_BY_EDGE_TYPE['pod-calls-service'].color
+    );
   });
 
-  it('places a same-colour arrow glyph between the endpoints of every edge type', () => {
+  it('places a same-colour arrow glyph between the endpoints of every non-merged edge type', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
-    for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE)) {
+    for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE).filter(([t]) => !SVC_PAIR.includes(t))) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const glyph = within(row).getByTestId('edge-glyph');
       expect(glyph.querySelector('polygon')?.getAttribute('fill')).toBe(style.color);

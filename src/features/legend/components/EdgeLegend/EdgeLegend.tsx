@@ -2,7 +2,11 @@ import { css } from '@emotion/css';
 import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
-import { EDGE_ENDPOINTS_BY_TYPE, EDGE_STYLE_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
+import {
+  EDGE_ENDPOINTS_BY_TYPE,
+  EDGE_STYLE_BY_TYPE,
+  type LineStyle,
+} from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
 import type { EdgeType, NodeKind, PodParentMode } from '../../../../shared/constants/types';
 import { legendListStyles } from '../../legendStyles';
@@ -20,6 +24,50 @@ function getStyles(): { list: string; row: string; glyph: string; header: string
 // abbreviated; every other kind reads fine at full length.
 function kindLabel(kind: NodeKind): string {
   return kind === 'service' ? 'svc' : kind;
+}
+
+// The pod↔service relationship is drawn on canvas as two opposite-direction edges
+// of the SAME colour (pod→service calls, service→pod selects). In the legend that
+// reads as redundant, so when BOTH are present they collapse to a single
+// bidirectional `pod ↔ svc` row. When only one is drawn (e.g. service mode drops
+// service-selects-pod) it renders normally as a single-direction row.
+const SVC_PAIR = ['pod-calls-service', 'service-selects-pod'] as const;
+
+interface EdgeRow {
+  key: string;
+  color: string;
+  lineStyle: LineStyle;
+  from: NodeKind;
+  to: NodeKind;
+  bidirectional: boolean;
+}
+
+function buildRows(types: readonly EdgeType[]): EdgeRow[] {
+  const mergeSvc = SVC_PAIR.every((t) => types.includes(t));
+  const rows: EdgeRow[] = [];
+  let mergedEmitted = false;
+  for (const edgeType of types) {
+    if (mergeSvc && (SVC_PAIR as readonly string[]).includes(edgeType)) {
+      if (mergedEmitted) {
+        continue;
+      }
+      mergedEmitted = true;
+      const style = EDGE_STYLE_BY_TYPE['pod-calls-service'];
+      rows.push({
+        key: 'pod-svc',
+        color: style.color,
+        lineStyle: style.lineStyle,
+        from: 'pod',
+        to: 'service',
+        bidirectional: true,
+      });
+      continue;
+    }
+    const style = EDGE_STYLE_BY_TYPE[edgeType];
+    const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType];
+    rows.push({ key: edgeType, color: style.color, lineStyle: style.lineStyle, from, to, bidirectional: false });
+  }
+  return rows;
 }
 
 export interface EdgeLegendProps {
@@ -43,11 +91,9 @@ export function EdgeLegend({
   // an unknown type present in the data is drawn on-canvas via the fallback style
   // but omitted from the legend.
   const types = (edgeTypes ?? drawnEdgeTypesForMode(mode)).filter((t) => t in EDGE_STYLE_BY_TYPE);
-  const entries = types.map(
-    (edgeType) => [edgeType, EDGE_STYLE_BY_TYPE[edgeType], EDGE_ENDPOINTS_BY_TYPE[edgeType]] as const
-  );
+  const rows = buildRows(types);
   // Mirror ClusterLegend: nothing to show → render nothing.
-  if (entries.length === 0) {
+  if (rows.length === 0) {
     return null;
   }
   const toggleLabel = mode === 'node' ? 'Nest pods under services' : 'Nest pods under nodes';
@@ -67,11 +113,11 @@ export function EdgeLegend({
         )}
       </div>
       <ul className={styles.list}>
-        {entries.map(([edgeType, { color, lineStyle }, { from, to }]) => (
-          <li key={edgeType} className={styles.row} data-testid={`edge-legend-row-${edgeType}`} style={{ color }}>
+        {rows.map(({ key, color, lineStyle, from, to, bidirectional }) => (
+          <li key={key} className={styles.row} data-testid={`edge-legend-row-${key}`} style={{ color }}>
             <span>{kindLabel(from)}</span>
             <span className={styles.glyph}>
-              <EdgeGlyph color={color} lineStyle={lineStyle} />
+              <EdgeGlyph color={color} lineStyle={lineStyle} bidirectional={bidirectional} />
             </span>
             <span>{kindLabel(to)}</span>
           </li>
