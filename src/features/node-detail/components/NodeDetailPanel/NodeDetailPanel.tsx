@@ -26,7 +26,13 @@ function getStyles(theme: GrafanaTheme2): {
   };
   return {
     // Floating overlay docked to the bottom of the canvas (mirrors HoverTooltip's
-    // absolute placement, but interactive: pointer-events on, higher z-index).
+    // absolute placement, but interactive: pointer-events on). The z-index MUST
+    // exceed cytoscape's transparent input-catching canvas, which it paints at
+    // z-index 999 in the SAME stacking context as this panel (the intervening
+    // graph-canvas wrappers create no stacking context of their own). At a lower
+    // z-index the 999 canvas sits on top of the (visible-but-transparent-behind)
+    // panel and swallows every click as a background tap → the panel deselects
+    // and closes the instant you touch it, so alert links can never be reached.
     root: css({
       position: 'absolute',
       left: 8,
@@ -41,7 +47,7 @@ function getStyles(theme: GrafanaTheme2): {
       padding: '8px 10px',
       boxShadow: theme.shadows.z2,
       pointerEvents: 'auto',
-      zIndex: 11,
+      zIndex: 1000,
     }),
     header: css({ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }),
     title: css({
