@@ -1,76 +1,64 @@
 ## ADDED Requirements
 
-### Requirement: Structural switch-tier derivation
+### Requirement: Switch level read from node label
 
-The system SHALL assign each `switch` node a non-negative integer tier derived from graph structure. A switch with at least one incident `node-to-switch` edge SHALL be tier 0 (_access_). Every other switch SHALL receive a tier equal to its shortest `switch-to-switch` distance to the access set. Derivation SHALL be a pure function of the supplied elements and SHALL be deterministic for identical input.
+The system SHALL read a network **level** for each `switch` node from that node's `data.labels.level` value, parsing it as a base-10 integer. A level SHALL be accepted only when it parses to an integer greater than or equal to zero. A `switch` node whose `labels.level` is absent, blank, non-numeric, or negative SHALL receive no level. The read SHALL be a pure function of the supplied elements and SHALL be deterministic for identical input. The system SHALL NOT derive the level from graph structure (no `node-to-switch` / `switch-to-switch` traversal).
 
-When a `switch` node carries a backend-supplied tier value, that value SHALL take precedence over the derived tier (forward-compatible hybrid source).
+#### Scenario: Valid level label is read
 
-#### Scenario: Access switch is tier 0
+- **WHEN** a `switch` node carries `labels.level` equal to the string `"2"`
+- **THEN** it is assigned level 2
 
-- **WHEN** a `switch` node has at least one incident `node-to-switch` edge
-- **THEN** it is assigned tier 0
+#### Scenario: Missing level label yields no level
 
-#### Scenario: Tier follows switch-to-switch distance
+- **WHEN** a `switch` node has no `labels.level` value
+- **THEN** it is assigned no level and is excluded from the level mapping
 
-- **WHEN** a `switch` node has no `node-to-switch` edge but is reachable from an access switch through `n` `switch-to-switch` hops (minimum)
-- **THEN** it is assigned tier `n`
+#### Scenario: Invalid level label yields no level
 
-#### Scenario: Isolated switch defaults to tier 0
+- **WHEN** a `switch` node carries a `labels.level` that does not parse to a non-negative integer (blank, non-numeric, or negative)
+- **THEN** it is assigned no level and is excluded from the level mapping
 
-- **WHEN** a `switch` node has no incident `node-to-switch` or `switch-to-switch` edge
-- **THEN** it is assigned tier 0 and the derivation completes without error
+#### Scenario: Non-switch nodes are ignored
 
-#### Scenario: Cyclic switch-to-switch graph terminates
-
-- **WHEN** the `switch-to-switch` edges form a cycle
-- **THEN** derivation terminates and each switch receives a single stable tier (no infinite loop)
-
-#### Scenario: Backend tier label wins over derived value
-
-- **WHEN** a `switch` node carries a backend-supplied tier value
-- **THEN** the assigned tier equals the backend value, ignoring the structurally-derived value
+- **WHEN** a node whose `kind` is not `switch` carries a `labels.level` value
+- **THEN** it is ignored and never assigned a level
 
 #### Scenario: No switches yields empty result
 
 - **WHEN** the graph contains no `switch` nodes
-- **THEN** the derivation returns an empty tier mapping
+- **THEN** the level read returns an empty mapping
 
-### Requirement: Switch fabric laid out as stacked tiers
+### Requirement: Switch fabric pinned into stacked levels
 
-The system SHALL arrange `switch` nodes into horizontal rows, one row per tier, stacked so that lower-numbered tiers sit above higher-numbered tiers. This SHALL be expressed exclusively through the force-directed layout's native alignment and relative-placement constraints, adding no new layout engine or dependency. Constraints SHALL reference only `switch` nodes; all non-switch nodes SHALL remain free to be placed by the force-directed layout.
+The system SHALL pin each levelled `switch` node to an absolute position derived from its level so that switches form horizontal rows, one row per level, stacked so that lower-numbered levels sit above higher-numbered levels, with switches that share a level spread horizontally across a common row. This SHALL be expressed exclusively through the force-directed layout's native fixed-node constraint (`fixedNodeConstraint`), adding no new layout engine or dependency. The constraint SHALL reference only levelled `switch` nodes; every non-switch node and every switch without a level SHALL remain free to be placed by the force-directed layout.
 
-The constraints SHALL apply only when the active layout is the force-directed (`fcose`) layout. When fewer than two `switch` nodes exist (including the no-switch case), the system SHALL produce no constraints and the layout SHALL behave exactly as without this feature.
+The constraint SHALL apply only when the active layout is the force-directed (`fcose`) layout. When no `switch` node carries a valid level, the system SHALL produce no constraint and the layout SHALL behave exactly as without this feature.
 
-#### Scenario: Switches in the same tier align on one row
+#### Scenario: Switches in the same level share a row
 
-- **WHEN** two or more `switch` nodes share a tier under the `fcose` layout
-- **THEN** they are horizontally aligned onto a common row
+- **WHEN** two or more `switch` nodes resolve to the same level under the `fcose` layout
+- **THEN** they are pinned to the same vertical position (one row) at distinct horizontal positions
 
-#### Scenario: Tiers stack top-to-bottom by tier number
+#### Scenario: Levels stack top-to-bottom by level number
 
-- **WHEN** tier `k` and tier `k+1` both contain switches under the `fcose` layout
-- **THEN** tier `k` is placed above tier `k+1`
+- **WHEN** level `k` and level `k+1` both contain switches under the `fcose` layout
+- **THEN** the level `k` row is pinned above the level `k+1` row
 
-#### Scenario: Single tier of multiple switches still aligns
+#### Scenario: Pinning references only levelled switches
 
-- **WHEN** two or more `switch` nodes all resolve to the same single tier
-- **THEN** they are aligned onto one row with no relative-placement (stacking) constraint
+- **WHEN** the switch-level constraint is produced
+- **THEN** it references only `switch` node ids that have a valid level, and no pod / node / service / pvc / cluster node and no unlevelled switch is pinned
 
-#### Scenario: Non-switch nodes are not constrained
+#### Scenario: No constraint when no switch has a level
 
-- **WHEN** switch-tier constraints are produced
-- **THEN** the constraints reference only `switch` node ids and no pod / node / service / pvc / cluster node is constrained
+- **WHEN** no `switch` node carries a valid level (including the no-switch case)
+- **THEN** no layout constraint is produced (null result)
 
-#### Scenario: No constraints below two switches
-
-- **WHEN** the graph has fewer than two `switch` nodes
-- **THEN** no layout constraints are produced (null result)
-
-#### Scenario: Hierarchical layout layout only in fcose mode
+#### Scenario: Pinning only in fcose mode
 
 - **WHEN** the active layout is `dagre`
-- **THEN** switch-tier constraints are not applied (dagre already tiers the whole graph)
+- **THEN** the switch-level constraint is not applied (dagre already tiers the whole graph)
 
 ### Requirement: Orthogonal routing for switch-incident edges
 
@@ -91,11 +79,16 @@ The system SHALL render `node-to-switch` and `switch-to-switch` edges with ortho
 - **WHEN** switch edges are rendered with orthogonal routing
 - **THEN** their colour and solid/dashed line-style are unchanged from the existing styling
 
-### Requirement: Zero impact when no switches are present
+### Requirement: Zero impact when no switch is levelled
 
-The system SHALL guarantee that a graph containing no `switch` nodes is laid out and rendered identically to its behaviour before this capability existed: no constraints are produced, no edge is rerouted, and the force-directed layout result is unchanged.
+The system SHALL guarantee that a graph in which no `switch` node carries a valid level is laid out identically to its behaviour before this capability existed: no constraint is produced and the force-directed layout result is unchanged. (Switch-incident edge routing is governed by the orthogonal-routing requirement above and is independent of levelling.)
 
 #### Scenario: Switch-free graph is unaffected
 
-- **WHEN** the graph contains no `switch` nodes and no switch-incident edges
-- **THEN** layout constraints are null and no edge is routed with `taxi`, leaving prior behaviour intact
+- **WHEN** the graph contains no `switch` nodes
+- **THEN** the layout constraint is null and prior layout behaviour is intact
+
+#### Scenario: Unlevelled switches do not pin
+
+- **WHEN** the graph contains `switch` nodes but none carries a valid level
+- **THEN** the layout constraint is null and every switch is placed freely by the force-directed layout

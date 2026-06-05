@@ -110,8 +110,10 @@ describe('useGraphLayout', () => {
   });
 
   const sampleConstraints: SwitchConstraints = {
-    alignmentConstraint: { horizontal: [['a', 'b']] },
-    relativePlacementConstraint: [{ top: 'a', bottom: 'c', gap: 120 }],
+    fixedNodeConstraint: [
+      { nodeId: 'a', position: { x: -90, y: 0 } },
+      { nodeId: 'b', position: { x: 90, y: 0 } },
+    ],
   };
 
   it('merges switchConstraints into the fcose layout options when provided', () => {
@@ -123,8 +125,7 @@ describe('useGraphLayout', () => {
 
     const [arg] = layoutSpy.mock.calls[0] as [Record<string, unknown>];
     expect(arg.name).toBe('fcose');
-    expect(arg.alignmentConstraint).toEqual({ horizontal: [['a', 'b']] });
-    expect(arg.relativePlacementConstraint).toEqual([{ top: 'a', bottom: 'c', gap: 120 }]);
+    expect(arg.fixedNodeConstraint).toEqual(sampleConstraints.fixedNodeConstraint);
   });
 
   it('ignores switchConstraints in dagre mode', () => {
@@ -136,8 +137,7 @@ describe('useGraphLayout', () => {
 
     const [arg] = layoutSpy.mock.calls[0] as [Record<string, unknown>];
     expect(arg.name).toBe('dagre');
-    expect(arg.alignmentConstraint).toBeUndefined();
-    expect(arg.relativePlacementConstraint).toBeUndefined();
+    expect(arg.fixedNodeConstraint).toBeUndefined();
   });
 
   it('omits constraint keys from fcose options when no switchConstraints are given', () => {
@@ -149,8 +149,7 @@ describe('useGraphLayout', () => {
 
     const [arg] = layoutSpy.mock.calls[0] as [Record<string, unknown>];
     expect(arg.name).toBe('fcose');
-    expect(arg.alignmentConstraint).toBeUndefined();
-    expect(arg.relativePlacementConstraint).toBeUndefined();
+    expect(arg.fixedNodeConstraint).toBeUndefined();
   });
 
   it('does not rerun layout when only switchConstraints change (applied via ref at run time)', () => {

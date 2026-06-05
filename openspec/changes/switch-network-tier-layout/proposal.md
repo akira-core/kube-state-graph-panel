@@ -1,15 +1,16 @@
 ## Why
 
-Switch network-topology nodes (`kind: 'switch'`, with `node-to-switch` / `switch-to-switch` edges) form hub-and-mesh shapes: many edges converge on the same switch and repeatedly cross one another. Under the current force-directed `fcose` layout these switches float arbitrarily and their edges tangle into an unreadable knot. We want the rest of the graph to keep its organic `fcose` look, while **only the switch fabric** is pulled into a clean, readable hierarchy.
+Switch network-topology nodes (`kind: 'switch'`, with `node-to-switch` / `switch-to-switch` edges) form hub-and-mesh shapes: many edges converge on the same switch and repeatedly cross one another. Under the force-directed `fcose` layout these switches float arbitrarily and their edges tangle into an unreadable knot. We want the rest of the graph to keep its organic `fcose` look, while **only the switch fabric** is pulled into a clean, readable hierarchy.
+
+> **Approach pivot (2026-06-05).** The first cut derived a switch tier structurally (`node-to-switch` ⇒ access, `switch-to-switch` BFS for depth) and expressed it with `fcose`'s **soft** `alignmentConstraint` + `relativePlacementConstraint`. On the demo this did not actually stack into layers: the relative-placement constraint links only one representative per tier, and `fcose`'s `nodeRepulsion` overrides the soft constraints, so tiers overlapped. This revision drops the structural derivation entirely and reads an explicit per-switch **`level`** off the node label, pinning each switch to an absolute position with `fcose`'s **hard** `fixedNodeConstraint`. See design D1/D2.
 
 ## What Changes
 
-- Introduce switch-only hierarchical layering: derive a network **tier** for every `switch` node from graph structure, then arrange switches into stacked horizontal rows (one row per tier) while every non-switch node keeps its existing `fcose` placement.
-- Tiering is **N-tier, structurally derived**: a switch with at least one `node-to-switch` edge is _access_ (tier 0); tier then increases by `switch-to-switch` BFS distance from the access set, so the graph shows exactly as many rows as the topology actually has.
-- Tier values are computed **panel-side** (the backend exposes no tier/role metadata today), with a forward-compatible fallback: if a switch ever carries a backend-supplied tier label, that wins over the derived value.
-- Layering is expressed entirely through **`fcose`'s native constraints** (`alignmentConstraint` + `relativePlacementConstraint`) — no new Cytoscape layout and **no new npm dependency**.
-- Switch-incident edges (`node-to-switch`, `switch-to-switch`) render with orthogonal **`taxi`** routing so multiple edges into one switch share clean right-angle channels instead of overlapping béziers. All other edges keep `bezier`.
-- Zero-impact-when-absent: with no `switch` nodes in the graph, no constraints are produced and layout/rendering behaviour is byte-for-byte unchanged.
+- Introduce switch-only hierarchical layering: read a non-negative integer **`level`** off each `switch` node (`data.labels.level`) and pin switches into stacked horizontal rows — one row per level — while every non-switch node keeps its existing `fcose` placement.
+- Level is **label-supplied, not derived**: the backend (or seeded fixture) provides `labels.level`; the panel performs **no** structural BFS or role inference. A switch missing a valid integer `level` is left unpinned (placed freely by `fcose`).
+- Layering pins each switch to an absolute `(x, y)` computed from its level — `y` grows with the level (lower levels sit above), `x` spreads the switches within a level around a shared centre — expressed through **`fcose`'s native `fixedNodeConstraint`**. A fixed node is a hard pin the force solver does not move, so the layers stay clean. No new Cytoscape layout and **no new npm dependency**.
+- Switch-incident edges (`node-to-switch`, `switch-to-switch`) render with orthogonal **`taxi`** routing so multiple edges into one switch share clean right-angle channels instead of overlapping béziers. All other edges keep `bezier`. (Unchanged from the first cut.)
+- Zero-impact-when-absent: with no `switch` nodes (or none carrying a valid `level`), no constraint is produced and layout/rendering behaviour is byte-for-byte unchanged.
 
 Not breaking. The layering only applies in `fcose` mode; `dagre` mode is untouched (it already tiers the whole graph). The `taxi` edge routing, being a stylesheet concern, applies in both modes.
 
@@ -17,7 +18,7 @@ Not breaking. The layering only applies in `fcose` mode; `dagre` mode is untouch
 
 ### New Capabilities
 
-- `switch-tier-layout`: derive a structural network tier per `switch` node and lay the switch fabric out as stacked horizontal tiers inside the existing force-directed layout, with orthogonal edge routing for switch-incident edges, leaving all non-switch nodes unaffected.
+- `switch-tier-layout`: read a per-`switch` network level from its label and pin the switch fabric into stacked horizontal rows inside the existing force-directed layout, with orthogonal edge routing for switch-incident edges, leaving all non-switch nodes unaffected.
 
 ### Modified Capabilities
 
@@ -25,11 +26,12 @@ Not breaking. The layering only applies in `fcose` mode; `dagre` mode is untouch
 
 ## Impact
 
-- **New code**: `src/features/switch-topology/` — two pure functions: `computeSwitchTiers(elements)` and `buildSwitchConstraints(tiers)`, plus a barrel `index.ts`.
+- **New code**: `src/features/switch-topology/` — two pure functions: `readSwitchLevels(elements)` (read `labels.level` per `switch` node) and `buildSwitchConstraints(levelById)` (compute pinned positions), plus a barrel `index.ts`. Replaces the prior `computeSwitchTiers` BFS derivation.
 - **Modified code**:
-  - `src/features/graph-canvas/hooks/useGraphLayout.ts` — accept optional `switchConstraints`; merge into `fcose` options (memo dependency added); `dagre` path unchanged.
-  - `src/features/graph-canvas/components/GraphCanvas/*` — compute `switchConstraints` via `useMemo` from `elements` and thread it into `useGraphLayout`.
-  - `src/features/graph-canvas/styles/getStylesheet.ts` — add `curve-style: 'taxi'` selectors for `edge[edgeType='node-to-switch']` and `edge[edgeType='switch-to-switch']`.
-- **Data contract**: read-only consumer of existing `kind:'switch'` nodes and `node-to-switch` / `switch-to-switch` edges (already in `shared/constants/types.ts`). No backend change required; a future backend tier label is honoured if present but not depended on.
+  - `src/features/graph-canvas/hooks/useGraphLayout.ts` — merge the `SwitchConstraints` (`fixedNodeConstraint`) into the `fcose` options; the existing `{ ...baseOptions, ...constraints }` spread already carries the new field, so the merge logic is unchanged; `dagre` path unchanged.
+  - `src/features/graph-canvas/components/GraphCanvas/GraphCanvas.tsx` — compute `switchConstraints = useMemo(() => buildSwitchConstraints(readSwitchLevels(elements)), [elements])` and thread it into `useGraphLayout` (call-site rename only).
+  - `src/features/graph-canvas/styles/getStylesheet.ts` — `taxi` selectors for `edge[edgeType='node-to-switch']` / `edge[edgeType='switch-to-switch']`. **No change** from the first cut.
+  - `src/shared/types/cytoscape.d.ts` — remove the now-unused `NodeDataDefinition.tier`; `labels.level` is read through the existing `labels?: Record<string, string>`.
+- **Data contract**: read-only consumer of `kind:'switch'` nodes and their `labels.level` (a string the panel parses to int). Requires the backend/fixture to emit `labels.level` for switches that should be tiered. `normalize` already passes node `labels` through verbatim, so no normalize change is required. `node-to-switch` / `switch-to-switch` edges are still consumed, but **only** for `taxi` routing — no longer for tiering.
 - **Dependencies**: none added.
-- **Tests**: new unit tests for both pure functions; extended `useGraphLayout` and `getStylesheet` tests; existing suite (179 tests) stays green.
+- **Tests**: rewrite both pure-function unit suites (`readSwitchLevels`, `buildSwitchConstraints`); adjust `useGraphLayout` tests for `fixedNodeConstraint`; `getStylesheet` tests unchanged.

@@ -1,103 +1,78 @@
 import { buildSwitchConstraints } from './buildSwitchConstraints';
-import type { SwitchTierResult } from './types';
+import type { SwitchConstraints } from './types';
 
-const tiers = (entries: Array<[string, number]>): SwitchTierResult => {
-  const tierById = new Map(entries);
-  let maxTier = -1;
-  for (const [, tier] of entries) {
-    if (tier > maxTier) {
-      maxTier = tier;
-    }
-  }
-  return { tierById, maxTier };
-};
+const levels = (entries: Array<[string, number]>): Map<string, number> => new Map(entries);
+
+const find = (result: SwitchConstraints | null, id: string): { x: number; y: number } | undefined =>
+  result?.fixedNodeConstraint?.find((entry) => entry.nodeId === id)?.position;
+
+const yOf = (result: SwitchConstraints | null, id: string): number => find(result, id)?.y ?? Number.NaN;
 
 describe('buildSwitchConstraints', () => {
-  it('returns null for fewer than two switches', () => {
-    expect(buildSwitchConstraints(tiers([]))).toBeNull();
-    expect(buildSwitchConstraints(tiers([['only', 0]]))).toBeNull();
+  it('returns null for an empty level map', () => {
+    expect(buildSwitchConstraints(levels([]))).toBeNull();
   });
 
-  it('aligns a single tier of multiple switches into one row with no relative placement', () => {
+  it('pins a single levelled switch (not null)', () => {
+    const result = buildSwitchConstraints(levels([['only', 0]]));
+    expect(result?.fixedNodeConstraint).toHaveLength(1);
+    expect(find(result, 'only')).toEqual({ x: 0, y: 0 });
+  });
+
+  it('places switches sharing a level on one row (shared y, distinct x, centred on 0)', () => {
     const result = buildSwitchConstraints(
-      tiers([
+      levels([
         ['a', 0],
         ['b', 0],
       ])
     );
-    expect(result).not.toBeNull();
-    expect(result?.alignmentConstraint?.horizontal).toEqual([['a', 'b']]);
-    expect(result?.relativePlacementConstraint).toBeUndefined();
+    expect(result?.fixedNodeConstraint).toHaveLength(2);
+    // sorted ids → 'a' gets the negative offset, 'b' the positive; both share y=0.
+    expect(find(result, 'a')).toEqual({ x: -90, y: 0 });
+    expect(find(result, 'b')).toEqual({ x: 90, y: 0 });
   });
 
-  it('creates one alignment group per tier that has two or more members', () => {
+  it('stacks level k above level k+1 (smaller y for the lower level)', () => {
     const result = buildSwitchConstraints(
-      tiers([
-        ['a', 0],
-        ['b', 0],
-        ['c', 1], // singleton tier — not an alignment group
-        ['d', 2],
-        ['e', 2],
-      ])
-    );
-    expect(result?.alignmentConstraint?.horizontal).toEqual([
-      ['a', 'b'],
-      ['d', 'e'],
-    ]);
-  });
-
-  it('stacks adjacent tiers with tier k above tier k+1 via a representative each', () => {
-    const result = buildSwitchConstraints(
-      tiers([
-        ['a', 0],
-        ['b', 0],
-        ['c', 1],
-        ['d', 2],
-        ['e', 2],
-      ])
-    );
-    const rel = result?.relativePlacementConstraint ?? [];
-    expect(rel).toHaveLength(2);
-    expect(rel[0]).toMatchObject({ top: 'a', bottom: 'c' });
-    expect(rel[1]).toMatchObject({ top: 'c', bottom: 'd' });
-    // every gap is the same positive separation
-    expect(rel.every((r) => typeof r.gap === 'number' && r.gap > 0)).toBe(true);
-    expect(new Set(rel.map((r) => r.gap)).size).toBe(1);
-  });
-
-  it('stacks a pure chain (singleton tiers) without any alignment group', () => {
-    const result = buildSwitchConstraints(
-      tiers([
+      levels([
         ['a', 0],
         ['b', 1],
         ['c', 2],
       ])
     );
-    expect(result).not.toBeNull();
-    expect(result?.alignmentConstraint).toBeUndefined();
-    expect(result?.relativePlacementConstraint).toEqual([
-      expect.objectContaining({ top: 'a', bottom: 'b' }),
-      expect.objectContaining({ top: 'b', bottom: 'c' }),
-    ]);
+    expect(yOf(result, 'a')).toBeLessThan(yOf(result, 'b'));
+    expect(yOf(result, 'b')).toBeLessThan(yOf(result, 'c'));
+  });
+
+  it('sorts ids within a level for deterministic x positions', () => {
+    const reversed = buildSwitchConstraints(
+      levels([
+        ['b', 0],
+        ['a', 0],
+      ])
+    );
+    const ordered = buildSwitchConstraints(
+      levels([
+        ['a', 0],
+        ['b', 0],
+      ])
+    );
+    expect(reversed?.fixedNodeConstraint).toEqual(ordered?.fixedNodeConstraint);
+    // 'a' sorts first → smaller x than 'b'
+    expect(find(reversed, 'a')?.x ?? Number.NaN).toBeLessThan(find(reversed, 'b')?.x ?? Number.NaN);
   });
 
   it('references only the supplied switch ids', () => {
-    const ids = new Set(['a', 'b', 'c', 'd', 'e']);
+    const ids = new Set(['a', 'b', 'c']);
     const result = buildSwitchConstraints(
-      tiers([
+      levels([
         ['a', 0],
-        ['b', 0],
+        ['b', 1],
         ['c', 1],
-        ['d', 2],
-        ['e', 2],
       ])
     );
-    const referenced = [
-      ...(result?.alignmentConstraint?.horizontal.flat() ?? []),
-      ...(result?.relativePlacementConstraint?.flatMap((r) => [r.top, r.bottom]) ?? []),
-    ];
-    for (const id of referenced) {
-      expect(ids.has(id)).toBe(true);
+    for (const entry of result?.fixedNodeConstraint ?? []) {
+      expect(ids.has(entry.nodeId)).toBe(true);
     }
   });
 });

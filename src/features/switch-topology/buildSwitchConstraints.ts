@@ -1,74 +1,65 @@
-import type { SwitchConstraints, SwitchRelativePlacement, SwitchTierResult } from './types';
+import type { SwitchConstraints, SwitchFixedNode } from './types';
 
-// Vertical separation (px) enforced between adjacent switch tiers. A sensible
-// default; tune visually on the demo (see design Open Questions).
-const TIER_GAP = 120;
+// Vertical spacing (px) between adjacent switch levels, and horizontal spacing
+// between switches sharing a level. Sensible defaults; tune visually on the demo
+// (see design Open Questions).
+const TIER_GAP = 180;
+const COL_GAP = 180;
 
-// Group switch ids by tier, with deterministic ordering: ids sorted within a tier
-// and tiers ascending. Determinism keeps the constraints (and thus the layout)
-// stable for identical input.
-function groupByTier(tierById: ReadonlyMap<string, number>): { tierNumbers: number[]; byTier: Map<number, string[]> } {
-  const byTier = new Map<number, string[]>();
-  for (const [id, tier] of tierById) {
-    const group = byTier.get(tier);
+// Group switch ids by level, ids sorted within each level and levels ascending.
+// Determinism keeps the pinned positions (and thus the layout) stable for
+// identical input.
+function groupByLevel(levelById: ReadonlyMap<string, number>): { levels: number[]; byLevel: Map<number, string[]> } {
+  const byLevel = new Map<number, string[]>();
+  for (const [id, level] of levelById) {
+    const group = byLevel.get(level);
     if (group === undefined) {
-      byTier.set(tier, [id]);
+      byLevel.set(level, [id]);
     } else {
       group.push(id);
     }
   }
-  for (const group of byTier.values()) {
+  for (const group of byLevel.values()) {
     group.sort();
   }
-  const tierNumbers = [...byTier.keys()].sort((a, b) => a - b);
-  return { tierNumbers, byTier };
+  const levels = [...byLevel.keys()].sort((a, b) => a - b);
+  return { levels, byLevel };
 }
 
 /**
- * Turn a per-switch tier mapping into native fcose constraints:
- * - `alignmentConstraint.horizontal`: each tier with >= 2 members aligned onto one row.
- * - `relativePlacementConstraint`: adjacent tiers stacked, tier k above tier k+1.
+ * Turn a per-switch level mapping into a native fcose `fixedNodeConstraint` that
+ * pins each levelled switch to an absolute position:
+ * - `y = level * TIER_GAP` — lower levels sit above (smaller y).
+ * - `x = (i - (n - 1) / 2) * COL_GAP` — the i-th of n switches in a level, spread
+ *   horizontally and centred on x = 0.
  *
- * Returns null when there are fewer than two switches (nothing to constrain) or
- * when neither an alignment group nor a relative placement results.
+ * Returns null when no switch carries a level (nothing to pin); the force layout
+ * then behaves exactly as without this feature.
  */
-export function buildSwitchConstraints(tiers: SwitchTierResult): SwitchConstraints | null {
-  const { tierById } = tiers;
-  if (tierById.size < 2) {
+export function buildSwitchConstraints(levelById: ReadonlyMap<string, number>): SwitchConstraints | null {
+  if (levelById.size === 0) {
     return null;
   }
 
-  const { tierNumbers, byTier } = groupByTier(tierById);
+  const { levels, byLevel } = groupByLevel(levelById);
+  const fixedNodeConstraint: SwitchFixedNode[] = [];
 
-  const horizontal: string[][] = [];
-  for (const tier of tierNumbers) {
-    const group = byTier.get(tier);
-    if (group !== undefined && group.length >= 2) {
-      horizontal.push([...group]);
-    }
-  }
-
-  const relativePlacementConstraint: SwitchRelativePlacement[] = [];
-  for (let i = 0; i < tierNumbers.length - 1; i += 1) {
-    const topTier = tierNumbers[i];
-    const bottomTier = tierNumbers[i + 1];
-    if (topTier === undefined || bottomTier === undefined) {
+  for (const level of levels) {
+    const group = byLevel.get(level);
+    if (group === undefined) {
       continue;
     }
-    const topRep = byTier.get(topTier)?.[0];
-    const bottomRep = byTier.get(bottomTier)?.[0];
-    if (topRep === undefined || bottomRep === undefined) {
-      continue;
+    const count = group.length;
+    const y = level * TIER_GAP;
+    for (let i = 0; i < count; i += 1) {
+      const nodeId = group[i];
+      if (nodeId === undefined) {
+        continue;
+      }
+      const x = (i - (count - 1) / 2) * COL_GAP;
+      fixedNodeConstraint.push({ nodeId, position: { x, y } });
     }
-    relativePlacementConstraint.push({ top: topRep, bottom: bottomRep, gap: TIER_GAP });
   }
 
-  const result: SwitchConstraints = {};
-  if (horizontal.length > 0) {
-    result.alignmentConstraint = { horizontal };
-  }
-  if (relativePlacementConstraint.length > 0) {
-    result.relativePlacementConstraint = relativePlacementConstraint;
-  }
-  return result.alignmentConstraint === undefined && result.relativePlacementConstraint === undefined ? null : result;
+  return fixedNodeConstraint.length > 0 ? { fixedNodeConstraint } : null;
 }
