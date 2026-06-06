@@ -12,6 +12,7 @@ import type { NodeDetailPanelProps } from './NodeDetailPanel.types';
 function getStyles(theme: GrafanaTheme2): {
   root: string;
   header: string;
+  scroll: string;
   title: string;
   badges: string;
   badge: string;
@@ -30,13 +31,19 @@ function getStyles(theme: GrafanaTheme2): {
     // z-index the 999 canvas sits on top of the (visible-but-transparent-behind)
     // panel and swallows every click as a background tap → the panel deselects
     // and closes the instant you touch it, so alert links can never be reached.
+    //
+    // The panel is a flex column capped at maxHeight: the header is flex-none and
+    // pinned, only the inner `scroll` body overflows. So a long alert list scrolls
+    // WITHOUT carrying the title + close button out of view.
     root: css({
       position: 'absolute',
       left: 8,
       right: 8,
       bottom: 8,
       maxHeight: 220,
-      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
       background: colors.background.secondary,
       color: colors.text.primary,
       border: `1px solid ${colors.border.weak}`,
@@ -46,7 +53,10 @@ function getStyles(theme: GrafanaTheme2): {
       pointerEvents: 'auto',
       zIndex: 1000,
     }),
-    header: css({ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }),
+    header: css({ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }),
+    // The only scrolling region: takes the remaining height under the pinned header
+    // (flex:1 + minHeight:0 lets it shrink below content size so overflow kicks in).
+    scroll: css({ flex: 1, minHeight: 0, overflowY: 'auto' }),
     title: css({
       fontWeight: 600,
       flex: 1,
@@ -83,13 +93,20 @@ function getStyles(theme: GrafanaTheme2): {
         borderTop: `1px solid ${colors.border.weak}`,
       },
     }),
+    // Section titles stick to the top of the scroll body, so the "Alerts" label
+    // stays visible while its rows scroll under it (the opaque background hides the
+    // rows passing behind). With multiple sections each title pins in turn.
     sectionTitle: css({
+      position: 'sticky',
+      top: 0,
+      zIndex: 1,
+      background: colors.background.secondary,
       fontSize: 10,
       fontWeight: 600,
       letterSpacing: 0.6,
       textTransform: 'uppercase',
       color: colors.text.secondary,
-      marginBottom: 2,
+      paddingBottom: 2,
     }),
     // Empty for now — content is filled in later.
     sectionBody: css({ minHeight: 24 }),
@@ -128,14 +145,16 @@ export function NodeDetailPanel({
         </span>
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
-      <div className={styles.section} data-testid="node-detail-section-alerts">
-        <div className={styles.sectionTitle}>Alerts</div>
-        <div className={styles.sectionBody}>
-          <AlertTable
-            alerts={node.alerts ?? []}
-            onAlertTimeClick={onAlertTimeClick}
-            {...(timeZone !== undefined ? { timeZone } : {})}
-          />
+      <div className={styles.scroll} data-testid="node-detail-scroll">
+        <div className={styles.section} data-testid="node-detail-section-alerts">
+          <div className={styles.sectionTitle}>Alerts</div>
+          <div className={styles.sectionBody}>
+            <AlertTable
+              alerts={node.alerts ?? []}
+              onAlertTimeClick={onAlertTimeClick}
+              {...(timeZone !== undefined ? { timeZone } : {})}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -55,6 +55,16 @@ describe('NodeDetailPanel', () => {
     expect(screen.getByTestId('alert-table-empty')).toHaveTextContent('No alerts');
   });
 
+  it('keeps the header (and its close button) outside the scrollable body so it stays pinned', () => {
+    render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    const scrollBody = screen.getByTestId('node-detail-scroll');
+    // The alerts live INSIDE the scroll region...
+    expect(scrollBody).toContainElement(screen.getByTestId('node-detail-section-alerts'));
+    // ...but the close button does NOT, so scrolling a long alert list never carries
+    // the header (and its ✕) out of view.
+    expect(scrollBody).not.toContainElement(screen.getByLabelText('Close detail panel'));
+  });
+
   it('calls onClose when the close button is clicked', () => {
     const onClose = jest.fn();
     render(<NodeDetailPanel node={sample} onClose={onClose} onAlertTimeClick={jest.fn()} />);
