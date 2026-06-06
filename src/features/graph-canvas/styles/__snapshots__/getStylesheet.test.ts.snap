@@ -103,8 +103,12 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
   {
     "selector": "node:selected",
     "style": {
-      "border-color": "#3d71d9",
-      "border-width": 3,
+      "outline-color": "#3d71d9",
+      "outline-offset": 3,
+      "outline-width": 3,
+      "underlay-color": "#3d71d9",
+      "underlay-opacity": 0.35,
+      "underlay-padding": 6,
     },
   },
   {

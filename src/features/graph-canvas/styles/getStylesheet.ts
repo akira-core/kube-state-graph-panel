@@ -192,12 +192,24 @@ export function getStylesheet({
     },
     ...statusSelectors,
     {
-      // Declared AFTER the container selectors so the selection highlight wins
-      // for selected leaf nodes AND node containers (clusters are events:'no').
+      // Selection highlight = a crisp outline RING + a soft underlay halo, NOT a
+      // border override. A blue selection border used to clobber the status border
+      // (statusSelectors above), so clicking an unhealthy pod hid the very colour
+      // signalling its health. `outline-*` draws a separate ring OUTSIDE the node
+      // (offset off the border, so a gap separates the two) and `underlay-*` glows
+      // from behind — both leave border + background + icon untouched, so the
+      // status colour survives while the selection reads boldly. Combined with the
+      // focus dimming (FADED_CLASS) it stands out clearly. Declared AFTER the
+      // container/status selectors so it applies to selected leaf nodes AND node
+      // containers (clusters are events:'no' and cannot be selected).
       selector: 'node:selected',
       style: {
-        'border-color': selectedColor,
-        'border-width': 3,
+        'outline-color': selectedColor,
+        'outline-width': 3,
+        'outline-offset': 3,
+        'underlay-color': selectedColor,
+        'underlay-opacity': 0.35,
+        'underlay-padding': 6,
       },
     },
     {

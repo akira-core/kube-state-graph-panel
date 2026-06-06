@@ -157,6 +157,48 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
+  it('highlights a selected node with a crisp outline ring plus an underlay halo, leaving its border untouched', () => {
+    const selectedStyle = styleFor('node:selected');
+    // A distinct outline ring is drawn OUTSIDE the node (outline-* is separate from
+    // border-*), offset off the border so a gap separates the two — the bold,
+    // obvious selection cue.
+    expect(selectedStyle['outline-color']).toBeDefined();
+    expect(Number(selectedStyle['outline-width'])).toBeGreaterThan(0);
+    expect(Number(selectedStyle['outline-offset'])).toBeGreaterThan(0);
+    // The underlay halo is drawn UNDER the node, so the selection also glows softly
+    // from behind without overriding anything painted on the node itself.
+    expect(selectedStyle['underlay-color']).toBeDefined();
+    expect(Number(selectedStyle['underlay-opacity'])).toBeGreaterThan(0);
+    expect(Number(selectedStyle['underlay-padding'])).toBeGreaterThan(0);
+    // Neither cue touches the border — that is where pod/node/pvc status colour
+    // lives, and the old blue selection border used to clobber it.
+    expect(selectedStyle['border-color']).toBeUndefined();
+    expect(selectedStyle['border-width']).toBeUndefined();
+  });
+
+  it('keeps a critical pod’s status border when it is selected (selection no longer clobbers status)', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', status: 'critical' } },
+        { group: 'nodes', data: { id: 'p2', label: 'idle', kind: 'pod', status: 'normal' } },
+      ],
+    });
+    const pod = cy.getElementById('p1');
+    const statusBorder = pod.style('border-color') as string;
+    // Sanity: the critical pod really does carry a distinct status border to begin
+    // with (different from a normal pod's), so the assertion below is meaningful.
+    expect(statusBorder).not.toBe(cy.getElementById('p2').style('border-color'));
+    pod.select();
+    // Selecting the pod leaves its status border colour intact...
+    expect(pod.style('border-color')).toBe(statusBorder);
+    // ...and adds a visible underlay halo.
+    expect(Number(pod.style('underlay-opacity'))).toBeGreaterThan(0);
+    cy.destroy();
+  });
+
   const SWITCH_EDGE_SELECTOR = "edge[edgeType='switch-to-switch']";
 
   it('routes switch↔switch fabric orthogonally (taxi); node→switch + other edges stay bezier (direct)', () => {
