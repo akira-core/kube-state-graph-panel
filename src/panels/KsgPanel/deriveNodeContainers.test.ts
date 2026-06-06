@@ -110,10 +110,10 @@ describe('deriveContainers — node mode', () => {
 describe('deriveContainers — controller mode', () => {
   it('controller mode derives controller containers, not K8s nodes', () => {
     const els = [
-      { group: 'nodes', data: { id: 'cl', isCluster: true, clusterColor: '#abc' } },
-      { group: 'nodes', data: { id: 'c1', kind: 'deployment', isController: true, label: 'web', parent: 'cl' } },
-      { group: 'nodes', data: { id: 'p1', kind: 'pod', parent: 'c1' } },
-    ] as cytoscape.ElementDefinition[];
+      node({ id: 'cl', isCluster: true, clusterColor: '#abc' }),
+      node({ id: 'c1', kind: 'deployment', isController: true, label: 'web', parent: 'cl' }),
+      node({ id: 'p1', kind: 'pod', parent: 'c1' }),
+    ];
     const out = deriveContainers(els, '#999', 'controller', new Set());
     expect(out.containerIds).toEqual(['c1']);
     expect(out.containerEntries.map((e) => e.name)).toEqual(['web']);

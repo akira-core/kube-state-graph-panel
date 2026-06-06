@@ -23,7 +23,10 @@ describe('EdgeLegend', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
-    for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE).filter((t) => !SVC_PAIR.includes(t))) {
+    // controller-owns-pod is covered by its own dedicated test below.
+    for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE).filter(
+      (t) => !SVC_PAIR.includes(t) && t !== 'controller-owns-pod'
+    )) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType as keyof typeof EDGE_ENDPOINTS_BY_TYPE];
       // pod→pod renders 'pod' twice, so count occurrences rather than getByText.
@@ -96,6 +99,18 @@ describe('EdgeLegend', () => {
       expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
       // service-selects-pod is part of the merged pod↔svc row in both modes.
       expect(within(legend).getByTestId('edge-legend-row-pod-svc')).toBeInTheDocument();
+    });
+  });
+
+  describe('controller-owns-pod label', () => {
+    it('shows "controller" as the FROM label (not "deployment") in node mode', () => {
+      render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('node')} />);
+      const legend = screen.getByTestId('edge-legend');
+      const row = within(legend).getByTestId('edge-legend-row-controller-owns-pod');
+      // FROM label must be the generic word "controller", not the structural representative "deployment".
+      expect(within(row).getByText('controller')).toBeInTheDocument();
+      expect(within(row).getByText('pod')).toBeInTheDocument();
+      expect(within(row).queryByText('deployment')).toBeNull();
     });
   });
 

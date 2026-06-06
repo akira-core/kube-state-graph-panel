@@ -32,4 +32,18 @@ describe('readNodeFabricTier', () => {
     const els = [nodeEl('n1')];
     expect(readNodeFabricTier(els, 'controller', readSwitchLevels(els)).size).toBe(0);
   });
+  it('controller mode with group-less elements: node still pins to min(level)-1 when group field is omitted', () => {
+    // Elements defined without a `group` field — only `data` present.
+    // readNodeFabricTier must infer node/edge from data shape alone (no .group).
+    const els: cytoscape.ElementDefinition[] = [
+      { data: { id: 's0', kind: 'switch', labels: { level: '0' } } },
+      { data: { id: 'n1', kind: 'node' } },
+      { data: { id: 'e1', source: 'n1', target: 's0', edgeType: 'node-to-switch' } },
+    ];
+    const levels = readSwitchLevels(els);
+    const merged = readNodeFabricTier(els, 'controller', levels);
+    // min(switch level) is 0, so node tier is 0 - 1 = -1.
+    expect(merged.get('n1')).toBe(-1);
+    expect(merged.get('s0')).toBe(0);
+  });
 });

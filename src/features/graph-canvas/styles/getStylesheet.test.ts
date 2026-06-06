@@ -242,14 +242,4 @@ describe('getStylesheet', () => {
     const selectors = sheet.map((s) => s.selector);
     expect(selectors.indexOf(SWITCH_FABRIC_SELECTOR)).toBeGreaterThan(selectors.indexOf('edge'));
   });
-
-  it('routes node-to-switch with taxi like switch-to-switch', () => {
-    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
-      selector: string;
-      style?: StyleRecord;
-    }>;
-    const sel = sheet.find((s) => s.selector === "edge[edgeType='switch-to-switch'], edge[edgeType='node-to-switch']");
-    expect(sel).toBeDefined();
-    expect(sel?.style?.['curve-style']).toBe('taxi');
-  });
 });

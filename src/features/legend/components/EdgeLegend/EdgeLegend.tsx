@@ -93,7 +93,7 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
       <ul className={styles.list}>
         {rows.map(({ key, color, lineStyle, from, to, bidirectional }) => (
           <li key={key} className={styles.row} data-testid={`edge-legend-row-${key}`} style={{ color }}>
-            <span>{kindLabel(from)}</span>
+            <span>{key === 'controller-owns-pod' ? 'controller' : kindLabel(from)}</span>
             <span className={styles.glyph}>
               <EdgeGlyph color={color} lineStyle={lineStyle} bidirectional={bidirectional} />
             </span>

@@ -10,3 +10,11 @@ it('renders a Node|Controller segmented control and reports changes', () => {
   fireEvent.click(screen.getByLabelText('Controller'));
   expect(onChange).toHaveBeenCalledWith('controller');
 });
+
+it('reflects the current mode: the Node radio is checked when mode="node"', () => {
+  render(<LayoutModeControl mode="node" onChange={jest.fn()} />);
+  // RadioButtonGroup renders native <input type="radio"> elements; the active option
+  // has checked=true, matching how @grafana/ui RadioButton works.
+  expect(screen.getByLabelText('Node')).toBeChecked();
+  expect(screen.getByLabelText('Controller')).not.toBeChecked();
+});

@@ -93,10 +93,10 @@ function parseOwner(
 ): { kind: string; name: string } | undefined {
   const owner = d.owner;
   if (isPlainObject(owner) && isString(owner.kind) && isString(owner.name)) {
-    return { kind: owner.kind, name: owner.name };
+    return { kind: owner.kind.trim(), name: owner.name.trim() };
   }
   if (labels !== undefined && isString(labels.owner_kind) && isString(labels.owner_name)) {
-    return { kind: labels.owner_kind, name: labels.owner_name };
+    return { kind: labels.owner_kind.trim(), name: labels.owner_name.trim() };
   }
   return undefined;
 }
@@ -236,6 +236,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
   for (const o of sortedOwned) {
     const kindLower = o.ownerKind.toLowerCase();
+    // OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
     const controllerId = `ctrl/${o.cluster}/${o.namespace}/${kindLower}/${o.ownerName}`;
     if (!controllerSeen.has(controllerId)) {
       controllerSeen.add(controllerId);

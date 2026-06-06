@@ -592,8 +592,27 @@ describe('normalizeGraph — controller synthesis', () => {
         edges: [],
       },
     };
+    const snapshot = JSON.stringify(raw);
     const a = JSON.stringify(normalizeGraph(raw).elements);
     const b = JSON.stringify(normalizeGraph(raw).elements);
     expect(a).toBe(b);
+    // Proves non-mutation: raw is byte-for-byte identical after both calls.
+    expect(JSON.stringify(raw)).toBe(snapshot);
+  });
+
+  it("synthesizes a parentless controller when the pod's cluster label has no matching cluster node", () => {
+    // The pod references cluster "orphan-cluster" which has no cluster container in the payload.
+    const raw = {
+      elements: {
+        nodes: [podWithOwner('prod/p1', 'orphan-cluster', 'shop', { kind: 'ReplicaSet', name: 'api' })],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl).toBeDefined();
+    // clusterIdByName.get('orphan-cluster') returns undefined → no parent assigned.
+    expect(ctrl?.parent).toBeUndefined();
   });
 });
