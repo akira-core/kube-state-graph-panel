@@ -398,13 +398,14 @@ describe('normalizeGraph', () => {
       ]);
     });
 
-    it('drops malformed alert entries (bad/missing name, severity or time) and keeps valid ones', () => {
+    it('drops alert entries with a bad/missing name, non-string/empty severity or bad time, keeping valid ones', () => {
       const { elements } = withAlerts([
         { name: 'ok', severity: 'warning', time: 1717500000 },
         { name: 'epoch0', severity: 'warning', time: 0 }, // 0 is a valid Unix second
         { severity: 'critical', time: 1717500000 }, // missing name
-        { name: 'badSev', severity: 'fatal', time: 1717500000 }, // severity not in enum
-        { name: 'normalSev', severity: 'normal', time: 1717500000 }, // 'normal' is node status, not alert severity
+        { name: 'noSev', time: 1717500000 }, // missing severity
+        { name: 'emptySev', severity: '', time: 1717500000 }, // empty severity string
+        { name: 'numSev', severity: 2, time: 1717500000 }, // severity not a string
         { name: 'strTime', severity: 'warning', time: '1717500000' }, // time not a number
         { name: 'nanTime', severity: 'warning', time: NaN }, // non-finite
         { name: 'infTime', severity: 'warning', time: Infinity }, // non-finite
@@ -417,17 +418,22 @@ describe('normalizeGraph', () => {
       ]);
     });
 
-    it('accepts info/warning/critical severities and rejects node-status "normal"', () => {
+    it('keeps any non-empty severity string, including custom labels the backend defines', () => {
       const { elements } = withAlerts([
         { name: 'i', severity: 'info', time: 1717500000 },
         { name: 'w', severity: 'warning', time: 1717500001 },
         { name: 'c', severity: 'critical', time: 1717500002 },
-        { name: 'n', severity: 'normal', time: 1717500003 }, // dropped: not an alert severity
+        { name: 'n', severity: 'normal', time: 1717500003 }, // not a known tier, kept verbatim
+        { name: 'x', severity: 'fatal', time: 1717500004 }, // custom label, kept verbatim
+        { name: 'p', severity: 'P1', time: 1717500005 }, // custom label, kept verbatim
       ]);
       expect(elements[0]?.data.alerts).toEqual([
         { name: 'i', severity: 'info', time: 1717500000 },
         { name: 'w', severity: 'warning', time: 1717500001 },
         { name: 'c', severity: 'critical', time: 1717500002 },
+        { name: 'n', severity: 'normal', time: 1717500003 },
+        { name: 'x', severity: 'fatal', time: 1717500004 },
+        { name: 'p', severity: 'P1', time: 1717500005 },
       ]);
     });
 

@@ -47,11 +47,13 @@ export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
 // are normalised to 'normal'.
 export type NodeStatus = 'normal' | 'warning' | 'critical';
 
-// Alert severity is a DISTINCT scale from node health status: an alert is by
-// definition not-normal (so no 'normal' tier) and carries an 'info' tier that
-// node status never has. The backend sends node.status and alert.severity as
-// separate attributes; the detail-panel alert table colours from SEVERITY_COLOR
-// (see colorBySeverity.ts), not STATUS_COLOR.
+// The KNOWN alert-severity tiers that carry a dedicated badge colour. A DISTINCT
+// scale from node health status: an alert is by definition not-normal (so no
+// 'normal' tier) and carries an 'info' tier that node status never has. The
+// backend sends node.status and alert.severity as separate attributes; the
+// detail-panel alert table colours from SEVERITY_COLOR (see colorBySeverity.ts),
+// not STATUS_COLOR. NodeAlert.severity itself is a free-form `string` (users
+// define custom labels) — these three just get a non-neutral colour.
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
 // A single alert attached to a node, carried on the optional upstream graph-JSON
@@ -62,7 +64,10 @@ export interface NodeAlert {
   pod?: string;
   service?: string;
   name: string; // alert name
-  severity: AlertSeverity;
+  // Free-form label from the backend: 'info'/'warning'/'critical' get a dedicated
+  // colour (see SEVERITY_COLOR), any other custom label is kept verbatim and
+  // rendered in the critical fallback colour. Never dropped for being "unknown".
+  severity: string;
   time: number; // Unix epoch seconds
   id?: string; // optional stable row id; synthesised from name+time+index if absent
 }

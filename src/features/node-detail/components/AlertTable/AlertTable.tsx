@@ -3,7 +3,7 @@ import { dateTimeFormat, type GrafanaTheme2 } from '@grafana/data';
 import { type CellProps, type Column, InteractiveTable, useStyles2 } from '@grafana/ui';
 import React, { useMemo } from 'react';
 
-import { SEVERITY_COLOR } from '../../../../shared/constants/colorBySeverity';
+import { severityColor } from '../../../../shared/constants/colorBySeverity';
 import type { NodeAlert } from '../../../../shared/constants/types';
 
 import type { AlertTableProps } from './AlertTable.types';
@@ -71,8 +71,8 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
         header: 'Severity',
         cell: ({ row }: CellProps<NodeAlert>) => {
           const { severity } = row.original;
-          // Unknown severity (junk from the wire) falls back to the info colour.
-          const color = SEVERITY_COLOR[severity] ?? SEVERITY_COLOR.info;
+          // Known tier → its colour; any custom label → critical fallback (never blank).
+          const color = severityColor(severity);
           return (
             <span className={styles.severityBadge} style={{ backgroundColor: color }} data-testid="alert-severity">
               {severity}

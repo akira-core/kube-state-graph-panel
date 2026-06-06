@@ -2,7 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { AlertSeverity, EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -37,16 +37,12 @@ function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
 
-// Alert severity is a separate scale from node status: 'info'/'warning'/'critical'
-// (no 'normal'). Backend sends node.status and alert.severity independently.
-function isAlertSeverity(v: unknown): v is AlertSeverity {
-  return v === 'info' || v === 'warning' || v === 'critical';
-}
-
 // Project the optional upstream `alerts` array onto typed NodeAlert[]. Anti-corruption
 // boundary: malformed entries (missing/ill-typed name, severity or time) are dropped,
-// not thrown — consistent with the partial-parse contract. Returns undefined when no
-// valid alert survives so the node carries no `alerts` field at all.
+// not thrown — consistent with the partial-parse contract. `severity` is kept as a
+// free-form string: any non-empty label survives (custom labels are colour-mapped
+// downstream, not dropped), only a missing/non-string/empty severity is rejected.
+// Returns undefined when no valid alert survives so the node carries no `alerts` field.
 function parseAlerts(v: unknown): NodeAlert[] | undefined {
   if (!Array.isArray(v)) {
     return undefined;
@@ -61,7 +57,8 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
     // negative epoch would rewind to a bogus pre-1970 window. Drop all of them.
     if (
       !isString(entry.name) ||
-      !isAlertSeverity(entry.severity) ||
+      !isString(entry.severity) ||
+      entry.severity.length === 0 ||
       typeof entry.time !== 'number' ||
       !Number.isFinite(entry.time) ||
       entry.time < 0

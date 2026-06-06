@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
-import { SEVERITY_COLOR } from '../../../../shared/constants/colorBySeverity';
+import { FALLBACK_SEVERITY_COLOR, SEVERITY_COLOR } from '../../../../shared/constants/colorBySeverity';
 import type { NodeAlert } from '../../../../shared/constants/types';
 
 import { AlertTable } from './AlertTable';
@@ -40,10 +40,12 @@ describe('AlertTable', () => {
     expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: SEVERITY_COLOR.info });
   });
 
-  it('falls back to the info colour for an unknown severity', () => {
-    const junk = [{ name: 'X', severity: 'fatal' as NodeAlert['severity'], time: 1717500000 }];
-    render(<AlertTable alerts={junk} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: SEVERITY_COLOR.info });
+  it('renders an unknown/custom severity with its literal label in the critical fallback colour', () => {
+    const custom: NodeAlert[] = [{ name: 'X', severity: 'fatal', time: 1717500000 }];
+    render(<AlertTable alerts={custom} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    const badge = screen.getByTestId('alert-severity');
+    expect(badge).toHaveStyle({ backgroundColor: FALLBACK_SEVERITY_COLOR });
+    expect(badge).toHaveTextContent('fatal');
   });
 
   it('calls onAlertTimeClick with the alert time in SECONDS when a time cell is clicked', () => {
