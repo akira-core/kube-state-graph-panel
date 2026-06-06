@@ -16,6 +16,10 @@ declare module 'cytoscape' {
     isCluster?: boolean; // true only on a backend-provided cluster container node
     cluster?: string; // cluster name carried on the container node
     clusterColor?: string; // accent colour assigned in normalize so the stylesheet stays pure
+    // true only on a panel-synthesized controller node (see normalize.ts);
+    // distinguishes a controller container from a K8s `node` container in
+    // controller mode (deriveContainers).
+    isController?: boolean;
   }
 
   interface EdgeDataDefinition {

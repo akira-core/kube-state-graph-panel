@@ -77,6 +77,30 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
   return alerts.length > 0 ? alerts : undefined;
 }
 
+interface PendingOwned {
+  podId: string;
+  ownerKind: string;
+  ownerName: string;
+  cluster: string; // '' when absent
+  namespace: string; // '' when absent
+}
+
+// Read a pod's controller owner from typed `data.owner` (current backend) or the
+// legacy `labels.owner_kind` / `labels.owner_name` (pre-f050092). undefined = none.
+function parseOwner(
+  d: Record<string, unknown>,
+  labels: Record<string, string> | undefined
+): { kind: string; name: string } | undefined {
+  const owner = d.owner;
+  if (isPlainObject(owner) && isString(owner.kind) && isString(owner.name)) {
+    return { kind: owner.kind, name: owner.name };
+  }
+  if (labels !== undefined && isString(labels.owner_kind) && isString(labels.owner_name)) {
+    return { kind: labels.owner_kind, name: labels.owner_name };
+  }
+  return undefined;
+}
+
 // Upstream entries are cytoscape-shaped ({ data: {...} }); tolerate flat objects too.
 function unwrapData(entry: Record<string, unknown>): Record<string, unknown> {
   return isPlainObject(entry.data) ? entry.data : entry;
@@ -111,6 +135,8 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   }
 
   const nodeIds = new Set<string>();
+  const pendingOwned: PendingOwned[] = [];
+  const clusterIdByName = new Map<string, string>();
   // The compound (cluster/node) grouping STRUCTURE is owned by the backend: we
   // pass its `parent` field through untouched. A flat payload renders flat; a
   // nested one (cluster > node > pod, cluster > svc) renders boxes — the panel
@@ -159,6 +185,20 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
         ...(labels !== undefined ? { labels } : {}),
       },
     });
+    if (isCluster) {
+      clusterIdByName.set(label, d.id);
+    } else if (d.type === 'pod') {
+      const owner = parseOwner(d, labels);
+      if (owner !== undefined) {
+        pendingOwned.push({
+          podId: d.id,
+          ownerKind: owner.kind,
+          ownerName: owner.name,
+          cluster: labels?.cluster ?? '',
+          namespace: namespace ?? '',
+        });
+      }
+    }
   }
 
   for (const [index, entry] of rawEdges.entries()) {
@@ -187,6 +227,41 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       },
     });
   }
+
+  // Synthesize controller nodes + controller-owns-pod edges from pod owners. The
+  // backend emits owner metadata on pods only; the panel materializes the
+  // controller node the contract implies (deduped) and the owns edge. Deterministic.
+  const controllerSeen = new Set<string>();
+  const ownsEdges: cytoscape.ElementDefinition[] = [];
+  const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
+  for (const o of sortedOwned) {
+    const kindLower = o.ownerKind.toLowerCase();
+    const controllerId = `ctrl/${o.cluster}/${o.namespace}/${kindLower}/${o.ownerName}`;
+    if (!controllerSeen.has(controllerId)) {
+      controllerSeen.add(controllerId);
+      const parent = o.cluster === '' ? undefined : clusterIdByName.get(o.cluster);
+      elements.push({
+        group: 'nodes',
+        data: {
+          id: controllerId,
+          kind: kindLower as NodeKind,
+          isController: true,
+          label: o.ownerName,
+          ...(parent !== undefined ? { parent } : {}),
+        },
+      });
+    }
+    ownsEdges.push({
+      group: 'edges',
+      data: {
+        id: `syn:controller-owns-pod:${controllerId}:${o.podId}`,
+        source: controllerId,
+        target: o.podId,
+        edgeType: 'controller-owns-pod' as EdgeType,
+      },
+    });
+  }
+  elements.push(...ownsEdges);
 
   return { elements, errors };
 }

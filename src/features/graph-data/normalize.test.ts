@@ -1,3 +1,5 @@
+import type cytoscape from 'cytoscape';
+
 import { normalizeGraph } from './normalize';
 
 // Fixtures mirror upstream kube-state-graph golden cytoscape payloads
@@ -456,5 +458,142 @@ describe('normalizeGraph', () => {
       });
       expect(elements[0]?.data.alerts).toBeUndefined();
     });
+  });
+});
+
+function podWithOwner(id: string, cluster: string, ns: string, owner: { kind: string; name: string }) {
+  return {
+    data: { id, name: id, type: 'pod', parent: `${cluster}/node-a`, owner, labels: { cluster, namespace: ns } },
+  };
+}
+
+describe('normalizeGraph — controller synthesis', () => {
+  it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          {
+            data: {
+              id: 'prod/node-a',
+              name: 'node-a',
+              type: 'node',
+              parent: 'cluster/prod',
+              labels: { cluster: 'prod' },
+            },
+          },
+          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'StatefulSet', name: 'mongo' }),
+          podWithOwner('prod/p2', 'prod', 'shop', { kind: 'StatefulSet', name: 'mongo' }),
+        ],
+        edges: [],
+      },
+    };
+    const { elements } = normalizeGraph(raw);
+    const controllers = elements.filter(
+      (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
+    );
+    expect(controllers).toHaveLength(1);
+    const ctrl = controllers[0]!.data as cytoscape.NodeDataDefinition;
+    expect(ctrl.kind).toBe('statefulset');
+    expect(ctrl.label).toBe('mongo');
+    expect(ctrl.parent).toBe('cluster/prod');
+    const owns = elements.filter(
+      (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
+    );
+    expect(owns).toHaveLength(2);
+    expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
+    expect(owns.every((e) => (e.data as cytoscape.EdgeDataDefinition).source === ctrl.id)).toBe(true);
+  });
+
+  it('keeps same-named controllers in different namespaces separate', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          podWithOwner('prod/a1', 'prod', 'a', { kind: 'Deployment', name: 'api' }),
+          podWithOwner('prod/b1', 'prod', 'b', { kind: 'Deployment', name: 'api' }),
+        ],
+        edges: [],
+      },
+    };
+    const ctrls = normalizeGraph(raw).elements.filter(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    );
+    expect(ctrls).toHaveLength(2);
+  });
+
+  it('does not synthesize for pods without an owner', () => {
+    const raw = {
+      elements: {
+        nodes: [{ data: { id: 'prod/p1', name: 'p1', type: 'pod', labels: { cluster: 'prod', namespace: 'x' } } }],
+        edges: [],
+      },
+    };
+    expect(
+      normalizeGraph(raw).elements.some((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)
+    ).toBe(false);
+  });
+
+  it('falls back to legacy labels.owner_kind / owner_name', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          {
+            data: {
+              id: 'prod/p1',
+              name: 'p1',
+              type: 'pod',
+              parent: 'cluster/prod',
+              labels: { cluster: 'prod', namespace: 'x', owner_kind: 'DaemonSet', owner_name: 'fluentd' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl?.kind).toBe('daemonset');
+    expect(ctrl?.label).toBe('fluentd');
+  });
+
+  it('gives an owner-but-no-cluster pod a parentless (top-level) controller', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'p1',
+              name: 'p1',
+              type: 'pod',
+              labels: { namespace: 'x', owner_kind: 'Job', owner_name: 'batch' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl).toBeDefined();
+    expect(ctrl?.parent).toBeUndefined();
+  });
+
+  it('is deterministic and does not mutate input', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'Deployment', name: 'web' }),
+        ],
+        edges: [],
+      },
+    };
+    const a = JSON.stringify(normalizeGraph(raw).elements);
+    const b = JSON.stringify(normalizeGraph(raw).elements);
+    expect(a).toBe(b);
   });
 });
