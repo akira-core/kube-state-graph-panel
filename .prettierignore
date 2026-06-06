@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+test-results
+playwright-report
+blob-report
+.eslintcache
+src/shared/types/api.generated.ts
+*.lock
+package-lock.json

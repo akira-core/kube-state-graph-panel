@@ -1,0 +1,58 @@
+services:
+  grafana:
+    extends:
+      file: .config/docker-compose-base.yaml
+      service: grafana
+    depends_on:
+      - kube-state-graph
+    environment:
+      # Auto-install Infinity datasource plugin so the provisioned ksg-default datasource
+      # has a backing plugin. Without this, Grafana shows "Datasource ksg-default was not found".
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+    volumes:
+      # Persist installed plugins so GF_INSTALL_PLUGINS doesn't re-download them
+      # on every `docker compose up`. The dist/ bind mount from the base config
+      # targets a subdirectory of this path and is layered on top, so the local
+      # plugin still wins.
+      - ksg-grafana-plugins:/var/lib/grafana/plugins
+
+  # VictoriaMetrics is the topology data source for the v0.0.14 backend: the
+  # backend derives the whole graph from PromQL over a [start,end] window, it
+  # does NOT read the Kubernetes API. ksg-seeder fills it with synthetic data.
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:${VM_TAG:-v1.115.0}
+    container_name: ksg-victoriametrics
+    command:
+      - '--retentionPeriod=1d'
+    ports:
+      # Exposed for debugging (e.g. curl http://localhost:8428/api/v1/query).
+      - '8428:8428'
+
+  # Pushes a synthetic, fully-covering metrics fixture into VictoriaMetrics on a
+  # loop (see dev/victoriametrics/seed.sh + topology.prom). Replaces the need for
+  # a real cluster + kube-state-metrics + Tempo service-graph pipeline.
+  ksg-seeder:
+    image: curlimages/curl:${CURL_TAG:-8.11.1}
+    container_name: ksg-seeder
+    depends_on:
+      - victoriametrics
+    environment:
+      VM_URL: http://victoriametrics:8428
+      SEED_INTERVAL: '10'
+    entrypoint: ['/bin/sh', '/seed/seed.sh']
+    volumes:
+      - ./dev/victoriametrics:/seed:ro
+
+  kube-state-graph:
+    image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
+    container_name: ksg-backend
+    depends_on:
+      - victoriametrics
+    ports:
+      - '8080:8080'
+    environment:
+      # v0.0.14 reads topology from a Prometheus-compatible store, not kubeconfig.
+      KSG_PROM_URL: http://victoriametrics:8428
+
+volumes:
+  ksg-grafana-plugins:

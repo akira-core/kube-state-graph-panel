@@ -1,0 +1,14 @@
+# Default
+* text=auto eol=lf
+
+# Generated files
+src/shared/types/api.generated.ts linguist-generated=true
+
+# Binary
+*.png binary
+*.jpg binary
+*.svg binary
+*.ico binary
+
+# Lockfiles - never merge text
+package-lock.json -diff merge=ours

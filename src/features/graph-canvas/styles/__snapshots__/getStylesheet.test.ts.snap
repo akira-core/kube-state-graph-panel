@@ -1,0 +1,150 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`getStylesheet matches snapshot for default theme 1`] = `
+[
+  {
+    "selector": "node",
+    "style": {
+      "background-clip": "none",
+      "background-color": "#22252b",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+      "border-color": "rgba(204, 204, 220, 0.2)",
+      "border-width": 1.5,
+      "color": "rgb(204, 204, 220)",
+      "font-size": 11,
+      "height": 40,
+      "label": "data(label)",
+      "shape": "round-rectangle",
+      "text-halign": "center",
+      "text-margin-y": 4,
+      "text-valign": "bottom",
+      "width": 40,
+    },
+  },
+  {
+    "selector": "node:parent",
+    "style": {
+      "background-color": [Function],
+      "background-image": "none",
+      "background-opacity": 0.1,
+      "border-color": "rgba(204, 204, 220, 0.2)",
+      "border-opacity": 0.6,
+      "border-width": 1,
+      "color": [Function],
+      "font-size": 11,
+      "label": "data(label)",
+      "padding": "14px",
+      "shape": "round-rectangle",
+      "text-halign": "center",
+      "text-margin-y": -3,
+      "text-valign": "top",
+    },
+  },
+  {
+    "selector": "node[?isCluster]",
+    "style": {
+      "background-color": "data(clusterColor)",
+      "background-image": "none",
+      "background-opacity": 0.07,
+      "border-color": "data(clusterColor)",
+      "border-opacity": 0.5,
+      "border-width": 1.5,
+      "color": "data(clusterColor)",
+      "events": "no",
+      "font-size": 12,
+      "font-weight": 600,
+      "label": "data(label)",
+      "padding": "18px",
+      "shape": "round-rectangle",
+      "text-halign": "center",
+      "text-margin-y": -4,
+      "text-valign": "top",
+    },
+  },
+  {
+    "selector": "node.cy-expand-collapse-collapsed-node",
+    "style": {
+      "border-opacity": 0.9,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[?isCluster].cy-expand-collapse-collapsed-node",
+    "style": {
+      "events": "yes",
+    },
+  },
+  {
+    "selector": "node[kind="pod"][status="normal"], node[kind="node"][status="normal"], node[kind="pvc"][status="normal"]",
+    "style": {
+      "border-color": "#73BF69",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[kind="pod"][status="warning"], node[kind="node"][status="warning"], node[kind="pvc"][status="warning"]",
+    "style": {
+      "border-color": "#F2CC0C",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[kind="pod"][status="critical"], node[kind="node"][status="critical"], node[kind="pvc"][status="critical"]",
+    "style": {
+      "border-color": "#E02F44",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node:selected",
+    "style": {
+      "border-color": "#3d71d9",
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node.ksg-faded",
+    "style": {
+      "opacity": 0.2,
+    },
+  },
+  {
+    "selector": "edge",
+    "style": {
+      "curve-style": "bezier",
+      "line-color": [Function],
+      "line-style": [Function],
+      "target-arrow-color": [Function],
+      "target-arrow-shape": "triangle",
+      "width": 1.5,
+    },
+  },
+  {
+    "selector": "edge[edgeType='switch-to-switch']",
+    "style": {
+      "curve-style": "taxi",
+      "taxi-direction": "vertical",
+      "taxi-turn": "50%",
+      "taxi-turn-min-distance": 5,
+    },
+  },
+  {
+    "selector": "edge.ksg-faded",
+    "style": {
+      "opacity": 0.12,
+    },
+  },
+  {
+    "selector": "edge.cy-expand-collapse-meta-edge",
+    "style": {
+      "curve-style": "bezier",
+      "width": 2.5,
+    },
+  },
+]
+`;

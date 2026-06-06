@@ -1,0 +1,90 @@
+# kube-state-graph v0.0.14 demo topology fixture (kube-state-metrics-shaped).
+#
+# Pushed verbatim every tick by seed.sh via VictoriaMetrics /api/v1/import/prometheus,
+# which stamps each sample at ingestion time so last_over_time(...[window]) always
+# finds a fresh value. All series are gauges with value 1 (existence facts).
+#
+# This block + seed.sh's service-graph counters intentionally exercise EVERY
+# node kind and edge type the v0.0.14 backend can draw, against the compound
+# (type:"cluster" + data.parent) Cytoscape output. See the design doc:
+#   docs/superpowers/specs/2026-05-31-ksg-v0014-compound-demo-design.md
+#
+# Two clusters, one stateful pattern each:
+#   prod — MongoDB 3-replica StatefulSet behind a HEADLESS service
+#          (cluster_ip="None"): a `<pod>.<svc>.<ns>.svc…` connection string
+#          resolves to the REAL backing pod (no Service node materialises).
+#   dr   — NATS 3-replica workload behind a CLUSTERIP service: a
+#          `<svc>.<ns>.svc…` connection string resolves to a Service node with
+#          service-selects-pod fan-out to every backing pod.
+#
+# Compound nesting that results (cluster > node > pod, cluster > svc/pvc):
+#   cluster/prod > {prod-1 > gateway,mongodb-0,mongodb-1; prod-2 > mongodb-2;
+#                   mongodb-data-mongodb-{0,1,2}}
+#   cluster/dr   > {dr-1 > consumer,nats-0,nats-1; dr-2 > nats-2; nats(svc)}
+# pod-runs-on-node is NOT a drawn edge in the Cytoscape view — it IS this nesting.
+
+# =====================================================================
+# cluster: prod — MongoDB headless StatefulSet + the gateway client
+# =====================================================================
+
+# --- K8s nodes (node kind). prod-1 enriched with an ExternalIP + several labels.
+#     Node hover shows the full labels block; pods only carry cluster/namespace/
+#     node (v0.0.14 does not read kube_pod_labels). Label keys are picked so KSM's
+#     label_* flattening round-trips cleanly (zone/region/arch/os; instance-type
+#     would mangle the hyphen). ---
+kube_node_info{cluster="prod",node="prod-1"} 1
+kube_node_info{cluster="prod",node="prod-2"} 1
+kube_node_labels{cluster="prod",node="prod-1",label_topology_kubernetes_io_zone="us-east-1a",label_topology_kubernetes_io_region="us-east-1",label_kubernetes_io_arch="amd64",label_kubernetes_io_os="linux"} 1
+kube_node_labels{cluster="prod",node="prod-2",label_topology_kubernetes_io_zone="us-east-1b",label_kubernetes_io_arch="arm64",label_kubernetes_io_os="linux"} 1
+kube_node_status_addresses{cluster="prod",node="prod-1",type="ExternalIP",address="203.0.113.10"} 1
+
+# --- pods (pod kind; labels.node drives the cluster>node>pod nesting). ---
+# gateway: the busy API client (calls mongodb, stripe, and cross-cluster dr/consumer).
+kube_pod_info{cluster="prod",namespace="apps",pod="gateway",uid="u-gateway",node="prod-1",pod_ip="10.0.1.10"} 1
+# mongodb StatefulSet replicas (mongodb-0/1 on prod-1, mongodb-2 on prod-2).
+kube_pod_info{cluster="prod",namespace="data",pod="mongodb-0",uid="u-mongo-0",node="prod-1",pod_ip="10.0.1.20"} 1
+kube_pod_info{cluster="prod",namespace="data",pod="mongodb-1",uid="u-mongo-1",node="prod-1",pod_ip="10.0.1.21"} 1
+kube_pod_info{cluster="prod",namespace="data",pod="mongodb-2",uid="u-mongo-2",node="prod-2",pod_ip="10.0.1.22"} 1
+
+# --- PVCs (pvc kind) + pod-mounts-pvc: one PersistentVolumeClaim per replica. ---
+kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="data",pod="mongodb-0",persistentvolumeclaim="mongodb-data-mongodb-0",volume="data"} 1
+kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="data",pod="mongodb-1",persistentvolumeclaim="mongodb-data-mongodb-1",volume="data"} 1
+kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="data",pod="mongodb-2",persistentvolumeclaim="mongodb-data-mongodb-2",volume="data"} 1
+
+# --- mongodb HEADLESS service (cluster_ip="None"). Materialises NO Service node:
+#     headless connection strings are 3-label DNS that resolve to the real pod. ---
+kube_service_info{cluster="prod",namespace="data",service="mongodb",cluster_ip="None"} 1
+
+# endpointslice -> owning service (kubernetes.io/service-name label), and the
+# per-endpoint hostname so `<hostname>.mongodb.data.svc…` resolves to the exact pod.
+kube_endpointslice_labels{cluster="prod",namespace="data",endpointslice="mongodb-djk2",label_kubernetes_io_service_name="mongodb"} 1
+kube_endpointslice_endpoints{cluster="prod",namespace="data",endpointslice="mongodb-djk2",targetref_kind="Pod",targetref_namespace="data",targetref_name="mongodb-0",hostname="mongodb-0"} 1
+kube_endpointslice_endpoints{cluster="prod",namespace="data",endpointslice="mongodb-djk2",targetref_kind="Pod",targetref_namespace="data",targetref_name="mongodb-1",hostname="mongodb-1"} 1
+kube_endpointslice_endpoints{cluster="prod",namespace="data",endpointslice="mongodb-djk2",targetref_kind="Pod",targetref_namespace="data",targetref_name="mongodb-2",hostname="mongodb-2"} 1
+
+# =====================================================================
+# cluster: dr — NATS ClusterIP workload + the consumer client
+# =====================================================================
+
+# --- K8s nodes (node kind). dr-1/dr-2 enriched with zone/region/os labels. ---
+kube_node_info{cluster="dr",node="dr-1"} 1
+kube_node_info{cluster="dr",node="dr-2"} 1
+kube_node_labels{cluster="dr",node="dr-1",label_topology_kubernetes_io_zone="eu-west-1a",label_topology_kubernetes_io_region="eu-west-1",label_kubernetes_io_os="linux"} 1
+kube_node_labels{cluster="dr",node="dr-2",label_topology_kubernetes_io_zone="eu-west-1b",label_kubernetes_io_arch="amd64",label_kubernetes_io_os="linux"} 1
+
+# --- pods (consumer on dr-1; nats-0/1 on dr-1, nats-2 on dr-2). ---
+kube_pod_info{cluster="dr",namespace="apps",pod="consumer",uid="u-consumer",node="dr-1",pod_ip="10.1.1.10"} 1
+kube_pod_info{cluster="dr",namespace="messaging",pod="nats-0",uid="u-nats-0",node="dr-1",pod_ip="10.1.1.20"} 1
+kube_pod_info{cluster="dr",namespace="messaging",pod="nats-1",uid="u-nats-1",node="dr-1",pod_ip="10.1.1.21"} 1
+kube_pod_info{cluster="dr",namespace="messaging",pod="nats-2",uid="u-nats-2",node="dr-2",pod_ip="10.1.1.22"} 1
+
+# --- nats CLUSTERIP service (service kind, materialised on demand). A
+#     `nats.messaging.svc…` 2-label connection string resolves to THIS node and
+#     fans service-selects-pod out to every backing pod below. ---
+kube_service_info{cluster="dr",namespace="messaging",service="nats",cluster_ip="10.96.0.50"} 1
+
+# endpointslice -> owning service, and the backing pods (service-selects-pod targets).
+kube_endpointslice_labels{cluster="dr",namespace="messaging",endpointslice="nats-7f9q",label_kubernetes_io_service_name="nats"} 1
+kube_endpointslice_endpoints{cluster="dr",namespace="messaging",endpointslice="nats-7f9q",targetref_kind="Pod",targetref_namespace="messaging",targetref_name="nats-0"} 1
+kube_endpointslice_endpoints{cluster="dr",namespace="messaging",endpointslice="nats-7f9q",targetref_kind="Pod",targetref_namespace="messaging",targetref_name="nats-1"} 1
+kube_endpointslice_endpoints{cluster="dr",namespace="messaging",endpointslice="nats-7f9q",targetref_kind="Pod",targetref_namespace="messaging",targetref_name="nats-2"} 1

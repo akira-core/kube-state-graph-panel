@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "Kube State Graph",
+  "id": "marz32one-ksg-panel",
+  "info": {
+    "keywords": ["panel", "kubernetes", "k8s", "graph", "topology", "cytoscape"],
+    "description": "Visualize Kubernetes resource topology (Pods, Services, Deployments, Ingresses) and their relationships as an interactive graph, sourced from kube-state-graph backend.",
+    "author": {
+      "name": "Marz32one"
+    },
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Repository",
+        "url": "https://github.com/Marz32onE/kube-state-graph-panel"
+      },
+      {
+        "name": "kube-state-graph backend",
+        "url": "https://github.com/Marz32onE/kube-state-graph"
+      }
+    ],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=12.3.0",
+    "plugins": []
+  }
+}

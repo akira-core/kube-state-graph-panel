@@ -1,0 +1,1930 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kube-state-graph-panel 使用與架構導覽</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #151b23;
+        --panel-2: #1f2937;
+        --text: #e6edf3;
+        --muted: #9ca3af;
+        --line: #30363d;
+        --accent: #38bdf8;
+        --accent-2: #a78bfa;
+        --good: #34d399;
+        --warn: #fbbf24;
+        --danger: #fb7185;
+        --code: #0b1220;
+        --shadow: 0 24px 80px rgb(0 0 0 / 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 10% 0%, rgb(56 189 248 / 0.18), transparent 32rem),
+          radial-gradient(circle at 90% 8%, rgb(167 139 250 / 0.16), transparent 34rem),
+          linear-gradient(180deg, #0d1117 0%, #0a0f1a 100%);
+        color: var(--text);
+        font-family:
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          'Noto Sans TC',
+          'PingFang TC',
+          sans-serif;
+        line-height: 1.75;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      code,
+      pre {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      }
+
+      code {
+        border: 1px solid var(--line);
+        border-radius: 0.4rem;
+        background: var(--code);
+        color: #c4b5fd;
+        padding: 0.12rem 0.36rem;
+        font-size: 0.92em;
+      }
+
+      pre {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: var(--code);
+        padding: 1rem 1.1rem;
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+      }
+
+      pre code {
+        border: 0;
+        background: transparent;
+        color: #dbeafe;
+        padding: 0;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 19rem minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgb(13 17 23 / 0.92);
+        backdrop-filter: blur(16px);
+        padding: 1.5rem;
+      }
+
+      .brand {
+        display: grid;
+        gap: 0.35rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .brand strong {
+        font-size: 1.05rem;
+        letter-spacing: 0.02em;
+      }
+
+      .brand span {
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .nav {
+        display: grid;
+        gap: 0.25rem;
+      }
+
+      .nav a {
+        border-radius: 0.7rem;
+        color: #cbd5e1;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.92rem;
+      }
+
+      .nav a:hover {
+        background: rgb(56 189 248 / 0.1);
+        color: white;
+        text-decoration: none;
+      }
+
+      main {
+        min-width: 0;
+        padding: 2.5rem clamp(1rem, 4vw, 4rem) 5rem;
+      }
+
+      .hero {
+        border: 1px solid rgb(56 189 248 / 0.28);
+        border-radius: 1.6rem;
+        background: linear-gradient(135deg, rgb(56 189 248 / 0.16), rgb(167 139 250 / 0.1)), rgb(21 27 35 / 0.82);
+        box-shadow: var(--shadow);
+        padding: clamp(1.5rem, 4vw, 3rem);
+        margin-bottom: 2rem;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        line-height: 1.25;
+      }
+
+      h1 {
+        max-width: 64rem;
+        margin: 0.5rem 0 1rem;
+        font-size: clamp(2rem, 5vw, 4rem);
+      }
+
+      h2 {
+        border-bottom: 1px solid var(--line);
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.55rem;
+        font-size: clamp(1.55rem, 3vw, 2.25rem);
+      }
+
+      h3 {
+        margin: 2rem 0 0.75rem;
+        color: #f8fafc;
+        font-size: 1.28rem;
+      }
+
+      h4 {
+        margin: 1.25rem 0 0.4rem;
+        color: #dbeafe;
+        font-size: 1.05rem;
+      }
+
+      p {
+        margin: 0.65rem 0;
+      }
+
+      ul,
+      ol {
+        padding-left: 1.35rem;
+      }
+
+      li + li {
+        margin-top: 0.35rem;
+      }
+
+      .lead {
+        max-width: 58rem;
+        color: #d1d5db;
+        font-size: 1.1rem;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 1rem;
+        margin: 1.25rem 0;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: rgb(21 27 35 / 0.84);
+        padding: 1rem;
+      }
+
+      .card h3,
+      .card h4 {
+        margin-top: 0;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+
+      .pill {
+        border: 1px solid rgb(56 189 248 / 0.28);
+        border-radius: 999px;
+        background: rgb(56 189 248 / 0.08);
+        color: #bae6fd;
+        padding: 0.25rem 0.7rem;
+        font-size: 0.88rem;
+      }
+
+      .callout {
+        border: 1px solid rgb(251 191 36 / 0.35);
+        border-left: 0.3rem solid var(--warn);
+        border-radius: 1rem;
+        background: rgb(251 191 36 / 0.08);
+        padding: 1rem 1.1rem;
+        margin: 1rem 0;
+      }
+
+      .callout.good {
+        border-color: rgb(52 211 153 / 0.35);
+        border-left-color: var(--good);
+        background: rgb(52 211 153 / 0.08);
+      }
+
+      .callout.danger {
+        border-color: rgb(251 113 133 / 0.35);
+        border-left-color: var(--danger);
+        background: rgb(251 113 133 / 0.08);
+      }
+
+      .flow {
+        display: grid;
+        gap: 0.75rem;
+        margin: 1rem 0;
+      }
+
+      .flow-step {
+        border: 1px solid var(--line);
+        border-radius: 0.9rem;
+        background: linear-gradient(90deg, rgb(56 189 248 / 0.1), rgb(167 139 250 / 0.07));
+        padding: 0.85rem 1rem;
+      }
+
+      .flow-step strong {
+        color: #f8fafc;
+      }
+
+      .table-wrap {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        margin: 1rem 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 48rem;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 0.8rem 0.9rem;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: rgb(31 41 55 / 0.72);
+        color: #e0f2fe;
+        font-size: 0.9rem;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .kbd {
+        border: 1px solid #4b5563;
+        border-bottom-width: 2px;
+        border-radius: 0.35rem;
+        background: #111827;
+        padding: 0.05rem 0.35rem;
+        font-size: 0.85em;
+      }
+
+      .section {
+        max-width: 76rem;
+      }
+
+      .checklist li::marker {
+        color: var(--good);
+      }
+
+      footer {
+        margin-top: 4rem;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        padding-top: 1.5rem;
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 900px) {
+        .layout {
+          display: block;
+        }
+
+        .sidebar {
+          position: static;
+          height: auto;
+        }
+
+        .nav {
+          grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <strong>kube-state-graph-panel</strong>
+          <span>繁中使用與架構導覽</span>
+        </div>
+        <nav class="nav" aria-label="文件目錄">
+          <a href="#overview">1. 這個 repo 是什麼</a>
+          <a href="#quick-start">2. 快速開始</a>
+          <a href="#mental-model">3. 先建立心智模型</a>
+          <a href="#architecture">4. 架構與資料流</a>
+          <a href="#render-pipeline">5. 渲染管線與 cytoscape 格式</a>
+          <a href="#react-for-ts">6. React 新手速成</a>
+          <a href="#debug">7. Debug 怎麼跑</a>
+          <a href="#change-and-test">8. 修改後怎麼測</a>
+          <a href="#where-to-change">9. 常見修改位置</a>
+          <a href="#best-practices">10. Best Practices</a>
+          <a href="#testing-map">11. 測試地圖</a>
+          <a href="#troubleshooting">12. 常見問題</a>
+          <a href="#glossary">13. 名詞表</a>
+        </nav>
+      </aside>
+
+      <main>
+        <section class="hero">
+          <div class="eyebrow">Grafana Panel Plugin · React 18 · TypeScript · cytoscape.js</div>
+          <h1>kube-state-graph-panel 使用方式、架構與修改指南</h1>
+          <p class="lead">
+            這份文件給「會 TypeScript，但對 React 不熟」的人。讀完後你應該知道這個 repo 怎麼跑、怎麼 debug、資料怎麼從
+            Grafana 進到 cytoscape graph、修改時該碰哪些檔案，以及哪些規則是這個專案的 best practice。
+          </p>
+          <div class="pill-row">
+            <span class="pill">Panel-only repo</span>
+            <span class="pill">資料來源：Infinity datasource</span>
+            <span class="pill">圖形引擎：cytoscape.js</span>
+            <span class="pill">嚴格 TypeScript</span>
+            <span class="pill">feature-first 架構</span>
+          </div>
+        </section>
+
+        <section id="overview" class="section">
+          <h2>1. 這個 repo 是什麼</h2>
+          <p>
+            <code>kube-state-graph-panel</code> 是一個 Grafana 12.x 的 panel plugin。它負責把 Kubernetes 資源拓撲，例如
+            Pod、Service、Node、PVC 與它們之間的關係，渲染成互動式 graph。
+          </p>
+          <p>
+            這個 repo <strong>只做前端 panel</strong>，不包含 Go backend。產生 graph JSON 的服務是上游
+            <code>marz32one/kube-state-graph</code> Docker image。<strong>v0.0.14 backend 是從 PromQL（一個
+            <code>[start,end]</code> 時間窗）衍生出整張拓撲圖，它<em>不</em>讀 Kubernetes API</strong>；資料實際來自一個
+            Prometheus 相容的 metrics store。本 panel 透過 Grafana 的 Infinity datasource 呼叫 backend 的
+            <code>GET /v1/graph</code>，再把回來的 JSON 正規化成 cytoscape elements。
+          </p>
+
+          <div class="cards">
+            <article class="card">
+              <h3>這個 repo 負責</h3>
+              <ul>
+                <li>Grafana panel plugin 註冊與 options editor。</li>
+                <li>把 Grafana datasource response 轉成 graph elements。</li>
+                <li>用 cytoscape.js 顯示、layout、resize、tooltip、legend、filter。</li>
+                <li>提供本機 Docker Compose demo 與測試工具鏈。</li>
+              </ul>
+            </article>
+            <article class="card">
+              <h3>這個 repo 不負責</h3>
+              <ul>
+                <li>不直接連 Kubernetes API。</li>
+                <li>不內嵌 kube-state-graph backend 原始碼。</li>
+                <li>不自建 Grafana backend datasource plugin。</li>
+                <li>不處理正式 plugin signing 與 catalog 發佈流程。</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="callout good">
+            <strong>一句話版：</strong>這是一個「Grafana panel 前端」，輸入是 backend 產生的 cytoscape-style
+            JSON，輸出是可互動的 Kubernetes topology graph。
+          </div>
+        </section>
+
+        <section id="quick-start" class="section">
+          <h2>2. 快速開始</h2>
+          <h3>環境需求</h3>
+          <ul>
+            <li><code>Node 22+</code></li>
+            <li><code>npm 11+</code>，目前 <code>package.json</code> 指定 <code>npm@11.13.0</code></li>
+            <li>Docker with Compose v2</li>
+          </ul>
+          <div class="callout good">
+            <strong>不需要 Kubernetes cluster。</strong>demo 是<strong>完全自包含</strong>的：compose 會起一個
+            VictoriaMetrics 與一個 seeder，把合成的 topology metrics 灌進去餵給 backend。<strong>不需要 kubeconfig，也沒有
+            <code>KUBECONFIG_PATH</code> 這個變數</strong>。要改指向真實資料時，才在 <code>kube-state-graph</code> service
+            上設 <code>KSG_PROM_URL</code> 指到你自己的 VictoriaMetrics，並移除 <code>ksg-seeder</code>。
+          </div>
+
+          <h3>第一次安裝</h3>
+          <pre><code>npm install</code></pre>
+
+          <h3>啟動開發模式</h3>
+          <p>建議開兩個 terminal：</p>
+          <div class="cards">
+            <article class="card">
+              <h4>Terminal A：build plugin 到 dist</h4>
+              <pre><code>npm run dev</code></pre>
+              <p class="muted">
+                這會執行 webpack watch。你改 <code>src/**</code> 後，bundle 會重新輸出到 <code>dist/</code>。
+              </p>
+            </article>
+            <article class="card">
+              <h4>Terminal B：啟動整套 demo stack</h4>
+              <pre><code>docker compose up -d</code></pre>
+              <p class="muted">
+                不需要任何環境變數或 kubeconfig。一個指令會起 4 個 service（見下表）。
+              </p>
+            </article>
+          </div>
+
+          <h4><code>docker compose up</code> 起了哪 4 個 service？</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>角色</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>grafana</code></td>
+                  <td>掛載 <code>dist/</code> 載入本 panel，並 provision <code>KSG Demo</code> dashboard 與 Infinity datasource。</td>
+                </tr>
+                <tr>
+                  <td><code>kube-state-graph</code>（<code>ksg-backend</code>）</td>
+                  <td>v0.0.14 backend；<code>KSG_PROM_URL</code> 指向 VictoriaMetrics。</td>
+                </tr>
+                <tr>
+                  <td><code>victoriametrics</code></td>
+                  <td>backend 的拓撲資料來源（PromQL）。</td>
+                </tr>
+                <tr>
+                  <td><code>ksg-seeder</code></td>
+                  <td>每隔 <code>SEED_INTERVAL</code> 秒重新 push 合成 fixture（含遞增的 service-graph counter），讓 <code>last_over_time(...)</code> 與 <code>rate(...)</code> 維持新鮮。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>打開 Grafana</h3>
+          <pre><code>open http://localhost:3000</code></pre>
+          <p>
+            Demo dashboard 名稱是 <code>KSG Demo</code>，裡面有一個 <code>Kube State Graph</code> panel。 Dashboard
+            query 會透過 Infinity datasource 打 <code>/v1/graph</code>。
+          </p>
+
+          <div class="callout">
+            <strong>Hot reload 心法：</strong><code>npm run dev</code> 只負責更新 <code>dist/</code>。Grafana container
+            通常不用重啟，但瀏覽器需要重新整理，常用 <span class="kbd">Cmd</span> + <span class="kbd">R</span>。
+          </div>
+        </section>
+
+        <section id="mental-model" class="section">
+          <h2>3. 先建立心智模型</h2>
+          <p>如果你不熟 React，可以先把整個系統想成一條資料管線，而不是很多 component。</p>
+
+          <div class="flow">
+            <div class="flow-step">
+              <strong>1. Backend 回傳 JSON</strong>
+              <br />
+              <code>kube-state-graph</code> 從 PromQL（一個 <code>[start,end]</code> 時間窗）衍生出
+              <code>{ elements: { nodes, edges } }</code>，<strong>不讀 Kubernetes API</strong>。
+            </div>
+            <div class="flow-step">
+              <strong>2. Grafana datasource query</strong>
+              <br />
+              Infinity datasource 把 HTTP response 包進 Grafana 的 <code>PanelData.series</code>。
+            </div>
+            <div class="flow-step">
+              <strong>3. useGraphData 解資料</strong>
+              <br />
+              <code>useGraphData</code> 從 frames 中挑出 graph payload，交給 <code>normalizeGraph</code>。
+            </div>
+            <div class="flow-step">
+              <strong>4. normalizeGraph 當防腐層</strong>
+              <br />
+              把上游欄位 <code>type</code>、<code>name</code>、<code>ipaddress</code> 映射成 panel 內部欄位
+              <code>kind</code>、<code>label</code>、<code>ipAddress</code>。
+            </div>
+            <div class="flow-step">
+              <strong>5. GraphCanvas 管 cytoscape</strong>
+              <br />
+              React 只建立容器與呼叫 hooks；真正的 graph 狀態在 cytoscape instance 裡。
+            </div>
+            <div class="flow-step">
+              <strong>6. hooks 負責 imperative 更新</strong>
+              <br />
+              <code>useCytoscape</code> 建 instance 與 diff elements； <code>useGraphLayout</code> 跑 layout；
+              <code>useElementFilter</code> 改 visibility； <code>HoverTooltip</code> 監聽 hover。
+            </div>
+          </div>
+
+          <div class="callout good">
+            <strong>最重要的架構規則：</strong>React 不是 graph 狀態的 source of truth。cytoscape instance 才是。 React
+            負責 mount/unmount 與把 props 變化同步進 cytoscape。
+          </div>
+          <p class="muted">
+            逐步細節（cytoscape JSON 契約、deserialization、stylesheet 如何套到 node/edge）見
+            <a href="#render-pipeline">§5 渲染管線與 cytoscape 格式</a>。
+          </p>
+        </section>
+
+        <section id="architecture" class="section">
+          <h2>4. 架構與資料流</h2>
+
+          <h3>目錄結構</h3>
+          <pre><code>src/
+├── module.ts
+├── panels/
+│   └── KsgPanel/
+│       ├── KsgPanel.tsx
+│       ├── KsgPanel.editor.tsx
+│       └── KsgPanel.types.ts
+├── features/
+│   ├── graph-data/
+│   ├── graph-canvas/
+│   ├── element-filter/
+│   ├── hover-tooltip/
+│   ├── legend/
+│   └── theme/
+└── shared/
+    ├── constants/
+    └── types/</code></pre>
+
+          <h3>Feature-first 是什麼？</h3>
+          <p>
+            Feature-first 是一種目錄組織方式：用「功能領域」切資料夾，而不是用「檔案類型」切資料夾。 這個 repo 的
+            <code>features/</code> 就是用 feature-first。當你要改 graph canvas、資料轉換、tooltip、 legend 或 filter
+            時，相關 component、hook、純函式與測試會盡量靠在同一個 feature 裡。
+          </p>
+
+          <h4>Type-first 的問題</h4>
+          <p>很多 React 專案一開始會用 type-first，也就是依照檔案類型分資料夾：</p>
+          <pre><code>src/
+├── components/
+├── hooks/
+├── types/
+├── utils/
+├── constants/
+└── tests/</code></pre>
+          <p>
+            這種方式小專案還可以，但功能變多後，要改「graph canvas」時可能要在
+            <code>components/</code>、<code>hooks/</code>、<code>utils/</code>、<code>types/</code> 到處找。
+            你知道自己要改哪個功能，卻被迫先猜檔案類型。
+          </p>
+
+          <h4>Feature-first 在這個 repo 的樣子</h4>
+          <pre><code>features/graph-canvas/
+├── components/
+│   └── GraphCanvas/
+├── hooks/
+│   ├── useCytoscape.ts
+│   ├── useGraphLayout.ts
+│   └── useGraphResize.ts
+├── styles/
+│   └── getStylesheet.ts
+├── sync/
+│   └── diffElements.ts
+└── index.ts</code></pre>
+          <p>
+            這代表「畫 graph」這個功能的主要程式碼都集中在 <code>graph-canvas</code>。 如果你要 debug cytoscape
+            instance、layout、resize、stylesheet 或 element sync， 第一個要看的地方就是這個 feature。
+          </p>
+
+          <h4>這個 repo 哪些地方使用 feature-first？</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Feature</th>
+                  <th>負責什麼</th>
+                  <th>常見修改情境</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>features/graph-data</code></td>
+                  <td>從 Grafana <code>PanelData</code> 抽出 graph payload，並 normalize 成 cytoscape elements。</td>
+                  <td>上游 JSON schema 變動、Infinity datasource frame 形狀改變。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-canvas</code></td>
+                  <td>cytoscape 畫布、instance lifecycle、layout、resize、stylesheet、element diff sync。</td>
+                  <td>調 graph 外觀、layout、效能、互動行為。</td>
+                </tr>
+                <tr>
+                  <td><code>features/element-filter</code></td>
+                  <td>根據 visible kinds / edge types 計算哪些 node / edge 要顯示。</td>
+                  <td>調整 filter 規則，例如 hidden endpoint 是否 auto-hide edge。</td>
+                </tr>
+                <tr>
+                  <td><code>features/hover-tooltip</code></td>
+                  <td>監聽 cytoscape hover 事件並顯示右上角 tooltip。</td>
+                  <td>新增 tooltip 欄位、改 tooltip UI。</td>
+                </tr>
+                <tr>
+                  <td><code>features/legend</code></td>
+                  <td>依 shared constants 顯示 node / edge legend。</td>
+                  <td>調 legend 顯示方式或測試。</td>
+                </tr>
+                <tr>
+                  <td><code>features/theme</code></td>
+                  <td>把 Grafana theme 轉成 graph stylesheet 使用的輸入。</td>
+                  <td>調 light/dark theme 對 graph 顏色的影響。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Feature-first 怎麼 work：barrel 當 public API</h4>
+          <p>
+            每個 feature 通常會有一個 <code>index.ts</code>，也叫 barrel。外部只從 barrel import 這個 feature 願意公開的
+            API，不直接鑽進內部路徑。這能讓 feature 內部重構時，外部不需要跟著改。
+          </p>
+          <pre><code>// KsgPanel.tsx
+import {
+  EmptyState,
+  GraphCanvas,
+  LoadingOverlay,
+} from '../../features/graph-canvas';</code></pre>
+          <p>
+            上面這種 import 表示 <code>KsgPanel</code> 只知道 <code>graph-canvas</code> 對外提供
+            <code>GraphCanvas</code>、<code>EmptyState</code>、<code>LoadingOverlay</code>。 它不需要知道這些檔案實際在
+            <code>components/GraphCanvas/GraphCanvas.tsx</code> 還是其他內部位置。
+          </p>
+
+          <h4>什麼該放 feature？什麼該放 shared？</h4>
+          <div class="cards">
+            <article class="card">
+              <h4>放 feature</h4>
+              <p>只服務單一功能的程式碼，放在該 feature 裡。</p>
+              <ul>
+                <li><code>features/element-filter/computeVisibility.ts</code></li>
+                <li><code>features/hover-tooltip/hooks/useHoverElement.ts</code></li>
+                <li><code>features/graph-canvas/sync/diffElements.ts</code></li>
+              </ul>
+            </article>
+            <article class="card">
+              <h4>放 shared</h4>
+              <p>真的被多個 feature 共用，而且代表跨功能契約的東西，才放 <code>shared</code>。</p>
+              <ul>
+                <li><code>shared/constants/shapeByKind.ts</code></li>
+                <li><code>shared/constants/colorByEdgeType.ts</code></li>
+                <li><code>shared/types/cytoscape.d.ts</code></li>
+              </ul>
+            </article>
+          </div>
+          <div class="callout good">
+            <strong>判斷口訣：</strong>如果你會說「我要改 filter 功能」，那它多半在 feature。 如果你會說「graph
+            style、legend、filter 都要共用同一份 node kind 對應表」，那它才適合進 shared。
+          </div>
+
+          <h3>主要檔案職責</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>位置</th>
+                  <th>角色</th>
+                  <th>你通常什麼時候會改</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>src/module.ts</code></td>
+                  <td>Grafana plugin entry point，註冊 panel 與 options editor。</td>
+                  <td>很少改；新增 top-level extension 註冊時才需要注意 import。</td>
+                </tr>
+                <tr>
+                  <td><code>src/panels/KsgPanel/KsgPanel.tsx</code></td>
+                  <td>Panel orchestrator：處理 loading、error、empty、legend、canvas。</td>
+                  <td>新增整體 UI 狀態、sidebar、panel-level 行為。</td>
+                </tr>
+                <tr>
+                  <td><code>KsgPanel.editor.tsx</code></td>
+                  <td>Grafana panel options UI，例如 layout、legend、filter multi-select。</td>
+                  <td>新增使用者可設定的選項。</td>
+                </tr>
+                <tr>
+                  <td><code>KsgPanel.types.ts</code></td>
+                  <td>Panel options 型別、預設值、可選 node kind / edge type 清單。</td>
+                  <td>新增 option 或調整 default。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-data/normalize.ts</code></td>
+                  <td>資料契約防腐層，把未知 JSON 轉成 cytoscape elements。</td>
+                  <td>上游 backend response schema 變動時。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-data/hooks/useGraphData.ts</code></td>
+                  <td>從 Grafana <code>PanelData</code> 中找出 graph payload。</td>
+                  <td>Datasource response 被 Grafana flatten 的形狀改變時。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-canvas/components/GraphCanvas</code></td>
+                  <td>Graph 區域 component，串接 cytoscape、layout、resize、filter、tooltip。</td>
+                  <td>新增 graph-level interaction。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-canvas/hooks/useCytoscape.ts</code></td>
+                  <td>cytoscape instance lifecycle、element diff-and-patch、stylesheet update。</td>
+                  <td>極少改；這是高風險核心。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-canvas/hooks/useGraphLayout.ts</code></td>
+                  <td>依 panel option 執行 <code>fcose</code> 或 <code>dagre</code> layout。</td>
+                  <td>調 layout 參數或新增 layout algorithm。</td>
+                </tr>
+                <tr>
+                  <td><code>features/graph-canvas/styles/getStylesheet.ts</code></td>
+                  <td>Grafana theme + 常數 map → cytoscape stylesheet。</td>
+                  <td>調整節點、邊、selected 樣式。</td>
+                </tr>
+                <tr>
+                  <td><code>shared/constants/shapeByKind.ts</code></td>
+                  <td>Node kind 到 cytoscape shape 的唯一資料源。</td>
+                  <td>新增或調整 Kubernetes resource kind 顯示方式。</td>
+                </tr>
+                <tr>
+                  <td><code>shared/constants/colorByEdgeType.ts</code></td>
+                  <td>Edge type 到顏色與線型的唯一資料源。</td>
+                  <td>新增或調整關係類型顯示方式。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>資料契約</h3>
+          <p>上游目前的主要 node / edge 類型如下：</p>
+          <div class="cards">
+            <article class="card">
+              <h4>Node kind</h4>
+              <p>
+                <code>pod</code>, <code>service</code>, <code>node</code>, <code>pvc</code>, <code>others</code>,
+                <code>external</code>
+              </p>
+            </article>
+            <article class="card">
+              <h4>Edge type</h4>
+              <p>
+                <code>pod-runs-on-node</code>, <code>pod-mounts-pvc</code>, <code>pod-calls-pod</code>,
+                <code>service-selects-pod</code>
+              </p>
+            </article>
+          </div>
+
+          <h3>資料映射規則</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>上游欄位</th>
+                  <th>panel 內部欄位</th>
+                  <th>用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>node.data.type</code></td>
+                  <td><code>kind</code></td>
+                  <td>決定 node shape、legend、filter。</td>
+                </tr>
+                <tr>
+                  <td><code>node.data.name</code></td>
+                  <td><code>label</code></td>
+                  <td>圖上顯示的文字與 tooltip title。</td>
+                </tr>
+                <tr>
+                  <td><code>node.data.labels.namespace</code></td>
+                  <td><code>namespace</code></td>
+                  <td>tooltip 顯示。</td>
+                </tr>
+                <tr>
+                  <td><code>node.data.ipaddress</code></td>
+                  <td><code>ipAddress</code></td>
+                  <td>tooltip 顯示 IP 清單。</td>
+                </tr>
+                <tr>
+                  <td><code>edge.data.type</code></td>
+                  <td><code>edgeType</code></td>
+                  <td>決定 edge color、line style、legend、filter。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="render-pipeline" class="section">
+          <h2>5. 渲染管線與 cytoscape 格式</h2>
+          <p>
+            這一節把「從 backend JSON 到畫面上每一個 node / edge 長什麼樣」拆成可追蹤的步驟。
+            如果你要 debug「資料有進來但畫面不對」或「新增一種 kind 要改哪裡」，先對照這條管線。
+          </p>
+
+          <h3>5.1 端到端渲染管線</h3>
+          <p>整條路徑可以分成 <strong>資料反序列化</strong> 與 <strong>cytoscape imperative 渲染</strong> 兩大半：</p>
+          <div class="flow">
+            <div class="flow-step">
+              <strong>A. HTTP → Grafana PanelData</strong>
+              <br />
+              Infinity datasource 呼叫 <code>GET /v1/graph</code>，把 JSON 包進
+              <code>PanelData.series[].fields[].values[0]</code>（可能是字串或已解析物件）。
+            </div>
+            <div class="flow-step">
+              <strong>B. extractJsonFromFrames（挑 payload）</strong>
+              <br />
+              <code>useGraphData</code> 掃描所有 frame / field，<code>JSON.parse</code> 字串欄位，用
+              <code>looksLikeGraphPayload</code> 挑出含 <code>elements</code> 或 <code>nodes</code> 的物件。
+            </div>
+            <div class="flow-step">
+              <strong>C. normalizeGraph（反序列化 + 映射）</strong>
+              <br />
+              驗證形狀、把上游 <code>data.type</code> / <code>data.name</code> 等欄位映射成 panel 內部
+              <code>kind</code> / <code>label</code>，產出 <code>cytoscape.ElementDefinition[]</code>。
+            </div>
+            <div class="flow-step">
+              <strong>D. KsgPanel orchestrator</strong>
+              <br />
+              處理 loading / error / empty，同時用 <code>useGraphTheme</code> 算出 stylesheet，把
+              <code>elements</code> 與 filter options 傳給 <code>GraphCanvas</code>。
+            </div>
+            <div class="flow-step">
+              <strong>E. useCytoscape — 建立 instance</strong>
+              <br />
+              空 deps effect 建立 <code>cytoscape({ container, elements, style, layout: preset })</code>。
+              <strong>不在 constructor 跑 fcose/dagre</strong>，避免 mount 時 double layout。
+            </div>
+            <div class="flow-step">
+              <strong>F. diffElements — 增量同步</strong>
+              <br />
+              比較 <code>cy.elements().jsons()</code> 與 incoming elements，只 add / remove / update 差異，包在
+              <code>cy.batch()</code> 裡。
+            </div>
+            <div class="flow-step">
+              <strong>G. cy.style(stylesheet).update()</strong>
+              <br />
+              theme 或常數 map 變動時換 stylesheet，<strong>不重建 instance</strong>。
+            </div>
+            <div class="flow-step">
+              <strong>H. useGraphLayout — 佈局</strong>
+              <br />
+              <code>cy.stop()</code> 後 <code>cy.layout({ name: 'fcose' | 'dagre' }).run()</code>。這是 layout 的
+              <strong>唯一執行點</strong>。
+            </div>
+            <div class="flow-step">
+              <strong>I. useElementFilter — 可見性</strong>
+              <br />
+              依 visible kinds / edge types 對每個 element 設 <code>visibility: visible | hidden</code>（不刪元素、不重跑 layout）。
+            </div>
+            <div class="flow-step">
+              <strong>J. useGraphResize + 互動層</strong>
+              <br />
+              <code>ResizeObserver</code> → <code>cy.resize()</code> / <code>cy.fit()</code>；hover tooltip、tap 選取、expand-collapse 疊在最上層。
+            </div>
+          </div>
+
+          <div class="callout good">
+            <strong>核心原則：</strong>React props 驅動的是「要同步進 cytoscape 的資料與設定」；畫布上的位置、選取、visibility
+            等 runtime 狀態由 cytoscape instance 持有，透過 hooks 以 imperative API 更新。
+          </div>
+
+          <h3>5.2 上游 cytoscape JSON 契約</h3>
+          <p>
+            上游 <code>kube-state-graph</code> 的 <code>GET /v1/graph</code> 輸出 <strong>cytoscape.js elements 形式</strong> 的
+            JSON。頂層長這樣：
+          </p>
+          <pre><code>{
+  "apiVersion": "…",
+  "clusters": ["prod", "dr"],
+  "elements": {
+    "nodes": [ … ],
+    "edges": [ … ]
+  }
+}</code></pre>
+          <p>每個 node / edge 條目遵循 cytoscape 慣例，資料包在 <code>data</code> 物件裡（panel 也容忍扁平物件，見 §5.4）：</p>
+          <pre><code>// Node（上游 wire 格式）
+{
+  "data": {
+    "id": "prod/shop/checkout-0",
+    "name": "checkout-0",
+    "type": "pod",
+    "parent": "prod/node/worker-1",
+    "status": "normal",
+    "ipaddress": ["10.0.1.5"],
+    "labels": { "namespace": "shop" }
+  }
+}
+
+// Edge（上游 wire 格式）
+{
+  "data": {
+    "id": "e1",
+    "type": "pod-calls-pod",
+    "source": "prod/shop/gateway",
+    "target": "dr/app/consumer",
+    "labels": { }
+  }
+}</code></pre>
+
+          <h4>Compound（巢狀）結構由 backend 決定</h4>
+          <p>
+            v0.0.14 起 backend 會 emit compound nodes：<code>type: "cluster"</code> 的合成群組包住各 cluster 內資源；pod 嵌在 K8s
+            node 底下。 <code>pod-runs-on-node</code> 關係<strong>不畫成 edge</strong>，而是以
+            <code>parent</code> 巢狀表達（design D31）。panel 對 <code>parent</code> 欄位<strong>原樣 pass-through</strong>，只額外替
+            <code>cluster</code> 容器加上 accent 色（<code>clusterColor</code>）。
+          </p>
+
+          <h3>5.3 Deserialization：從 Grafana frame 到 ElementDefinition</h3>
+          <p>「反序列化」在本 repo 指兩步：<strong>從 PanelData 抽出 JSON</strong> + <strong>normalize 成 typed elements</strong>。</p>
+
+          <h4>步驟 1 — extractJsonFromFrames</h4>
+          <p>檔案：<code>features/graph-data/hooks/useGraphData.ts</code></p>
+          <pre><code>PanelData.series[]
+  └── DataFrame.fields[]
+        └── field.values[0]
+
+// 對每個 candidate：
+// 1. 若 typeof raw === 'string' → JSON.parse(raw)
+// 2. looksLikeGraphPayload(candidate) ?
+//      isPlainObject(v) && (isPlainObject(v.elements) || Array.isArray(v.nodes))
+// 3. 第一個符合的 graph payload 立即 return
+// 4. 否則 fallback 到第一個可 parse 的值，讓 normalizeGraph 回報錯誤</code></pre>
+          <div class="callout">
+            Infinity datasource 的 table flatten 行為不固定，同一個 response 可能同時出現
+            <code>apiVersion</code>、<code>clusters</code>、<code>elements</code> 等多欄。
+            <code>looksLikeGraphPayload</code> 的目的就是跳過非 graph 欄位，只挑真正的 topology payload。
+          </div>
+
+          <h4>步驟 2 — normalizeGraph（防腐層）</h4>
+          <p>檔案：<code>features/graph-data/normalize.ts</code> — 純函式，無 I/O，相同輸入必得相同輸出。</p>
+          <pre><code>normalizeGraph(raw: unknown)
+  → { elements: cytoscape.ElementDefinition[], errors: string[] }</code></pre>
+
+          <p>normalize 容忍的頂層形狀：</p>
+          <ul>
+            <li>完整 envelope：<code>{ elements: { nodes, edges }, … }</code></li>
+            <li>已解包：<code>{ nodes, edges }</code></li>
+          </ul>
+          <p>每個 node / edge 條目容忍：</p>
+          <ul>
+            <li>cytoscape 包裝：<code>{ data: { id, type, … } }</code></li>
+            <li>扁平：<code>{ id, type, … }</code>（<code>unwrapData</code> 優先取 <code>entry.data</code>）</li>
+          </ul>
+
+          <h4>步驟 3 — 欄位映射（upstream → panel internal）</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>上游（wire）</th>
+                  <th>normalize 後（cytoscape data）</th>
+                  <th>誰消費</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>data.type</code>（非 cluster）</td>
+                  <td><code>kind: NodeKind</code></td>
+                  <td>shape、legend、filter、tooltip、detail panel</td>
+                </tr>
+                <tr>
+                  <td><code>data.type === 'cluster'</code></td>
+                  <td><code>isCluster</code>、<code>cluster</code>、<code>clusterColor</code></td>
+                  <td>cluster 容器 stylesheet、ClusterLegend</td>
+                </tr>
+                <tr>
+                  <td><code>data.name</code></td>
+                  <td><code>label</code>（缺則 fallback 為 <code>id</code>）</td>
+                  <td>圖上文字、tooltip title</td>
+                </tr>
+                <tr>
+                  <td><code>data.status</code></td>
+                  <td><code>status: NodeStatus</code>（缺/非法 → <code>normal</code>）</td>
+                  <td>status border、StatusLegend、NodeDetailPanel</td>
+                </tr>
+                <tr>
+                  <td><code>data.parent</code></td>
+                  <td><code>parent</code>（原樣）</td>
+                  <td>cytoscape compound nesting</td>
+                </tr>
+                <tr>
+                  <td><code>data.labels.namespace</code></td>
+                  <td><code>namespace</code></td>
+                  <td>tooltip</td>
+                </tr>
+                <tr>
+                  <td><code>data.ipaddress</code></td>
+                  <td><code>ipAddress</code>（非空字串陣列才保留）</td>
+                  <td>tooltip；不可再從 labels 讀 IP</td>
+                </tr>
+                <tr>
+                  <td><code>data.labels</code></td>
+                  <td><code>labels</code></td>
+                  <td>tooltip 白名單欄位</td>
+                </tr>
+                <tr>
+                  <td><code>edge.data.type</code></td>
+                  <td><code>edgeType: EdgeType</code></td>
+                  <td>edge 顏色/線型、legend、filter</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>normalize 產出的 ElementDefinition 長相</h4>
+          <pre><code>// Node element（panel 內部）
+{
+  group: 'nodes',
+  data: {
+    id: 'prod/shop/checkout-0',
+    kind: 'pod',
+    status: 'normal',
+    label: 'checkout-0',
+    parent: 'prod/node/worker-1',
+    namespace: 'shop',
+    ipAddress: ['10.0.1.5']
+  }
+}
+
+// Cluster container node
+{
+  group: 'nodes',
+  data: {
+    id: 'cluster:prod',
+    isCluster: true,
+    cluster: 'prod',
+    clusterColor: '#38bdf8',
+    label: 'prod'
+  }
+}
+
+// Edge element
+{
+  group: 'edges',
+  data: {
+    id: 'e1',
+    source: 'prod/shop/gateway',
+    target: 'dr/app/consumer',
+    edgeType: 'pod-calls-pod'
+  }
+}</code></pre>
+          <p>
+            型別定義集中在 <code>src/shared/types/cytoscape.d.ts</code>（declaration merging 擴充
+            <code>NodeDataDefinition</code> / <code>EdgeDataDefinition</code>）。
+          </p>
+
+          <h4>驗證與錯誤收集</h4>
+          <ul>
+            <li>payload 不是 object → 整包失敗</li>
+            <li><code>nodes</code> / <code>edges</code> 不是 array → 記 warning，當空陣列處理</li>
+            <li>node 缺 <code>id</code> 或 <code>type</code> → 略過該 node，push error</li>
+            <li>edge 缺必要欄位，或 source/target 不在 node id 集合 → 略過該 edge，push error</li>
+            <li>第一個 error 會由 <code>useGraphData</code> 暴露給 UI（<code>Graph data malformed</code> alert）</li>
+          </ul>
+
+          <h3>5.4 cytoscape instance 如何把 elements 畫出來</h3>
+
+          <h4>Init（只跑一次）</h4>
+          <pre><code>cytoscape({
+  container: divRef,
+  elements,
+  style: stylesheet,
+  layout: { name: 'preset' }
+});</code></pre>
+
+          <h4>Elements 更新（diff-and-patch）</h4>
+          <p>檔案：<code>features/graph-canvas/sync/diffElements.ts</code></p>
+          <pre><code>current = cy.elements().jsons()
+diff = diffElements(current, incoming)
+
+cy.batch(() => {
+  cy.remove('#id1, #id2, …')
+  cy.add([ … ])
+  cy.getElementById(id).data(d)
+});</code></pre>
+          <p>
+            若啟用 expand-collapse，patch 前會 <code>api.expandAll()</code> 還原真實拓撲再 diff，patch 後
+            <code>reconcileCollapse</code> 重新套用 collapsed 狀態。
+          </p>
+
+          <h3>5.5 Stylesheet：node / edge 格式怎麼套用</h3>
+          <p>
+            檔案：<code>features/graph-canvas/styles/getStylesheet.ts</code> — pure factory
+            <code>(theme, shapeMap?, colorMap?) → cytoscape.Stylesheet[]</code>。
+            <code>useGraphTheme</code> 監聽 Grafana theme，由 <code>useCytoscape</code> 呼叫
+            <code>cy.style(stylesheet).update()</code>。
+          </p>
+
+          <h4>Node 樣式分層（selector 優先順序很重要）</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selector</th>
+                  <th>適用對象</th>
+                  <th>關鍵 style</th>
+                  <th>資料來源</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>node</code></td>
+                  <td>所有節點（基底）</td>
+                  <td><code>shape</code> ← <code>SHAPE_BY_KIND[data.kind]</code>；背景/邊框來自 Grafana theme</td>
+                  <td><code>shapeByKind.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>node:parent</code></td>
+                  <td>有子節點的 compound 容器</td>
+                  <td>半透明 round-rectangle 外框</td>
+                  <td>cytoscape meta-selector</td>
+                </tr>
+                <tr>
+                  <td><code>node[?isCluster]</code></td>
+                  <td>cluster 容器</td>
+                  <td><code>data(clusterColor)</code>；<code>events: 'no'</code></td>
+                  <td><code>normalize.ts</code> + <code>clusterPalette.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>node[kind="…"][status="…"]</code></td>
+                  <td>pod / node / pvc health border</td>
+                  <td><code>border-color</code> / width 3</td>
+                  <td><code>colorByStatus.ts</code></td>
+                </tr>
+                <tr>
+                  <td><code>node:selected</code></td>
+                  <td>選中節點</td>
+                  <td>Grafana primary 粗邊框</td>
+                  <td><code>selectSingle</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Node kind → shape（SHAPE_BY_KIND）</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>kind</th><th>shape</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>pod</code></td><td><code>ellipse</code></td></tr>
+                <tr><td><code>service</code></td><td><code>hexagon</code></td></tr>
+                <tr><td><code>node</code></td><td><code>round-rectangle</code></td></tr>
+                <tr><td><code>pvc</code></td><td><code>pentagon</code></td></tr>
+                <tr><td><code>others</code></td><td><code>diamond</code></td></tr>
+                <tr><td><code>external</code></td><td><code>star</code></td></tr>
+                <tr><td>未知</td><td><code>round-rectangle</code>（FALLBACK，filter 預設可見）</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Edge 樣式（COLOR_BY_EDGE_TYPE）</h4>
+          <pre><code>style: {
+  'line-color': (ele) => resolveEdgeStyle(ele.data('edgeType'), map).color,
+  'line-style': (ele) => resolveEdgeStyle(…).lineStyle,
+}</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>edgeType</th><th>顏色</th><th>線型</th><th>備註</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>pod-mounts-pvc</code></td><td>#a855f7</td><td>dotted</td><td></td></tr>
+                <tr><td><code>pod-calls-pod</code></td><td>#f97316</td><td>solid</td><td></td></tr>
+                <tr><td><code>service-selects-pod</code></td><td>#10b981</td><td>dashed</td><td></td></tr>
+                <tr>
+                  <td><code>pod-runs-on-node</code></td>
+                  <td colspan="3">不繪製 — 以 parent nesting 表達，不在 stylesheet / legend / filter 中</td>
+                </tr>
+                <tr><td>未知</td><td>#94a3b8</td><td>solid</td><td>FALLBACK</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4>Visibility filter（與 stylesheet 分離）</h4>
+          <p>
+            Filter 不改 elements 陣列，而是在 <code>useElementFilter</code> 對 live cytoscape elements 設 inline
+            <code>visibility</code>。edge 任一端 hidden 則 edge hidden；filter 變更<strong>不重跑 layout</strong>。
+          </p>
+
+          <h3>5.6 追蹤一筆資料的完整時間線</h3>
+          <ol>
+            <li>Grafana re-query → <code>PanelData.series</code> 更新 → <code>KsgPanel</code> re-render。</li>
+            <li><code>useGraphData</code> → <code>extractJsonFromFrames</code> → <code>normalizeGraph</code> → 新 elements。</li>
+            <li><code>useCytoscape</code> diff effect patch cytoscape。</li>
+            <li><code>useGraphLayout</code> 只在 layout 或 collapse token 變動時重跑。</li>
+            <li><code>useElementFilter</code> 更新 visibility。</li>
+            <li>Tooltip / NodeDetailPanel 讀 normalize 後的 <code>data.*</code> 顯示細節。</li>
+          </ol>
+
+          <div class="callout good">
+            <strong>修改捷徑：</strong>上游 JSON → <code>normalize.ts</code>；Grafana frame → <code>useGraphData.ts</code>；
+            形狀/顏色 → <code>shapeByKind.ts</code> / <code>colorByEdgeType.ts</code> / <code>getStylesheet.ts</code>；
+            顯示/隱藏 → <code>computeVisibility.ts</code>；位置 → <code>useGraphLayout.ts</code>。
+          </div>
+        </section>
+
+        <section id="react-for-ts" class="section">
+          <h2>6. React 新手速成：用 TypeScript 角度看這個 repo</h2>
+          <p>你如果懂 TypeScript，可以把 React component 想成「接收 props、回傳 JSX 的函式」。</p>
+
+          <h3>Component = typed function</h3>
+          <pre><code>export function KsgPanel(props: Readonly&lt;KsgPanelProps&gt;): React.JSX.Element {
+  const { options, data } = props;
+  return &lt;div&gt;...&lt;/div&gt;;
+}</code></pre>
+          <p>
+            <code>Readonly&lt;...&gt;</code> 表示 component 不應該 mutate props。React 的資料流是父層傳 props 給子層，
+            子層用 props 渲染 UI。
+          </p>
+
+          <h3>JSX 是什麼？</h3>
+          <p>
+            JSX 是 JavaScript XML 的縮寫。它讓你在 JavaScript / TypeScript 裡寫「像 HTML 的語法」， 但它不是瀏覽器原生
+            HTML，也不是字串。JSX 是一種語法糖，編譯後會變成 JavaScript function call。
+          </p>
+          <pre><code>const title = 'KSG Demo';
+
+export function Header(): React.JSX.Element {
+  return &lt;h1&gt;{title}&lt;/h1&gt;;
+}</code></pre>
+          <p>上面這段 JSX 編譯後，概念上會接近下面這種 JavaScript：</p>
+          <pre><code>import { jsx } from 'react/jsx-runtime';
+
+const title = 'KSG Demo';
+
+export function Header() {
+  return jsx('h1', { children: title });
+}</code></pre>
+          <p>
+            React 拿到這個 function call 產生的 React element 物件後，會知道「畫面應該有一個
+            <code>h1</code>，children 是 <code>title</code> 的值」。之後 React 會比較新的 element tree
+            與目前畫面，決定實際 DOM 要更新哪些部分。
+          </p>
+
+          <h3>JSX 跟 HTML 差在哪？</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>觀念</th>
+                  <th>HTML</th>
+                  <th>JSX</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>本質</td>
+                  <td>瀏覽器解析的 markup。</td>
+                  <td>編譯成 JavaScript function call 的語法。</td>
+                </tr>
+                <tr>
+                  <td>class 屬性</td>
+                  <td><code>&lt;div class="box"&gt;</code></td>
+                  <td><code>&lt;div className="box"&gt;</code></td>
+                </tr>
+                <tr>
+                  <td>label for</td>
+                  <td><code>&lt;label for="name"&gt;</code></td>
+                  <td><code>&lt;label htmlFor="name"&gt;</code></td>
+                </tr>
+                <tr>
+                  <td>事件</td>
+                  <td><code>onclick="..."</code></td>
+                  <td><code>onClick={handleClick}</code></td>
+                </tr>
+                <tr>
+                  <td>插入變數</td>
+                  <td>通常靠 template engine 或手動組字串。</td>
+                  <td>用 <code>{expression}</code> 插入 JavaScript 表達式。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>JSX 的大括號是 JavaScript 表達式</h3>
+          <p>
+            JSX 裡的 <code>{...}</code> 可以放 JavaScript 表達式，例如變數、三元運算、函式呼叫、陣列
+            <code>map</code>。但不能直接放 statement，例如 <code>if</code> 或 <code>for</code>。
+          </p>
+          <pre><code>const isLoading = data.state === LoadingState.Loading;
+
+return (
+  &lt;div&gt;
+    {isLoading ? &lt;LoadingOverlay /&gt; : &lt;GraphCanvas elements={elements} /&gt;}
+  &lt;/div&gt;
+);</code></pre>
+          <p>如果邏輯變複雜，通常先在 JSX 外面算好變數，再把結果放進 JSX，這樣比較容易讀。</p>
+
+          <h3>Component tag 其實是 function call</h3>
+          <p>
+            小寫 tag 例如 <code>&lt;div&gt;</code>、<code>&lt;h1&gt;</code> 代表瀏覽器 DOM element； 大寫 tag 例如
+            <code>&lt;GraphCanvas&gt;</code>、<code>&lt;HoverTooltip&gt;</code> 代表 React component。
+          </p>
+          <pre><code>&lt;GraphCanvas
+  elements={elements}
+  stylesheet={stylesheet}
+  layout={options.layout}
+/&gt;</code></pre>
+          <p>
+            這可以理解成：「呼叫 <code>GraphCanvas</code> 這個 function，並把
+            <code>elements</code>、<code>stylesheet</code>、<code>layout</code> 當 props 傳進去」。 TypeScript
+            會檢查這些 props 是否符合 <code>GraphCanvasProps</code>。
+          </p>
+
+          <h3>Hook = 可重用的狀態或副作用邏輯</h3>
+          <p>本 repo 大量使用 hooks，是因為 Grafana panel 與 cytoscape 都需要跟外部系統同步。</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hook</th>
+                  <th>你可以怎麼理解</th>
+                  <th>本 repo 例子</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>useMemo</code></td>
+                  <td>用輸入計算輸出，輸入沒變就重用結果。</td>
+                  <td><code>useGraphData</code> 只在 <code>data.series</code> 變動時重新 normalize。</td>
+                </tr>
+                <tr>
+                  <td><code>useEffect</code></td>
+                  <td>處理外部副作用，例如建立 cytoscape instance、註冊 event、改 DOM-like graph 狀態。</td>
+                  <td><code>useCytoscape</code> 的 init / cleanup。</td>
+                </tr>
+                <tr>
+                  <td><code>useRef</code></td>
+                  <td>保存 mutable reference，不觸發 React re-render。</td>
+                  <td><code>cyRef</code> 保存 cytoscape instance。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>為什麼 cytoscape 不放 React state？</h3>
+          <p>
+            因為 cytoscape instance 很大，而且它自己有一套 imperative 狀態，例如 nodes、edges、layout、listeners。
+            如果把它放 React state，會讓 React 重複 render，還容易造成 StrictMode double-mount 下 listener 殘留。
+          </p>
+          <div class="callout good">
+            <strong>本 repo 的模式：</strong><code>useRef</code> 保存 <code>cy</code>， <code>useEffect</code> 在 props
+            變動時 imperative 更新 <code>cy</code>。
+          </div>
+
+          <h3>在這個 repo 裡怎麼讀 JSX</h3>
+          <p>
+            讀 <code>KsgPanel.tsx</code> 時，可以先忽略細節，把 JSX 看成條件式 UI 描述： loading 時顯示
+            <code>LoadingOverlay</code>，資料錯誤時顯示 <code>Alert</code>， 有資料時顯示
+            <code>GraphCanvas</code>，使用者開啟 legend 時顯示 <code>NodeLegend</code> 與 <code>EdgeLegend</code>。
+          </p>
+
+          <h3>何時新增 component？</h3>
+          <ul>
+            <li>
+              一段 UI 有清楚職責，例如 <code>NodeLegend</code>、<code>EdgeLegend</code>、<code>HoverTooltip</code>。
+            </li>
+            <li>它可以用 props 描述輸入。</li>
+            <li>它的測試可以獨立寫。</li>
+            <li>不要為了「看起來比較 React」拆太碎；先依 feature 邊界拆。</li>
+          </ul>
+        </section>
+
+        <section id="debug" class="section">
+          <h2>7. Debug 怎麼跑</h2>
+
+          <h3>Debug 第一層：確認 build watch</h3>
+          <pre><code>npm run dev</code></pre>
+          <p>你改檔案後，terminal 應該看到 webpack rebuild。若沒有 rebuild，先確認你改的是 repo 內的 source file。</p>
+
+          <h3>Debug 第二層：確認 Grafana 與 backend</h3>
+          <pre><code>docker compose ps
+docker compose logs grafana
+docker compose logs kube-state-graph
+docker compose logs victoriametrics
+docker compose logs ksg-seeder</code></pre>
+          <ul>
+            <li>Grafana 應該在 <code>localhost:3000</code>。</li>
+            <li>Backend 應該在 compose network 中由 Grafana datasource 連到 <code>kube-state-graph:8080</code>。</li>
+            <li>Host 也可看 backend port <code>8080</code>、VictoriaMetrics port <code>8428</code> 是否有開。</li>
+            <li>
+              若 graph 一直空，先確認 <code>ksg-seeder</code> 有持續在 push（它每 <code>SEED_INTERVAL</code> 秒跑一次）；
+              backend 靠 <code>last_over_time</code>/<code>rate</code> over 時間窗取資料，seeder 停了資料就會過期。
+            </li>
+          </ul>
+
+          <h3>Debug 第三層：確認 datasource / dashboard</h3>
+          <ul>
+            <li>Dashboard 檔案：<code>provisioning/dashboards/ksg-demo.json</code></li>
+            <li>Panel type：<code>marz32one-ksg-panel</code></li>
+            <li>
+              Demo query URL：<code>/v1/graph?start=${__from:date:seconds}&amp;end=${__to:date:seconds}&amp;…</code>
+              加上 cluster / namespace / name / edge_type 等 scope 參數（由 template variable 展開）。
+              <strong><code>start</code>/<code>end</code> 時間窗是必要的</strong>，backend 靠它決定查詢區間（接受 Unix 秒或 RFC 3339）。
+            </li>
+            <li>Datasource UID：<code>ksg-default</code></li>
+          </ul>
+          <div class="callout">
+            如果 Grafana 顯示 datasource 找不到，先檢查 Infinity datasource plugin 是否安裝，以及 provisioning
+            datasource YAML 是否存在並正確掛載。 目前 compose 會設定
+            <code>GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource</code>。
+          </div>
+
+          <h3>Debug 第四層：確認資料是否進 normalize</h3>
+          <p>
+            若 panel 顯示 <code>No graph data</code> 或 <code>Graph data malformed</code>，通常要看
+            <code>useGraphData.ts</code> 與 <code>normalize.ts</code>。
+          </p>
+          <ul>
+            <li><code>useGraphData</code> 找不到 payload：Grafana frame 形狀可能變了，或 datasource 沒回 JSON。</li>
+            <li>
+              <code>normalizeGraph</code> 回 error：payload 不是物件、缺 <code>nodes</code>/<code>edges</code>、edge
+              reference 不存在。
+            </li>
+            <li>如果是上游 schema 變動，先加或改 <code>normalize.test.ts</code> fixture，再改 normalize。</li>
+          </ul>
+
+          <h3>Debug 第五層：確認 cytoscape lifecycle</h3>
+          <p>Graph 空白但資料正常時，優先看：</p>
+          <ul>
+            <li><code>GraphCanvas.tsx</code> 是否收到 non-empty <code>elements</code>。</li>
+            <li><code>useCytoscape.ts</code> 是否建立 instance。</li>
+            <li><code>useGraphLayout.ts</code> 是否有跑 layout。</li>
+            <li><code>useElementFilter.ts</code> 是否把所有 nodes 設成 hidden。</li>
+          </ul>
+
+          <h3>瀏覽器內 debug</h3>
+          <ul>
+            <li>開 DevTools console 看 runtime error。</li>
+            <li>Grafana panel iframe-less plugin 通常可以直接在同一頁看到錯誤。</li>
+            <li>改完 <code>npm run dev</code> rebuild 後，重新整理 Grafana 頁面。</li>
+          </ul>
+        </section>
+
+        <section id="change-and-test" class="section">
+          <h2>8. 修改後怎麼測</h2>
+
+          <h3>最常用驗證指令</h3>
+          <pre><code>npm run typecheck
+npm run lint
+npm run test:ci
+npm run build</code></pre>
+
+          <h3>開發時跑單一測試</h3>
+          <pre><code>npx jest src/features/graph-data/normalize.test.ts
+npx jest src/features/element-filter/computeVisibility.test.ts
+npx jest -t "edge auto-hides"</code></pre>
+
+          <h3>修改類型對應測試</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>你改了什麼</th>
+                  <th>至少要跑</th>
+                  <th>原因</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>純資料轉換，例如 <code>normalize.ts</code></td>
+                  <td>
+                    <code>npx jest src/features/graph-data/normalize.test.ts</code> + <code>npm run typecheck</code>
+                  </td>
+                  <td>防止上游 payload edge case 破壞 graph。</td>
+                </tr>
+                <tr>
+                  <td>filter 邏輯</td>
+                  <td><code>computeVisibility.test.ts</code> + <code>useElementFilter.test.ts</code></td>
+                  <td>要確認 node / edge visibility 與「不重新 layout」。</td>
+                </tr>
+                <tr>
+                  <td>cytoscape lifecycle</td>
+                  <td><code>useCytoscape.test.tsx</code> + <code>diffElements.test.ts</code> + 手動 Grafana</td>
+                  <td>這裡最容易有 StrictMode、listener、layout 抖動問題。</td>
+                </tr>
+                <tr>
+                  <td>stylesheet / theme</td>
+                  <td><code>getStylesheet.test.ts</code> + 手動 light/dark theme</td>
+                  <td>樣式是 pure factory，應該能被單測覆蓋。</td>
+                </tr>
+                <tr>
+                  <td>React component UI</td>
+                  <td>對應 <code>*.test.tsx</code> + Testing Library</td>
+                  <td>確認 loading、empty、error、tooltip、legend 是否正確渲染。</td>
+                </tr>
+                <tr>
+                  <td>Panel options</td>
+                  <td><code>KsgPanel.test.tsx</code> + 手動在 Grafana options panel 操作</td>
+                  <td>Grafana editor 行為通常還需要手動確認。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>完整本機 dry-run</h3>
+          <pre><code>npm run lint &amp;&amp; npm run typecheck &amp;&amp; npm run test:ci &amp;&amp; npm run build</code></pre>
+
+          <h3>手動驗收 checklist</h3>
+          <ul class="checklist">
+            <li>Grafana 能載入 <code>KSG Demo</code> dashboard。</li>
+            <li>Panel loading、empty、error 狀態符合預期。</li>
+            <li>有資料時 nodes / edges 顯示正常。</li>
+            <li>切換 <code>fcose</code> / <code>dagre</code> layout 有效果。</li>
+            <li>取消某個 node kind 時，該 kind 隱藏，連到它的 edge 也隱藏。</li>
+            <li>取消所有 node kind 時，顯示 <code>All node types filtered</code>。</li>
+            <li>Hover node / edge 時 tooltip 顯示正確且不擋點擊。</li>
+            <li>修改 source 後 webpack rebuild，瀏覽器 refresh 可看到新結果。</li>
+          </ul>
+        </section>
+
+        <section id="where-to-change" class="section">
+          <h2>9. 常見修改位置</h2>
+
+          <h3>新增一種 node kind</h3>
+          <ol>
+            <li>改 <code>src/shared/constants/types.ts</code> 的 <code>NodeKind</code> union。</li>
+            <li>改 <code>src/shared/constants/shapeByKind.ts</code> 加 shape。</li>
+            <li>補 <code>normalize.test.ts</code> 或相關 fixture，確認新 kind pass-through。</li>
+            <li>跑 <code>getStylesheet.test.ts</code>、legend 測試、filter 測試。</li>
+          </ol>
+          <p>
+            因為 <code>ALL_KINDS</code> 來自 <code>SHAPE_BY_KIND</code> keys，legend、filter options、default options
+            都會跟著更新。
+          </p>
+
+          <h3>新增一種 edge type</h3>
+          <ol>
+            <li>改 <code>src/shared/constants/types.ts</code> 的 <code>EdgeType</code> union。</li>
+            <li>改 <code>src/shared/constants/colorByEdgeType.ts</code> 加顏色與線型。</li>
+            <li>補 normalize / stylesheet / legend / filter 測試。</li>
+          </ol>
+
+          <h3>調整 graph 外觀</h3>
+          <p>
+            優先改 <code>getStylesheet.ts</code>，不要在 component 裡直接呼叫 <code>cy.style().selector(...)</code>。
+          </p>
+          <ul>
+            <li>Node shape：通常從 <code>SHAPE_BY_KIND</code> 改。</li>
+            <li>Edge color / line style：通常從 <code>COLOR_BY_EDGE_TYPE</code> 改。</li>
+            <li>通用 node / edge 樣式：改 <code>getStylesheet.ts</code>。</li>
+            <li>Grafana theme 相關：看 <code>useGraphTheme.ts</code> 與 <code>getStylesheet.ts</code>。</li>
+          </ul>
+
+          <h3>調整 layout 行為</h3>
+          <p>改 <code>src/features/graph-canvas/hooks/useGraphLayout.ts</code>。</p>
+          <ul>
+            <li><code>fcose</code> 適合通用 topology、force-directed 視覺。</li>
+            <li><code>dagre</code> 適合階層式方向圖。</li>
+            <li>跑 layout 前要 <code>cy.stop()</code>，避免舊動畫殘留。</li>
+            <li>
+              不要在 <code>useCytoscape</code> constructor 傳非 <code>preset</code> layout，否則 mount 時會 double
+              layout。
+            </li>
+          </ul>
+
+          <h3>新增 panel option</h3>
+          <ol>
+            <li>在 <code>KsgPanel.types.ts</code> 加欄位與 default。</li>
+            <li>在 <code>KsgPanel.editor.tsx</code> 加 editor。</li>
+            <li>
+              在 <code>KsgPanel.tsx</code> 讀取 option，必要時用 <code>?? defaultOptions.xxx</code> 保護舊 dashboard。
+            </li>
+            <li>把 option 傳到需要的 feature component 或 hook。</li>
+            <li>補 <code>KsgPanel.test.tsx</code> 或該 feature 的測試。</li>
+          </ol>
+
+          <h3>改 tooltip 內容</h3>
+          <p>看 <code>features/hover-tooltip/components/HoverTooltip/HoverTooltip.tsx</code>。</p>
+          <ul>
+            <li>Node tooltip 目前顯示 label、kind、namespace、ipAddress、白名單 labels。</li>
+            <li>Edge tooltip 目前顯示 source → target、edgeType、labels。</li>
+            <li>不要在 render 時反覆查 cytoscape instance；資料應由 hover hook 整理好。</li>
+          </ul>
+
+          <h3>上游 API schema 變了</h3>
+          <p>先改測試，再改實作：</p>
+          <ol>
+            <li>在 <code>normalize.test.ts</code> 放新的 payload fixture。</li>
+            <li>調整 <code>normalizeGraph</code> 映射與驗證。</li>
+            <li>若 Grafana frame flatten 方式也變了，調 <code>useGraphData.extractJsonFromFrames</code>。</li>
+            <li>
+              跑
+              <code
+                >npx jest src/features/graph-data/normalize.test.ts
+                src/features/graph-data/hooks/useGraphData.test.ts</code
+              >。
+            </li>
+          </ol>
+        </section>
+
+        <section id="best-practices" class="section">
+          <h2>10. Best Practices</h2>
+
+          <h3>專案邊界</h3>
+          <ul>
+            <li>
+              <strong>Feature-first，不是 type-first。</strong>每個 feature 自己有 components、hooks、純函式與測試。
+            </li>
+            <li>
+              <strong>跨 feature import 走 barrel。</strong>例如從 <code>features/graph-canvas</code> 對外
+              export，不要亂鑽內部檔案。
+            </li>
+            <li>
+              <strong><code>shared</code> 只放真正跨 feature 的東西。</strong>不要把所有工具都塞進 shared。
+            </li>
+            <li>
+              <strong>新增功能先問邊界。</strong>如果新程式只服務某個功能，先放該 feature；等第二個 feature
+              真的需要再抽到 <code>shared</code>。
+            </li>
+            <li>
+              <strong>feature 內部可以自由整理，外部 API 要穩。</strong>外部使用者依賴的是
+              <code>index.ts</code> export，不是內部資料夾形狀。
+            </li>
+          </ul>
+
+          <h3>TypeScript</h3>
+          <ul>
+            <li>避免 <code>any</code>；cytoscape 事件用 <code>cytoscape.EventObject</code> 等原生型別。</li>
+            <li>
+              因為啟用 <code>noUncheckedIndexedAccess</code>，陣列或 object index 取值都要處理 <code>undefined</code>。
+            </li>
+            <li>
+              因為啟用 <code>exactOptionalPropertyTypes</code>，optional field 要小心，不要把
+              <code>undefined</code> 當成任意值塞。
+            </li>
+            <li>自訂 cytoscape node / edge data 欄位集中在 <code>src/shared/types/cytoscape.d.ts</code>。</li>
+          </ul>
+
+          <h3>React</h3>
+          <ul>
+            <li>Function components only；<code>src/**</code> 禁止 default export。</li>
+            <li>derived data 用 <code>useMemo</code>，不要用 <code>useEffect + useState</code> 硬同步。</li>
+            <li><code>useEffect</code> 只用於真的外部副作用，例如 cytoscape、DOM observer、event listener。</li>
+            <li>Component props 用明確型別，避免把一大包不透明 object 往下傳。</li>
+          </ul>
+
+          <h3>cytoscape</h3>
+          <ul>
+            <li>cytoscape instance 是 graph 的唯一真實狀態源。</li>
+            <li>instance 放 <code>useRef</code>，不要放 React state。</li>
+            <li>init effect 與 update effects 要拆開。</li>
+            <li>
+              cleanup 必須 <code>removeAllListeners()</code>、<code>destroy()</code>、<code>cyRef.current = null</code
+              >。
+            </li>
+            <li>elements 更新走 diff-and-patch，不要每次 <code>remove all + add all</code>。</li>
+            <li>大量更新包在 <code>cy.batch()</code> 裡。</li>
+            <li>extension registration 只在 module top-level 做一次，也就是 <code>registerExtensions.ts</code>。</li>
+          </ul>
+
+          <h3>資料契約</h3>
+          <ul>
+            <li><code>normalizeGraph</code> 是 anti-corruption boundary。外部 payload 的容忍與轉換都應集中在這裡。</li>
+            <li>rendering layer 不應該到處知道上游欄位名稱，例如 <code>type</code> 或 <code>ipaddress</code>。</li>
+            <li>unknown kind 預設可見，避免上游新增類型時被靜默藏掉。</li>
+            <li>edge 如果 source / target 不存在，normalize 應回 error 並略過該 edge。</li>
+          </ul>
+
+          <h3>樣式與常數</h3>
+          <ul>
+            <li><code>shapeByKind.ts</code> 與 <code>colorByEdgeType.ts</code> 是單一資料源。</li>
+            <li>Legend、filter option、stylesheet 都應從常數 map 派生。</li>
+            <li>不要在三個地方分別手寫同一份 kind / edge type 清單。</li>
+            <li>cytoscape stylesheet 用 pure factory，方便單測。</li>
+          </ul>
+
+          <h3>測試策略</h3>
+          <ul>
+            <li>
+              純函式直接
+              Jest：<code>normalizeGraph</code>、<code>diffElements</code>、<code>computeVisibility</code>、<code>getStylesheet</code>。
+            </li>
+            <li>Hook 測 cytoscape 時用 headless mode。</li>
+            <li>Component 用 Testing Library，測使用者看得到的狀態。</li>
+            <li>修改 shared 行為時，測試範圍要放大，因為 blast radius 大。</li>
+          </ul>
+        </section>
+
+        <section id="testing-map" class="section">
+          <h2>11. 測試地圖</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>測試檔</th>
+                  <th>覆蓋重點</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>normalize.test.ts</code></td>
+                  <td>上游 payload 解析、欄位映射、缺欄位、unknown type、edge reference。</td>
+                </tr>
+                <tr>
+                  <td><code>useGraphData.test.ts</code></td>
+                  <td>Grafana <code>PanelData.series</code> 中 JSON string / object / fallback 的處理。</td>
+                </tr>
+                <tr>
+                  <td><code>diffElements.test.ts</code></td>
+                  <td>新增、刪除、更新、不變時不動。</td>
+                </tr>
+                <tr>
+                  <td><code>useCytoscape.test.tsx</code></td>
+                  <td>cytoscape lifecycle、stylesheet swap、elements diff update。</td>
+                </tr>
+                <tr>
+                  <td><code>useGraphLayout.test.ts</code></td>
+                  <td>layout option 與 <code>cy.layout(...).run()</code> 行為。</td>
+                </tr>
+                <tr>
+                  <td><code>useGraphResize.test.ts</code></td>
+                  <td>ResizeObserver debounce、<code>cy.resize()</code> / <code>cy.fit()</code>。</td>
+                </tr>
+                <tr>
+                  <td><code>computeVisibility.test.ts</code></td>
+                  <td>node kind filter、edge type filter、hidden endpoint auto-hide、unknown kind 可見。</td>
+                </tr>
+                <tr>
+                  <td><code>HoverTooltip.test.tsx</code></td>
+                  <td>node / edge / null render、缺欄位不顯示 row。</td>
+                </tr>
+                <tr>
+                  <td><code>KsgPanel.test.tsx</code></td>
+                  <td>panel loading / error / empty / graph 狀態。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="troubleshooting" class="section">
+          <h2>12. 常見問題</h2>
+
+          <h3>Grafana 顯示 unsigned plugin warning</h3>
+          <p>
+            開發模式需要允許未簽署 plugin。compose base 通常會設定
+            <code>GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=marz32one-ksg-panel</code>。
+          </p>
+
+          <h3>Datasource <code>ksg-default</code> 找不到</h3>
+          <ul>
+            <li>
+              確認 Infinity datasource plugin
+              是否安裝：<code>GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource</code>。
+            </li>
+            <li>確認 provisioning datasource YAML 存在並被 Grafana 掛載。</li>
+            <li>確認 dashboard 的 datasource UID 與 provisioning UID 都是 <code>ksg-default</code>。</li>
+          </ul>
+
+          <h3>Port 3000 或 8080 被佔用</h3>
+          <p>停掉其他服務，或改 compose port mapping。Grafana 預設是 3000，backend 預設映射 8080。</p>
+
+          <h3>Backend 沒有資料 / 連不到 metrics store</h3>
+          <ul>
+            <li>確認 <code>victoriametrics</code> 與 <code>ksg-seeder</code> 都在跑：<code>docker compose ps</code>。</li>
+            <li>確認 backend 的 <code>KSG_PROM_URL</code> 指到 <code>http://victoriametrics:8428</code>。</li>
+            <li>
+              直接查 VictoriaMetrics 看 seeder 有沒有灌進去：
+              <code>curl 'http://localhost:8428/api/v1/query?query=up'</code> 或查 topology metric。
+            </li>
+            <li>看 <code>docker compose logs kube-state-graph</code> 與 <code>docker compose logs ksg-seeder</code>。</li>
+          </ul>
+
+          <h3>Panel 顯示 No graph data</h3>
+          <ul>
+            <li>Backend 可能回 empty payload。</li>
+            <li>Datasource query 可能沒有打到 <code>/v1/graph</code>。</li>
+            <li><code>useGraphData</code> 可能沒有在 Grafana frames 中挑到 graph payload。</li>
+          </ul>
+
+          <h3>Panel 顯示 Graph data malformed</h3>
+          <ul>
+            <li>payload 不是 object。</li>
+            <li><code>nodes</code> 或 <code>edges</code> 不是 array。</li>
+            <li>node 缺 <code>id</code> 或 <code>type</code>。</li>
+            <li>edge 缺 <code>id</code>、<code>source</code>、<code>target</code>、<code>type</code>。</li>
+            <li>edge 參照了不存在的 node id。</li>
+          </ul>
+
+          <h3>改了程式但畫面沒變</h3>
+          <ol>
+            <li>確認 <code>npm run dev</code> 還在跑。</li>
+            <li>確認 webpack 有 rebuild。</li>
+            <li>重新整理 Grafana 頁面。</li>
+            <li>必要時重啟 Grafana container。</li>
+          </ol>
+        </section>
+
+        <section id="glossary" class="section">
+          <h2>13. 名詞表</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>名詞</th>
+                  <th>意思</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Grafana panel plugin</td>
+                  <td>Grafana dashboard 裡的一種視覺化元件。本 repo 產出的 plugin 會被 Grafana 載入。</td>
+                </tr>
+                <tr>
+                  <td>Infinity datasource</td>
+                  <td>Grafana 社群 datasource plugin，可把 HTTP JSON 等外部資料轉成 Grafana query response。</td>
+                </tr>
+                <tr>
+                  <td>PanelData</td>
+                  <td>Grafana 傳給 panel 的資料物件，包含 <code>series</code>、loading state、errors。</td>
+                </tr>
+                <tr>
+                  <td>cytoscape.ElementDefinition</td>
+                  <td>cytoscape 的 node / edge 描述格式，通常長得像 <code>{ group, data }</code>。</td>
+                </tr>
+                <tr>
+                  <td>normalize</td>
+                  <td>把外部不穩定資料轉成內部穩定資料的 boundary；<code>normalizeGraph</code> 把上游 cytoscape JSON 映射成 <code>ElementDefinition[]</code>。</td>
+                </tr>
+                <tr>
+                  <td>deserialization</td>
+                  <td>本 repo 指 <code>extractJsonFromFrames</code>（從 Grafana frame 抽出 JSON）+ <code>normalizeGraph</code>（驗證與欄位映射）兩步。</td>
+                </tr>
+                <tr>
+                  <td>Stylesheet</td>
+                  <td>cytoscape 的 selector → style 規則陣列；由 <code>getStylesheet(theme)</code> 產生，決定 node shape、edge 顏色、compound 容器外觀等。</td>
+                </tr>
+                <tr>
+                  <td>fcose</td>
+                  <td>cytoscape 的 force-directed layout extension。</td>
+                </tr>
+                <tr>
+                  <td>dagre</td>
+                  <td>cytoscape 的階層式 layout extension。</td>
+                </tr>
+                <tr>
+                  <td>barrel</td>
+                  <td><code>index.ts</code> re-export 對外 API，讓其他 feature 不需要 import 內部路徑。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer>
+          <p>
+            這份文件依據 repo 目前的 <code>README.md</code>、<code>package.json</code>、<code>src/**</code> 與
+            <code>openspec/changes/scaffold-ksg-panel</code> 整理。若實作與 OpenSpec
+            發散，請以目前程式碼與測試為準，並回頭更新 spec。
+          </p>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

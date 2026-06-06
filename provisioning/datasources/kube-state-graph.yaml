@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: kube-state-graph
+    type: yesoreyeram-infinity-datasource
+    uid: ksg-default
+    url: http://kube-state-graph:8080
+    access: proxy
+    isDefault: false
+    jsonData:
+      timeout: 30

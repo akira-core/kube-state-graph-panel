@@ -1,0 +1,128 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ksg-default" },
+      "gridPos": { "h": 18, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "layout": "fcose",
+        "showLegend": true,
+        "visibleKinds": ["pod", "node", "pvc", "service", "others", "external"],
+        "visibleEdgeTypes": ["pod-runs-on-node", "pod-mounts-pvc", "pod-calls-pod", "service-selects-pod"]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}&${cluster:customqueryparam:cluster:}&${namespace:customqueryparam:namespace:}&${name:customqueryparam:name:}&${edge_type:customqueryparam:edge_type:}",
+          "url_options": { "method": "GET" }
+        }
+      ],
+      "title": "Cluster Topology",
+      "type": "marz32one-ksg-panel"
+    }
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["ksg", "kubernetes"],
+  "templating": {
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ksg-default" },
+        "query": {
+          "refId": "variable-cluster",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "/v1/clusters",
+          "url_options": { "method": "GET" },
+          "root_selector": "clusters",
+          "columns": [{ "selector": "name", "text": "name", "type": "string" }]
+        },
+        "multi": true,
+        "includeAll": true,
+        "refresh": 1,
+        "current": {},
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ksg-default" },
+        "query": {
+          "refId": "variable-namespace",
+          "type": "uql",
+          "source": "url",
+          "format": "table",
+          "url": "/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}&${cluster:customqueryparam:cluster:}",
+          "url_options": { "method": "GET" },
+          "uql": "parse-json | scope \"elements.nodes\" | project \"namespace\"=\"data.labels.namespace\" | summarize by \"namespace\" | order by \"namespace\" asc"
+        },
+        "multi": true,
+        "includeAll": true,
+        "refresh": 2,
+        "current": {},
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "name",
+        "label": "Resource name",
+        "type": "query",
+        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ksg-default" },
+        "query": {
+          "refId": "variable-name",
+          "type": "uql",
+          "source": "url",
+          "format": "table",
+          "url": "/v1/graph?start=${__from:date:seconds}&end=${__to:date:seconds}&${cluster:customqueryparam:cluster:}&${namespace:customqueryparam:namespace:}",
+          "url_options": { "method": "GET" },
+          "uql": "parse-json | scope \"elements.nodes\" | project \"name\"=\"data.name\" | summarize by \"name\" | order by \"name\" asc"
+        },
+        "multi": true,
+        "includeAll": true,
+        "refresh": 2,
+        "current": {},
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "edge_type",
+        "label": "Edge type",
+        "type": "custom",
+        "query": "pod-mounts-pvc,pod-calls-pod,service-selects-pod",
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": [
+          { "text": "pod-mounts-pvc", "value": "pod-mounts-pvc", "selected": false },
+          { "text": "pod-calls-pod", "value": "pod-calls-pod", "selected": false },
+          { "text": "service-selects-pod", "value": "service-selects-pod", "selected": false }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "KSG Demo",
+  "uid": "ksg-demo",
+  "version": 1,
+  "weekStart": ""
+}
