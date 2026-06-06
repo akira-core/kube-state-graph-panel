@@ -139,7 +139,7 @@
 - [x] 18.5 跑完整 CI 流程本機 dry-run:`npm run lint && npm run typecheck && npm run test:ci && npm run build` 全綠(精簡版:刪除 lint:knip;E2E 改本機手動)
 - [x] ~~18.6 docs/spec-coverage.md~~ — 精簡版延後:scenario coverage 由測試名稱直接對應 spec 即可
 - [x] 18.7 執行 `/opsx:verify` 確認 implementation ↔ artifacts 對齊
-- [ ] 18.8 執行 `/opsx:archive` 歸檔本 change
+- [x] 18.8 執行 `/opsx:archive` 歸檔本 change
 
 ## 19. 對齊真實上游 kube-state-graph 契約
 
