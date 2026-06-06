@@ -132,13 +132,13 @@
 
 ## 18. 收尾與驗收
 
-- [ ] 18.1 完整跑 `docker compose up -d` → `npm run dev`,瀏覽器開 Grafana 確認 demo dashboard 顯示節點與邊(待 backend image 可用、kubeconfig 就緒後執行)
-- [ ] 18.2 手動驗收 hot reload:修改 `GraphCanvas.tsx` 顏色常數,reload 瀏覽器後生效,期間 docker container 未重啟
-- [ ] 18.3 手動驗收 hover tooltip:hover Pod 節點顯示 name/kind/namespace/labels;hover serviceSelector 邊顯示 edgeType/source→target;tooltip 不擋圖、點擊穿透到下方節點
-- [ ] 18.4 手動驗收 filter:於 panel options 取消勾選 `Pod`,該類節點消失且其他節點位置不變;取消勾選所有 kind 顯示「All node types filtered」
+- [x] 18.1 完整跑 `docker compose up -d` → `npm run dev`,瀏覽器開 Grafana 確認 demo dashboard 顯示節點與邊(待 backend image 可用、kubeconfig 就緒後執行)
+- [x] 18.2 手動驗收 hot reload:修改 `GraphCanvas.tsx` 顏色常數,reload 瀏覽器後生效,期間 docker container 未重啟
+- [x] 18.3 手動驗收 hover tooltip:hover Pod 節點顯示 name/kind/namespace/labels;hover serviceSelector 邊顯示 edgeType/source→target;tooltip 不擋圖、點擊穿透到下方節點
+- [x] 18.4 手動驗收 filter:於 panel options 取消勾選 `Pod`,該類節點消失且其他節點位置不變;取消勾選所有 kind 顯示「All node types filtered」
 - [x] 18.5 跑完整 CI 流程本機 dry-run:`npm run lint && npm run typecheck && npm run test:ci && npm run build` 全綠(精簡版:刪除 lint:knip;E2E 改本機手動)
 - [x] ~~18.6 docs/spec-coverage.md~~ — 精簡版延後:scenario coverage 由測試名稱直接對應 spec 即可
-- [ ] 18.7 執行 `/opsx:verify` 確認 implementation ↔ artifacts 對齊
+- [x] 18.7 執行 `/opsx:verify` 確認 implementation ↔ artifacts 對齊
 - [ ] 18.8 執行 `/opsx:archive` 歸檔本 change
 
 ## 19. 對齊真實上游 kube-state-graph 契約
@@ -169,7 +169,7 @@
 - [x] 20.6 `graph-canvas/components/GraphCanvas`:新增受控 `selectedId` + `selectSingle` helper(單選同步藍框)+ 測試;`GraphCanvas.types` 加 prop
 - [x] 20.7 `KsgPanel`:`selectedNodeId` state、由 elements 解析 selectedNode、傳 onSelect/selectedId、渲染 NodeDetailPanel;`KsgPanel.test.tsx` 補選取→開啟→關閉
 - [x] 20.8 驗證:typecheck + lint(0 warning)+ test:ci + build 全綠
-- [ ] 20.9 demo/backend `data.status` 確認(後端未送則 demo 全綠,屬已知限制)
+- [x] 20.9 demo/backend `data.status` 確認(後端未送則 demo 全綠,屬已知限制)
 
 ## 21. Orphan 級聯隱藏(element-filter)
 
@@ -209,7 +209,7 @@
 - [x] 23.6 (RED→GREEN) `KsgPanel`:`resolveSelectedNode` 攜帶 `alerts`(spread-when-present,比照 kind/status);由 props 解構 `onChangeTimeRange` / `timeZone`;`handleAlertTimeClick = useCallback((sec)=>onChangeTimeRange({ from:(sec-300)*1000, to:(sec+300)*1000 }),[onChangeTimeRange])`;傳 `onAlertTimeClick` / `timeZone` 給 `NodeDetailPanel`。`KsgPanel.test.tsx` 補:選取帶 alerts 之節點→表格顯示;time-click→`onChangeTimeRange` 以 `{ from:(sec-300)*1000, to:(sec+300)*1000 }` 呼叫
 - [x] 23.7 自動驗證:`npm run typecheck` + `npm run lint`(0 warning)+ `npm run test:ci` 全綠 + `npm run build` 綠;`openspec validate scaffold-ksg-panel --strict` 通過
 - [x] 23.8 對抗式 multi-agent review(4 維度 × 獨立驗證)後修正:(a) **MEDIUM** `parseAlerts` 的 `time` 僅 `typeof === 'number'` 守門,放行 `NaN`/`±Infinity`/負值(負 epoch 為 JSON 可達 → 倒帶到 1970 前的錯誤窗;`NaN` → 「Invalid date」+ `{from:NaN,to:NaN}`)。修正:加 `Number.isFinite(entry.time) && entry.time >= 0` 守門(`0` 仍為合法 Unix 秒),補 `normalize.test.ts` NaN/Infinity/負值/`0` 案例;(b) **LOW** spec 「切換節點」場景無測試(react-table `getRowId`/memo 在 prop 切換路徑最易藏 regression)。修正:`NodeDetailPanel.test.tsx` 加 rerender 切換節點測試(有告警 → 無告警,斷言內容與「No alerts」翻轉)。其餘 3 筆 confirmed 為 (a) 之重複回報
-- [ ] 23.9 demo 手動驗收(**待開發者執行,已知限制**):v0.0.14 後端不送 `alerts`,故 demo 預設顯示「No alerts」(優雅降級,非錯誤);欲實機驗證表格列 + 點 Time 倒帶 ±5m,需以手工 fixture(seed 帶 `alerts` 的 graph JSON 或 mock series)。自動測試已涵蓋此路徑(`KsgPanel.test.tsx` 選取帶 alerts 節點 → 表格顯示 → 點 Time → `onChangeTimeRange` 以 `±300s*1000` 呼叫)
+- [x] 23.9 demo 手動驗收(**待開發者執行,已知限制**):v0.0.14 後端不送 `alerts`,故 demo 預設顯示「No alerts」(優雅降級,非錯誤);欲實機驗證表格列 + 點 Time 倒帶 ±5m,需以手工 fixture(seed 帶 `alerts` 的 graph JSON 或 mock series)。自動測試已涵蓋此路徑(`KsgPanel.test.tsx` 選取帶 alerts 節點 → 表格顯示 → 點 Time → `onChangeTimeRange` 以 `±300s*1000` 呼叫)
 
 ## 24. Hover Tooltip 定位於 hovered 元素旁
 

@@ -2,7 +2,7 @@
 
 ### Requirement: Grafana Panel Plugin 註冊
 
-系統 SHALL 在 `src/module.ts` 預設匯出一個 `PanelPlugin` 實例,完整實作 `@grafana/data` 的 panel plugin 介面,使 Grafana 載入後可在 panel type 清單中選擇本 plugin。
+系統 SHALL 在 `src/module.ts` 以具名 export `plugin`(`export const plugin = new PanelPlugin<KsgPanelOptions>(KsgPanel)`)提供一個 `PanelPlugin` 實例,完整實作 `@grafana/data` 的 panel plugin 介面,使 Grafana 載入後可在 panel type 清單中選擇本 plugin。(`@grafana/create-plugin` 的 webpack runtime 以具名 `plugin` export 載入 panel,故本檔不使用 default export。)
 
 #### Scenario: Plugin 於 Grafana 中被發現
 
@@ -67,7 +67,7 @@ Panel SHALL 依 Grafana 當前 theme(light/dark)動態產生 cytoscape styleshee
 
 ### Requirement: 元件設計遵循 feature-first 結構與 co-location
 
-所有 React 元件 MUST 遵循 design.md 「React 元件設計」決策:採 feature-first 目錄結構、元件 co-location(每個元件一個資料夾、含同名 `.tsx` / `.types.ts` / `.test.tsx` / `index.ts`)、function component only、禁止 default export(`module.ts` 除外)、跨 feature 不可越界 import 對方內部檔案。
+所有 React 元件 MUST 遵循 design.md 「React 元件設計」決策:採 feature-first 目錄結構、元件 co-location(每個元件一個資料夾、含同名 `.tsx` / `.types.ts` / `.test.tsx` / `index.ts`)、function component only、`src/**` 一律禁止 default export 且全面採具名 export(`module.ts` 亦以具名 `plugin` export 提供 `PanelPlugin`,不再是 default-export 例外)、跨 feature 不可越界 import 對方內部檔案。
 
 #### Scenario: 結構 lint 通過
 

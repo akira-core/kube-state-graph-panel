@@ -27,8 +27,8 @@
 - `CyNode.data { id: string, name: string, type: string, ipaddress?: string[], labels: Record<string,string> }`
 - `CyEdge.data { id: string, type: string, source: string, target: string, labels: Record<string,string> }`
 
-後端 node `type` 列舉(小寫):`pod` / `node` / `pvc` / `service` / `others` / `external`。
-後端 edge `type` 列舉:`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `service-selects-pod`。
+後端 node `type` 列舉(小寫):核心資源 `pod` / `node` / `pvc` / `service` / `external`,workload controller `deployment` / `statefulset` / `daemonset` / `job` / `cronjob`,以及實體網路 `switch`(後端 v0.0.18 起)。未對應到具體 K8s 資源的端點歸入 `external`(契約無 `others` 類型)。
+後端 edge `type` 列舉:`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod`,以及實體網路 fabric `switch-to-switch` / `node-to-switch`(後端 v0.0.18 起)。`pod-calls-service`(pod→service)與 `service-selects-pod`(service→pod)為方向相反的一對;`switch-to-switch`(switch→switch)、`node-to-switch`(node→switch)為實體網路邊。邊的視覺樣式(顏色/線型/箭頭)由 panel-rendering 規格定義。
 `ipaddress` 為**陣列**(可能多個 IP 或空);僅 `pod` / `node` / `service` node 帶有,且 IP 資料已於上游 commit `524057b` 從 `labels`(原 `pod_ip` / `host_ip` / `external_ip`)移出,改置於此專屬欄位 —— panel MUST 從 `data.ipaddress` 取 IP,**不可**再從 `labels` 讀取。
 
 #### Scenario: 契約欄位以後端 golden fixture 為準
