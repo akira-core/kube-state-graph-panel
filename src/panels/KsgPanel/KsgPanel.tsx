@@ -2,7 +2,7 @@ import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
@@ -117,14 +117,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('node');
   const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
 
-  // Latest mode-transformed elements, read by the entry-only default-collapse
-  // effect without making it a dependency (so a data refresh in controller mode
-  // never re-collapses — the user can keep a controller expanded).
-  const elementsRef = useRef(elements);
-  useLayoutEffect(() => {
-    elementsRef.current = elements;
-  });
-
   // Selected node id drives both the detail panel and (controlled) the cy
   // selection highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -217,25 +209,23 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
   // Entering controller mode aggregates pods: default-collapse every controller
-  // container on each entry (re-collapse-all even after a prior expand). Controller
-  // ids are taken from the current (controller-mode) elements. Switching back to
-  // node mode prunes them via reconcileCollapse, so this only fires on entry — a
-  // data refresh while ALREADY in controller mode must NOT re-collapse (so the user
-  // can keep a controller expanded). The prevModeRef gates it to the node→controller
-  // transition only.
-  const prevModeRef = useRef<PodParentMode>(podParentMode);
-  useEffect(() => {
-    const entered = prevModeRef.current !== 'controller' && podParentMode === 'controller';
-    prevModeRef.current = podParentMode;
-    if (!entered) {
-      return;
-    }
-    const controllerIds = elementsRef.current
-      .filter((el) => el.group === 'nodes' && (el.data as cytoscape.NodeDataDefinition).isController === true)
-      .map((el) => (el.data as cytoscape.NodeDataDefinition).id)
-      .filter((id): id is string => typeof id === 'string');
-    setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
-  }, [podParentMode]);
+  // container. Controllers are collected from the current elements at toggle time
+  // (they exist in both modes), so a data refresh while in controller mode never
+  // re-collapses — the user can keep a controller expanded.
+  const handleModeChange = useCallback(
+    (next: PodParentMode) => {
+      setPodParentMode(next);
+      if (next !== 'controller') {
+        return;
+      }
+      const controllerIds = elements
+        .filter((el) => el.group === 'nodes' && (el.data as cytoscape.NodeDataDefinition).isController === true)
+        .map((el) => (el.data as cytoscape.NodeDataDefinition).id)
+        .filter((id): id is string => typeof id === 'string');
+      setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
+    },
+    [elements]
+  );
 
   // Mode-aware compound containers (swatched by their cluster) + whether `node`
   // should also appear in the icon Node-kinds legend. In node mode the containers
@@ -316,7 +306,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     <div className={styles.root}>
       {options.showLegend && (
         <aside className={styles.legendArea}>
-          <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
+          <LayoutModeControl mode={podParentMode} onChange={handleModeChange} />
           <ClusterLegend
             clusters={clusterEntries}
             onToggleCollapseAll={toggleClusters}

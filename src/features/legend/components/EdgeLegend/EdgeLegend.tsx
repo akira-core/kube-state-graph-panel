@@ -20,8 +20,9 @@ function getStyles(): { list: string; row: string; glyph: string } {
 }
 
 // Short display labels for the edge-legend endpoints. Only `service` is
-// abbreviated; every other kind reads fine at full length.
-function kindLabel(kind: NodeKind): string {
+// abbreviated; every other kind reads fine at full length. Accepts `'controller'`
+// as a display-only marker (passes through unchanged).
+function kindLabel(kind: NodeKind | 'controller'): string {
   return kind === 'service' ? 'svc' : kind;
 }
 
@@ -36,8 +37,8 @@ interface EdgeRow {
   key: string;
   color: string;
   lineStyle: LineStyle;
-  from: NodeKind;
-  to: NodeKind;
+  from: NodeKind | 'controller';
+  to: NodeKind | 'controller';
   bidirectional: boolean;
 }
 
@@ -93,7 +94,7 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
       <ul className={styles.list}>
         {rows.map(({ key, color, lineStyle, from, to, bidirectional }) => (
           <li key={key} className={styles.row} data-testid={`edge-legend-row-${key}`} style={{ color }}>
-            <span>{key === 'controller-owns-pod' ? 'controller' : kindLabel(from)}</span>
+            <span>{kindLabel(from)}</span>
             <span className={styles.glyph}>
               <EdgeGlyph color={color} lineStyle={lineStyle} bidirectional={bidirectional} />
             </span>

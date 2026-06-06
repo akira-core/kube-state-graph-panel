@@ -73,10 +73,7 @@ export function applyPodParentMode(
     if (controllers === undefined || controllers.length === 0) {
       continue;
     }
-    const chosen = [...controllers].sort()[0];
-    if (chosen === undefined) {
-      continue;
-    }
+    const chosen = controllers.reduce((a, b) => (a < b ? a : b));
     chosenControllerByPod.set(id, chosen);
     if (typeof data.parent === 'string' && nodeKindIds.has(data.parent)) {
       originalNodeByPod.set(id, data.parent);

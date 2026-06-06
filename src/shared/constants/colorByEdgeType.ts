@@ -11,9 +11,12 @@ export interface EdgeStyle {
 // as `<from> → <to>` (the arrow replacing the verb), so it needs the endpoints
 // explicitly rather than parsing the hyphenated wire string. Single source of
 // truth, keyed by the same `data.type` enum as `EDGE_STYLE_BY_TYPE`.
+// `'controller'` is a display-only label used when the edge originates from any
+// controller kind (StatefulSet/DaemonSet/Job/CronJob/Deployment); the real
+// controller kind is carried on the node's `data.kind`, not here.
 export interface EdgeEndpoints {
-  from: NodeKind;
-  to: NodeKind;
+  from: NodeKind | 'controller';
+  to: NodeKind | 'controller';
 }
 
 export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
@@ -22,7 +25,7 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
   'pod-calls-pod': { from: 'pod', to: 'pod' },
   'pod-calls-service': { from: 'pod', to: 'service' },
   'service-selects-pod': { from: 'service', to: 'pod' },
-  'controller-owns-pod': { from: 'deployment', to: 'pod' },
+  'controller-owns-pod': { from: 'controller', to: 'pod' },
   'switch-to-switch': { from: 'switch', to: 'switch' },
   'node-to-switch': { from: 'node', to: 'switch' },
 };

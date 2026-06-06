@@ -3,7 +3,7 @@ import { EDGE_STYLE_BY_TYPE, EDGE_ENDPOINTS_BY_TYPE, COLOR_BY_EDGE_TYPE } from '
 describe('colorByEdgeType', () => {
   it('defines a style + endpoints for controller-owns-pod', () => {
     expect(EDGE_STYLE_BY_TYPE['controller-owns-pod']).toBeDefined();
-    expect(EDGE_ENDPOINTS_BY_TYPE['controller-owns-pod']).toEqual({ from: 'deployment', to: 'pod' });
+    expect(EDGE_ENDPOINTS_BY_TYPE['controller-owns-pod']).toEqual({ from: 'controller', to: 'pod' });
     expect(COLOR_BY_EDGE_TYPE['controller-owns-pod']).toBe(EDGE_STYLE_BY_TYPE['controller-owns-pod']);
   });
 
