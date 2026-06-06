@@ -31,6 +31,7 @@ export type EdgeType =
   | 'pod-calls-pod'
   | 'pod-calls-service'
   | 'service-selects-pod'
+  | 'controller-owns-pod'
   | 'switch-to-switch'
   | 'node-to-switch';
 

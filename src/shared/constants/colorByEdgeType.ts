@@ -22,6 +22,7 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
   'pod-calls-pod': { from: 'pod', to: 'pod' },
   'pod-calls-service': { from: 'pod', to: 'service' },
   'service-selects-pod': { from: 'service', to: 'pod' },
+  'controller-owns-pod': { from: 'deployment', to: 'pod' },
   'switch-to-switch': { from: 'switch', to: 'switch' },
   'node-to-switch': { from: 'node', to: 'switch' },
 };
@@ -43,11 +44,17 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   'pod-calls-pod': { color: '#f97316', lineStyle: 'solid' },
   'pod-calls-service': { color: '#10b981', lineStyle: 'solid' },
   'service-selects-pod': { color: '#10b981', lineStyle: 'solid' },
-  // Physical network fabric (backend v0.0.18). switch↔switch is the cyan fabric
-  // (taxi-routed); node→switch is a distinct indigo direct uplink so the two are
-  // separable by colour now that neither uses a dashed stroke.
+  // Controller → pod ownership edge (controller-mode topology: cluster > controller > pod).
+  // Rose (#ec4899) is the "ownership" hue — distinct from blue/cyan (node edges),
+  // green (service edges), orange (pod-calls-pod), purple (pvc), and not the
+  // reserved status red. Replaces the earlier sky-blue which was too close to the
+  // cyan switch-fabric colour (#06b6d4).
+  'controller-owns-pod': { color: '#ec4899', lineStyle: 'solid' },
+  // Physical network fabric (backend v0.0.18). Both switch↔switch and node→switch
+  // share the cyan infra colour + taxi routing — separating them by colour added
+  // confusion without benefit now that direction is already conveyed by arrowhead.
   'switch-to-switch': { color: '#06b6d4', lineStyle: 'solid' },
-  'node-to-switch': { color: '#6366f1', lineStyle: 'solid' },
+  'node-to-switch': { color: '#06b6d4', lineStyle: 'solid' },
 };
 
 // The edges drawn in the default `node` mode. Derived from the master map so the
@@ -58,6 +65,7 @@ export const COLOR_BY_EDGE_TYPE: Record<DrawnEdgeType, EdgeStyle> = {
   'pod-calls-pod': EDGE_STYLE_BY_TYPE['pod-calls-pod'],
   'pod-calls-service': EDGE_STYLE_BY_TYPE['pod-calls-service'],
   'service-selects-pod': EDGE_STYLE_BY_TYPE['service-selects-pod'],
+  'controller-owns-pod': EDGE_STYLE_BY_TYPE['controller-owns-pod'],
   'switch-to-switch': EDGE_STYLE_BY_TYPE['switch-to-switch'],
   'node-to-switch': EDGE_STYLE_BY_TYPE['node-to-switch'],
 };
