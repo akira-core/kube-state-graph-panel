@@ -10,12 +10,17 @@
 
 ### Requirement: 邊顏色依關係類型對應
 
-系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將上游 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉 MUST 對齊後端輸出:`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `controller-owns-pod` / `switch-to-switch` / `node-to-switch`。`pod-calls-service` 與 `service-selects-pod` 共用同一服務色(綠),以線型區分方向;`switch-to-switch` / `node-to-switch`(後端 v0.0.18 物理網路 fabric)共用同一 infra 色,同樣以線型區分。`colorByEdgeType.ts` 同時匯出 `EDGE_ENDPOINTS_BY_TYPE`(每個 edge type 的來源/目標 `NodeKind`),供 legend 將 edge type 渲染為 `<from> → <to>`;`controller-owns-pod` 的端點 MUST 為 `<controller> → <pod>`,`switch-to-switch` 為 `<switch> → <switch>`,`node-to-switch` 為 `<node> → <switch>`。
+系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉涵蓋後端輸出的邊型別(`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `switch-to-switch` / `node-to-switch`),外加 panel 自 pod `data.owner` 合成的 `controller-owns-pod`(此型別**非**後端輸出,見 graph-data-integration),共 8 種。`pod-calls-service` 與 `service-selects-pod` 共用同一服務色(綠),以線型區分方向;`switch-to-switch` 與 `node-to-switch`(後端 v0.0.18 物理網路 fabric)MUST **完全共用同一 infra 色與實線線型**,並走相同的正交(`taxi`)路由(見 switch-tier-layout 規格),視覺上等同——`node-to-switch` 不再使用獨立靛色或 bézier,僅以端點(`<node> → <switch>` vs `<switch> → <switch>`)區分,使 K8s node 的上行連線讀起來即為 switch fabric 的一部分。`colorByEdgeType.ts` 同時匯出 `EDGE_ENDPOINTS_BY_TYPE`(每個 edge type 的來源/目標 `NodeKind`),供 legend 將 edge type 渲染為 `<from> → <to>`;`controller-owns-pod` 的端點 MUST 為 `<controller> → <pod>`,`switch-to-switch` 為 `<switch> → <switch>`,`node-to-switch` 為 `<node> → <switch>`。
 
 #### Scenario: 已知邊類型對應到正確顏色
 
 - **WHEN** 邊 data 帶有 `edgeType: 'controller-owns-pod'`(或其他已定義 type)
 - **THEN** 該邊以對應顏色與線型渲染,且與 `colorByEdgeType.ts` 定義一致
+
+#### Scenario: node-to-switch 與 switch-to-switch 視覺一致
+
+- **WHEN** 圖中同時有 `node-to-switch` 與 `switch-to-switch` 邊
+- **THEN** 兩者以相同 infra 色、相同實線線型、相同 `taxi` 正交路由渲染(僅端點不同);`node-to-switch` 不再以獨立靛色或 bézier 呈現
 
 #### Scenario: 未知邊類型走 fallback
 
@@ -94,6 +99,11 @@ Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —�
 - **WHEN** 某容器(K8s `node`、controller 或 `cluster`)自身無可見 incident edge,但其底下仍有至少一個可見子節點
 - **THEN** 該容器 MUST 維持可見(不被當作 orphan 隱藏)
 
+#### Scenario: controller 子 pod 全被過濾時 controller 一併隱藏
+
+- **WHEN** `controller` 模式下某 controller 容器底下所有 pod 子節點皆因 kind / edge **過濾**(`visibility: hidden`,而非 collapse)自 `visibleNodeIds` 移除,且該 controller 無其他可見 incident edge
+- **THEN** 該 controller 容器 MUST 被 orphan 級聯隱藏——**filter-hidden 子節點不計為「可見子節點」(與 collapse-hidden 不同**);若其 `cluster` 因此再無可見子節點,`cluster` 亦遞迴隱藏
+
 #### Scenario: 資料本來就孤立的節點預設隱藏
 
 - **WHEN** 上游回傳一個既無任何邊、又無任何子節點的節點(即使使用者未做任何過濾)
@@ -133,3 +143,24 @@ Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —�
 
 - **WHEN** CI 跑 `npm run test`
 - **THEN** `computeVisibility.test.ts` 覆蓋以下案例皆通過:全部可見、過濾單一 kind、過濾單一 edgeType、過濾節點同時造成邊端點失效、空 elements、unknown kind 預設可見、單層 orphan(節點失去唯一邊)、遞迴 orphan(pod→node→cluster 連鎖變空)、有可見子節點的容器保留、資料本來就孤立的節點被隱藏
+
+## ADDED Requirements
+
+### Requirement: 容器圖例(NodeContainerLegend)隨 pod-parent 模式切換容器來源
+
+`NodeContainerLegend`(以 cluster 色上色的 compound 容器清單,含「全部摺疊 / 展開」切換)列出的容器來源 MUST 隨 `podParentMode` 切換:`node` 模式列出 K8s `node` 容器(`cluster > node > pod` 的中間層);`controller` 模式改列 controller 容器(`cluster > controller > pod` 的中間層)。兩模式皆以容器所屬 cluster 的 accent 色上色(與 canvas 容器底色同源),且「全部摺疊」切換 MUST 作用於**當前模式**的容器集合(經 `deriveNodeContainers` 等單一來源導出,使切換鈕與 canvas 容器永遠指向同一組)。容器圖例 MUST 在當前模式無任何 compound 容器時 `return null`。
+
+#### Scenario: node 模式列 K8s node 容器
+
+- **WHEN** `podParentMode === 'node'` 且圖中有裝載 pod 的 K8s node
+- **THEN** `NodeContainerLegend` 列出這些 K8s node(以各自 cluster 色),「全部摺疊」作用於該 node 容器集合
+
+#### Scenario: controller 模式列 controller 容器
+
+- **WHEN** `podParentMode === 'controller'` 且圖中有裝載 pod 的 controller
+- **THEN** `NodeContainerLegend` 改列這些 controller(以各自 cluster 色);「全部摺疊」改作用於 controller 容器集合
+
+#### Scenario: 當前模式無容器時不渲染
+
+- **WHEN** 當前模式下圖中無任何 compound 容器(例:無 owner 的裸 pod 在 controller 模式)
+- **THEN** `NodeContainerLegend` `return null`,不渲染空標題

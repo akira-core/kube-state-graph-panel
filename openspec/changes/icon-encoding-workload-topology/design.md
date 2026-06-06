@@ -21,7 +21,7 @@
 - ingress/pv/storageclass/configmap/secret/rbac 的節點與邊（等後端與需求）。
 - 低 zoom 的 icon→純形狀 level-of-detail 切換。
 - 狀態角標（badge）——先只用邊框色。
-- 後端程式碼（本 repo 為 panel-only）；workload 節點與 `controller-owns-pod` 邊的產生是後端契約。
+- 後端程式碼（本 repo 為 panel-only）。後端契約僅提供 pod 上的 `data.owner` metadata；controller 節點與 `controller-owns-pod` 邊由 panel 自 owner 合成（D9），非後端產生。standalone workload `data.type` 節點若後端日後直接發送亦可渲染。
 - 官方 K8s 彩色徽章（見 Decision 2）。
 
 ## Decisions
@@ -67,6 +67,7 @@ icon 為單色 line-art、帶 `currentColor` sentinel，隨主題注入色。資
 - `controller` 模式：對每個被 `controller-owns-pod` 指向的 pod，re-parent 到其 owning controller（多 owner 取字典序最小）、移除 `controller-owns-pod` 邊（改以巢狀表示）、合成 `pod-runs-on-node` 邊連回原 node。
 - **Service 兩模式皆 edge**（不再當 compound parent）——`service-selects-pod` 與 `pod-calls-service` 永遠是 drawn edge。
 - **ReplicaSet 收掉**：後端已將 `Deployment → ReplicaSet → Pod` 收斂,`controller-owns-pod` 直接連 pod → 頂層 controller（Deployment）。ReplicaSet **不是** panel 的 NodeKind、不出現於圖中、無對應 icon。
+- **controller 節點與 `controller-owns-pod` 邊由 panel 合成**（自 pod `data.owner`，見 D9）——後端不發 controller 節點/邊；本模式所依賴的「來源邊」即合成而來，`applyPodParentMode` 不需知道其來源。
 - **理由**：完美套用既有 service-mode re-parent + 合成邊機制，只換來源邊型別；對使用者「誰管誰」心智模型最直接。
 - **Alternatives**：(a) 只用 edge、不做巢狀模式——少了控制器分群視角；(b) 完整展開 Deployment>ReplicaSet>Pod——巢狀過深、噪音高。
 
@@ -80,10 +81,43 @@ node legend 以主題上色的 icon glyph（取代 `ShapeGlyph`）呈現，依 p
 
 - **理由**：6 大類 ≪ kind 數，legend 才掃得動；分類表 panel-owned 且確定（不信任後端非標準 categories）。
 
+### D9. 後端以 pod `data.owner` 提供控制器;normalize 合成 controller 節點與 owns 邊(修正 D6 後端假設)
+
+實際後端最新契約:**僅在 pod 上**帶 typed `data.owner = { kind, name }`(最新 commit 自 `labels.owner_kind` / `labels.owner_name` 移至此 typed 欄位;`Deployment → ReplicaSet → Pod` 已於後端收斂,`owner.kind` 即頂層 controller;無 controller 時整個 `owner` 省略)。後端**不**輸出 controller 節點,也**不**輸出 `controller-owns-pod` 邊。因此 panel 於 `normalizeGraph`(anti-corruption,純函式)**自 owner 合成**:
+
+- 每個 unique `(cluster, namespace, ownerKind, ownerName)` 合成**一個** controller 節點:`kind` = `ownerKind` 小寫、`parent` = 該 pod 的 cluster 容器(`cluster/<cluster>`)、`label` = `ownerName`;非已知 workload kind(裸 ReplicaSet)走 fallback icon、預設可見。
+- 每個有 owner 的 pod 合成一條 `controller-owns-pod`(controller → pod)邊。
+- 缺 `data.owner` 時退讀 legacy `labels.owner_kind` / `labels.owner_name`。
+
+- **理由**:normalize 是把「後端隱含的 controller」物化成節點/邊的正確邊界——如此既有已 spec 的 `applyPodParentMode('controller')` re-parent 機制**零改動**沿用(它只認 `controller-owns-pod` 邊、不關心來源),且兩模式都看得到 controller 節點與 owns 邊(`node` 模式畫 owns 邊;`controller` 模式 re-parent)。
+- **Alternatives**:(a) 在 `applyPodParentMode` 直接讀 owner、不造邊——但 `node` 模式就畫不出 `controller-owns-pod` 邊,且 legend / filter 都得另知 owner;(b) 要求後端發 controller 節點/邊——後端設計選擇以 owner 欄位表達,且本 repo 為 panel-only 不改後端。
+
+### D10. layout 切換控制移至 legend 最上方,改分段式 `Node | Controller`
+
+把原本在 `EdgeLegend` header 的 `IconButton` 切換鈕,改為 legend **最上方**的分段控制(`RadioButtonGroup`,選項 `Node` / `Controller`,標籤 `Layout`);`EdgeLegend` 去掉 `mode` / `onToggleMode`、只列邊。`PodParentMode` 語意不變(`'node' | 'controller'`)。
+
+- **理由**:拓樸切換是全圖層級操作,置於 legend 頂端比塞在 edge 區更顯眼、語意更清楚。UI 以 "Layout" 指 compound 群組拓樸,與 fcose / dagre 的佈局演算法(panel option)是不同概念。
+- **Alternatives**:維持 `IconButton`(較小但不顯眼);下拉選單(待未來要加第三種拓樸如 namespace 分群再考慮)。
+
+### D11. controller 模式預設聚合(每次進入全摺疊 controller 容器)
+
+每次切入 `controller` 模式,`KsgPanel` 把圖中所有 controller 容器 id 併入 `collapsedIds`,使預設聚合;使用者自行展開個別 controller。切回 `node` 模式時 controller 不再是容器,其 id 由既有 `reconcileCollapse`(desired ∩ present)自然淘汰;再進 `controller` 重新全摺疊(不保留上次展開)。僅作用於 controller 容器,不動 `cluster` / K8s `node` 的 collapse 選擇。
+
+- **理由**:controller 模式的價值是「以控制器聚合大量 pod」;預設展開會把畫面塞爆。符合使用者「先聚合、需要再展開」的要求。沿用既有 `collapsedIds` + expand-collapse + `reconcileCollapse`,無新機制。
+- **實作**:偵測 `node → controller` 轉換時 `setCollapsedIds(prev → ∪ 所有 controller 容器 id)`;controller 容器集合與 canvas 同源(`deriveNodeContainers` 於 controller 模式回傳 controller 容器)。
+
+### D12. controller 模式 K8s node 併入 switch fabric 分層;`node-to-switch` 比照 `switch-to-switch`
+
+`controller` 模式下 K8s `node` 變 leaf(pod 已移到 controller),依垂直序 `pod → node → switch → switch`,把「連到 fabric(為某 `node-to-switch` 邊 source)」的 K8s `node` 釘到 switch fabric **最上方一層**(`min(switchLevel) − 1`),x 比照 switch 置中展開成一排。沿用 `buildSwitchConstraints`(對 `levelById` 泛型、不分 kind):在 `controller` 模式且有 levelled switch 時,把這些 node id 以 `level = min − 1` 併入 `levelById`。`GraphCanvas` 既有的 `buildSwitchConstraints(readSwitchLevels(elements))` 改為 **mode-aware**(`GraphCanvas` 已持有 `podParentMode` prop)。`node` 模式或無 fabric 時 K8s `node` 不釘層(延續「零影響」)。同時把 `node-to-switch` 拉回 baseline `switch-tier-layout` 規格要求的**正交 `taxi` 路由**(`getStylesheet` 目前刻意排除了它——code/spec drift),並讓它**共用 `switch-to-switch` 的 infra 色**(`colorByEdgeType`),使 K8s node 的上行連線讀起來即 fabric 的一部分。
+
+- **理由**:controller 模式 node 變 leaf 才能可靠 pin(compound parent 的位置由子節點決定、無法可靠 pin)。使用者要 workload 在上、實體網路在下的清楚分層;`node-to-switch` 與 `switch-to-switch` 同處理為使用者明確要求,且 baseline spec 本就要求其正交路由(僅 code drift)。
+- **Alternatives**:per-node 貼其連接 switch 的上一層(較貼實際佈線,但 node 會散落多層,與「同一排」畫面不符——使用者已選 fabric 最上方單排)。
+- **取捨**:switch level 的方向由後端 `labels.level` 決定;node 一律置於 `min − 1`(整個 fabric 正上方),若後端把 leaf 編在較大 level,個別 `node-to-switch` uplink 會跨越 fabric 列——可接受(taxi 路由整齊),日後可再調 level 推導。
+
 ## Risks / Trade-offs
 
 - [官方 icon 不可染 → 設計衝突] → 改用 Argo CD 單色集（D2），官方彩色徽章列為未採用。
-- [後端未發 `controller-owns-pod` 邊 / workload 節點] → panel 對未發 kind/edge 一律 fallback、不報錯；legend **不**列出後端無法填的項目（避免畫不出來的條目）。需後端契約配合（見 Migration）。
+- [後端未發 standalone workload `data.type` 節點] → controller 節點/邊由 panel 自 pod `data.owner` 合成、**無需後端配合**；對任何後端未送的 kind/edge 一律 fallback、不報錯；legend **不**列出資料中未出現的項目（避免畫不出來的條目）。
 - [`background-image` 性能/清晰度] → data-URI 同步載入（避免 issue 1511 外部圖延遲）、依 `(kind,hex)` memoize（cytoscape 以 URL 字串快取，per-node 唯一 URI 會破快取）、SVG 用 `viewBox="0 0 24 24"`、`cy.batch()` 批次更新。實際基數小（~6–12 kind × 2 主題）。
 - [未編碼 `#` 靜默失效 / `currentColor` 不穿透] → `tintSvgToDataUri` 單元測試斷言 `%23` 與 sentinel 替換。
 - [退役形狀為 BREAKING 視覺改變] → 既有使用者的圖外觀改變；以 legend（單一來源）說明新 icon 對應。
@@ -92,12 +126,12 @@ node legend 以主題上色的 icon glyph（取代 `ShapeGlyph`）呈現，依 p
 ## Migration Plan
 
 1. **Panel 端**（本 repo）：新增 icon map/tint/分類表 → 改 `getStylesheet` → 退役 `SHAPE_BY_KIND` 身分角色 → 改 `PodParentMode` 與 `applyPodParentMode` → 新增 `controller-owns-pod` 邊與 legend/filter 串接 → 測試。對未發 kind/edge 的優雅 fallback 確保可先行合併、不依賴後端就緒。
-2. **後端契約**（外部，非本 repo）：kube-state-graph v0.0.14 需發 workload 節點（`data.type` = `deployment`/`statefulset`/`daemonset`/`job`/`cronjob`）與 `controller-owns-pod` 邊（pod 歸頂層 controller、收掉 RS）。確認 PromQL/kube-state-metrics 能否提供 ownerReference；不能則該模式邊暫不出現（panel 仍正常）。
-3. **Demo seeder** 補 workload 節點與 owns 邊以可視驗證（若契約已就緒）。
+2. **後端契約**（外部，非本 repo）：後端已在 pod 上提供 `data.owner`（最新 commit 自 labels 移至 typed 欄位、RS 已收斂）。controller 拓樸**無需後端變更**——controller 節點與 owns 邊由 panel 合成（D9）。standalone workload `data.type` 節點為選用/未來，缺亦不影響本模式。
+3. **Demo seeder**：確認 fixture 的 pod 帶 `data.owner`（後端 seed 已具）；controller 與 owns 邊由 panel 合成即可可視驗證。另補帶 `labels.level` 的 switch fabric，以驗證 `controller` 模式 K8s node 的 fabric 分層與 `node-to-switch` 正交路由。
 4. **Rollback**：純前端、無持久化狀態（模式為 local React state）；revert commit 即還原。
 
 ## Open Questions
 
-- v0.0.14 後端實際能否發 `controller-owns-pod`（ownerReference 經 KSM/PromQL 是否可得）？此為契約 gate，需後端確認；panel 端不阻塞。
+- 控制器拓樸的後端依賴**已釐清**：後端僅在 pod 發 `data.owner`、不發 controller 節點/邊；controller 節點與 owns 邊由 panel 合成（D9），無需後端變更。
 - workload kind 的 `data.status` 後端是否回報（決定其是否顯示狀態邊框）？未報則中性邊框，無妨。
 - DaemonSet 在 `controller` 模式下 pod 歸 DaemonSet 是否符合預期分群（每 node 一 pod）？預設照 controller 一般化處理。

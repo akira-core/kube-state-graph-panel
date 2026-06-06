@@ -2,12 +2,17 @@
 
 ### Requirement: Pod-parent 模式切換控制
 
-Panel SHALL 提供一個 legend 互動按鈕,在 `node`(預設)與 `controller` 兩種 pod compound 模式間切換。模式狀態 MUST 為 `KsgPanel` 的 local React state(比照 `collapsedIds`),預設 `'node'`,且 MUST NOT 實作為 Grafana panel option(runtime 不可由 panel UI 回寫 options)。切換按鈕的外觀與互動 MUST 與既有 legend collapse 按鈕一致(放置於 legend 區、即時生效),文案 MUST 反映 `node ⇄ controller`(不再是 `node ⇄ service`)。
+Panel SHALL 在 legend **最上方**(早於 `ClusterLegend` 等所有 section)提供一個 **layout 分段控制**(segmented,如 `@grafana/ui` `RadioButtonGroup`,兩選項 `Node` / `Controller`,標籤 `Layout`),用以在 `node`(預設)與 `controller` 兩種 pod compound 拓樸間切換,並高亮反映目前模式。此控制 MUST 取代既有「置於 `EdgeLegend` header 的 `IconButton` 切換鈕」——`EdgeLegend` 不再接收 `mode` / `onToggleMode` props,只負責列邊。模式狀態 MUST 為 `KsgPanel` 的 local React state(比照 `collapsedIds`),預設 `'node'`,且 MUST NOT 實作為 Grafana panel option(runtime 不可由 panel UI 回寫 options)。切換 MUST 即時生效(無需進入 dashboard 編輯模式)。此處「layout」指 compound 群組拓樸(`cluster > node > pod` ⇄ `cluster > controller > pod`),與 fcose / dagre 的佈局演算法選擇(panel option)為**不同概念**。
 
-#### Scenario: 按鈕切換模式
+#### Scenario: 分段控制切換模式
 
-- **WHEN** 使用者點擊 legend 的 pod-parent 切換按鈕
-- **THEN** `KsgPanel` 的 `podParentMode` local state 在 `'node'` 與 `'controller'` 間翻轉,圖形即時依新模式重繪,無需進入 dashboard 編輯模式
+- **WHEN** 使用者點擊 legend 最上方 layout 分段控制的 `Controller` 段
+- **THEN** `KsgPanel` 的 `podParentMode` 變為 `'controller'`,圖形即時重繪為 `cluster > controller > pod` 拓樸;再點 `Node` 段則切回 `node`,皆無需進入 dashboard 編輯模式
+
+#### Scenario: 控制置於 legend 最上方、EdgeLegend 不再有切換鈕
+
+- **WHEN** 渲染 legend
+- **THEN** layout 分段控制出現在所有 legend section 之上;`EdgeLegend` 不再渲染任何模式切換按鈕(僅列邊)
 
 #### Scenario: 預設為 node 模式
 
@@ -16,17 +21,22 @@ Panel SHALL 提供一個 legend 互動按鈕,在 `node`(預設)與 `controller` 
 
 ### Requirement: 模式相依的可繪製邊集合與 legend / stylesheet 適配
 
-系統 SHALL 以單一 master 樣式來源 `EDGE_STYLE_BY_TYPE` 涵蓋全部 6 種 `EdgeType`(`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `controller-owns-pod`),並導出純函式 `drawnEdgeTypesForMode(mode)`:`node` 模式回傳 `['pod-mounts-pvc', 'pod-calls-pod', 'pod-calls-service', 'service-selects-pod', 'controller-owns-pod']`;`controller` 模式回傳 `['pod-mounts-pvc', 'pod-calls-pod', 'pod-calls-service', 'service-selects-pod', 'pod-runs-on-node']`。`service-selects-pod` 與 `pod-calls-service` 兩模式皆繪製(service 不再當 compound parent)。`getStylesheet` 的 colorMap MUST 用 master `EDGE_STYLE_BY_TYPE`(mode-agnostic——可為任一存在的邊上色;某模式不存在的型別為惰性,不影響輸出)。`ALL_EDGE_TYPES` 與預設 `visibleEdgeTypes` MUST = 全部 6 種 `EdgeType`,使兩種模式的邊預設皆可見(避免切到 controller 模式時 `pod-runs-on-node` 被預設過濾,或 node 模式時 `controller-owns-pod` 被過濾)。`EdgeLegend` 列出的邊 MUST 由 `drawnEdgeTypesForMode(當前模式)` 決定,並以既有的 `<from> → <to>`(箭頭 glyph 置中)格式呈現,MUST NOT 顯示額外的 nesting 說明文字。
+系統 SHALL 以單一 master 樣式來源 `EDGE_STYLE_BY_TYPE` 涵蓋全部 8 種 `EdgeType`(`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `controller-owns-pod` / `switch-to-switch` / `node-to-switch`),並導出純函式 `drawnEdgeTypesForMode(mode)`:`node` 模式回傳 `['pod-mounts-pvc', 'pod-calls-pod', 'pod-calls-service', 'service-selects-pod', 'controller-owns-pod', 'switch-to-switch', 'node-to-switch']`;`controller` 模式回傳 `['pod-mounts-pvc', 'pod-calls-pod', 'pod-calls-service', 'service-selects-pod', 'pod-runs-on-node', 'switch-to-switch', 'node-to-switch']`。`service-selects-pod` 與 `pod-calls-service` 兩模式皆繪製(service 不再當 compound parent);實體網路 fabric 邊 `switch-to-switch` / `node-to-switch` **兩模式皆繪製**(以 `...SWITCH_EDGES` 併入兩模式回傳集)。`getStylesheet` 的 colorMap MUST 用 master `EDGE_STYLE_BY_TYPE`(mode-agnostic——可為任一存在的邊上色;某模式不存在的型別為惰性,不影響輸出)。`ALL_EDGE_TYPES` 與預設 `visibleEdgeTypes` MUST = 全部 8 種 `EdgeType`,使兩種模式的邊(含 switch fabric)預設皆可見(避免切到 controller 模式時 `pod-runs-on-node` 被預設過濾、node 模式時 `controller-owns-pod` 被過濾,或 `switch-to-switch` / `node-to-switch` 被排除於預設可見集)。`EdgeLegend` 列出的邊 MUST 由 `drawnEdgeTypesForMode(當前模式)` ∩ 圖中實際出現的邊決定,並以既有的 `<from> → <to>`(箭頭 glyph 置中)格式呈現,MUST NOT 顯示額外的 nesting 說明文字。
 
 #### Scenario: node 模式的 drawn 邊集合
 
 - **WHEN** `mode === 'node'`
-- **THEN** `EdgeLegend` 顯示 `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `controller-owns-pod`,canvas 不繪製任何 `pod-runs-on-node` 邊(以巢狀表示)
+- **THEN** drawable 邊集含 `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `controller-owns-pod`,以及兩模式常駐的 `switch-to-switch` / `node-to-switch`;canvas 不繪製任何 `pod-runs-on-node` 邊(以巢狀表示)
 
 #### Scenario: controller 模式的 drawn 邊集合
 
 - **WHEN** `mode === 'controller'`
-- **THEN** `EdgeLegend` 顯示 `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `pod-runs-on-node`,canvas 不繪製任何 `controller-owns-pod` 邊(以巢狀表示);合成的 `pod-runs-on-node` 邊以 master 樣式來源定義的顏色/線型繪製
+- **THEN** drawable 邊集含 `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `pod-runs-on-node`,以及兩模式常駐的 `switch-to-switch` / `node-to-switch`;canvas 不繪製任何 `controller-owns-pod` 邊(以巢狀表示);合成的 `pod-runs-on-node` 邊以 master 樣式來源定義的顏色/線型繪製
+
+#### Scenario: switch fabric 邊兩模式常駐
+
+- **WHEN** 圖中存在 `switch-to-switch` 或 `node-to-switch` 邊
+- **THEN** 兩種 pod-parent 模式皆繪製之(不因模式切換消失),且預設可見(`visibleEdgeTypes` 預設涵蓋之)
 
 #### Scenario: 未知邊類型仍走 fallback
 
@@ -73,7 +83,7 @@ Panel SHALL 提供一個 legend 互動按鈕,在 `node`(預設)與 `controller` 
 
 ### Requirement: Controller 模式重新掛載 pod 至 controller
 
-系統 SHALL 提供純函式 `applyPodParentMode(elements, mode)`,於 `normalizeGraph` 之後、傳入 `GraphCanvas` 之前套用;`normalizeGraph` 本身 MUST 維持純 anti-corruption,不接受模式參數。`mode === 'node'` 時 MUST 原樣回傳輸入(referential 相同);此模式下 `controller-owns-pod` 為 drawn edge、`pod-runs-on-node` 以 `cluster > node > pod` 巢狀表示。`mode === 'controller'` 時,對每個「存在至少一條 `controller-owns-pod` 邊指向它(`target = pod`)」的 pod,系統 MUST:(1) 以 `source`(controller id)字典序最小者為新 parent,將該 pod 的 `data.parent` 重設為該 controller id;(2) 合成一條 `edgeType: 'pod-runs-on-node'` 的 drawn edge,`source = pod`、`target = 該 pod 在 node 模式下的原 parent(K8s node)`,邊 id 為 `ppm:pod-runs-on-node:<podId>`(僅當原 parent 存在於 elements 時)。此外系統 MUST 移除**所有** `controller-owns-pod` 邊——該關係在 `controller` 模式以巢狀表示,不繪製。對沒有任何 `controller-owns-pod` 邊指向的 pod(例如獨立 pod、或後端未發 owner 關係),系統 MUST 不變更其 parent、不合成 pod-to-node edge。`service-selects-pod` 與 `pod-calls-service` 邊在兩模式皆 MUST 保留(不移除)。所有節點/邊變更 MUST 以 immutable 方式產生新物件,不就地修改輸入。
+系統 SHALL 提供純函式 `applyPodParentMode(elements, mode)`,於 `normalizeGraph` 之後、傳入 `GraphCanvas` 之前套用;`normalizeGraph` 本身 MUST 維持純 anti-corruption,不接受模式參數。`mode === 'node'` 時 MUST 原樣回傳輸入(referential 相同);此模式下 `controller-owns-pod` 為 drawn edge、`pod-runs-on-node` 以 `cluster > node > pod` 巢狀表示。`mode === 'controller'` 時,對每個「存在至少一條 `controller-owns-pod` 邊指向它(`target = pod`)」的 pod,系統 MUST:(1) 以 `source`(controller id)字典序最小者為新 parent,將該 pod 的 `data.parent` 重設為該 controller id;(2) 合成一條 `edgeType: 'pod-runs-on-node'` 的 drawn edge,`source = pod`、`target = 該 pod 在 node 模式下的原 parent(K8s node)`,邊 id 為 `ppm:pod-runs-on-node:<podId>`。**原 parent MUST 於 re-parent 前擷取**(re-parent 後該 pod 的 `data.parent` 已改指 controller);且僅當該原 parent 為**存在於 elements 的 K8s `node` kind** 時才合成此邊——原 parent 為 `cluster` 容器(K8s node 不在 scope)或不存在時 MUST NOT 合成 pod-to-node edge(該 pod 仍 re-parent 至其 controller)。此外系統 MUST 移除**所有** `controller-owns-pod` 邊——該關係在 `controller` 模式以巢狀表示,不繪製。對沒有任何 `controller-owns-pod` 邊指向的 pod(例如獨立 pod、或後端未發 owner 關係),系統 MUST 不變更其 parent、不合成 pod-to-node edge。`service-selects-pod` 與 `pod-calls-service` 邊在兩模式皆 MUST 保留(不移除)。所有節點/邊變更 MUST 以 immutable 方式產生新物件,不就地修改輸入。
 
 #### Scenario: 有 controller 的 pod 巢狀進 controller
 
@@ -90,6 +100,11 @@ Panel SHALL 提供一個 legend 互動按鈕,在 `node`(預設)與 `controller` 
 - **WHEN** `mode === 'controller'` 且某 pod 無任何 `controller-owns-pod` 邊指向它(例:裸 pod,或後端未發 owner)
 - **THEN** 該 pod 的 `data.parent` 不變(續掛 K8s node);不為其合成 pod-to-node edge
 
+#### Scenario: 原 parent 非 K8s node 的 pod 不合成 pod-runs-on-node
+
+- **WHEN** `mode === 'controller'` 且某有 owner 的 pod 在 node 模式下的原 parent 是 `cluster` 容器(K8s node 不在 scope),非 K8s `node`
+- **THEN** 該 pod re-parent 至其 controller,但 MUST NOT 合成 `pod-runs-on-node` 邊(不可指向 cluster 容器)
+
 #### Scenario: service 邊兩模式皆保留
 
 - **WHEN** `mode === 'controller'` 且某 pod 有 `service-selects-pod` 與 `pod-calls-service` 邊
@@ -104,3 +119,32 @@ Panel SHALL 提供一個 legend 互動按鈕,在 `node`(預設)與 `controller` 
 
 - **WHEN** 以同一組 elements 連續呼叫 `applyPodParentMode(elements, 'controller')` 與 `applyPodParentMode(elements, 'node')`
 - **THEN** 輸入 `elements` 陣列與其節點/邊物件不被修改(referential 上產生新物件),兩次呼叫結果互不污染
+
+### Requirement: Controller 模式預設聚合(摺疊)controller 容器
+
+為使 `controller` 模式預設呈現「pod 已聚合進其控制器」的精簡視圖,**每次切入 `controller` 模式時**,系統 MUST 將圖中**所有 controller 容器**(具 ≥1 個子 pod 的合成 controller 節點)加入 `collapsedIds`,使其預設為 collapsed;使用者可再自行展開個別 controller 以檢視其 pod。切回 `node` 模式時 controller 不再是容器,其 id 經既有 `reconcileCollapse`(desired ∩ present)自然自 collapsed 集合淘汰;**再次**切入 `controller` 模式時 MUST 重新將所有 controller 容器摺疊(即每次進入皆全摺疊,不保留上次的展開狀態)。此預設聚合 MUST 僅作用於 controller 容器,不影響使用者對 `cluster` / K8s `node` 容器既有的 collapse 選擇。
+
+#### Scenario: 切入 controller 模式預設全摺疊
+
+- **WHEN** 使用者自 `node` 切到 `controller` 模式
+- **THEN** 所有 controller 容器預設為 collapsed(pod 聚合於其中),canvas 顯示 controller 圖示而非展開的 pod
+
+#### Scenario: 展開後再進入仍全摺疊
+
+- **WHEN** 使用者在 controller 模式展開某 controller、切回 `node`、再切回 `controller`
+- **THEN** 所有 controller 容器再次預設全摺疊(不保留上次的展開)
+
+#### Scenario: 不影響 cluster / node 的 collapse 選擇
+
+- **WHEN** 使用者已摺疊某 `cluster` 容器,然後切入 `controller` 模式
+- **THEN** 該 `cluster` 維持其 collapse 狀態;controller 容器另外被全摺疊
+
+#### Scenario: 單一 pod 的 controller 也預設摺疊
+
+- **WHEN** 切入 `controller` 模式且某 controller 僅擁有一個 pod
+- **THEN** 該單 pod controller 同樣被預設摺疊(預設聚合作用於**每個**合成 controller 容器,不論子 pod 數量,無 `>1` 例外)
+
+#### Scenario: 預設摺疊的 controller 不被 orphan 級聯隱藏
+
+- **WHEN** 切入 `controller` 模式、所有 controller 預設摺疊,且某 controller 自身無 incident drawn edge(`controller-owns-pod` 在此模式已收為巢狀)
+- **THEN** 該 controller MUST NOT 被 orphan 級聯隱藏——其子 pod 經 `computeVisibility` 仍在 `visibleNodeIds` 中(collapse 為 cy 層視覺操作、不自可見集移除),故依 panel-rendering 的 orphan 規則「有可見子節點的容器保留」,collapsed controller 視為有可見子節點而留存
