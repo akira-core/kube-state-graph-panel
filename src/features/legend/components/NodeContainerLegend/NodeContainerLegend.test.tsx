@@ -31,4 +31,12 @@ describe('NodeContainerLegend', () => {
     fireEvent.click(screen.getByTestId('node-collapse-toggle'));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
+
+  it('uses a custom title heading when provided (controller mode)', () => {
+    render(
+      <NodeContainerLegend nodes={[{ name: 'web', color: '#0ea5e9' }]} title="Controllers" collapseNoun="controllers" />
+    );
+    const legend = screen.getByTestId('node-container-legend');
+    expect(within(legend).getByRole('heading', { name: 'Controllers' })).toBeInTheDocument();
+  });
 });

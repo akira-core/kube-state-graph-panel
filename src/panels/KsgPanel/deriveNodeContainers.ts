@@ -1,74 +1,78 @@
 import type cytoscape from 'cytoscape';
 
+import type { PodParentMode } from '../../shared/constants/types';
+
 export interface NodeContainerEntry {
   name: string;
   color: string;
 }
 
-export interface NodeContainerDerivation {
-  // K8s `node` compound containers present in the graph, each coloured by its
-  // parent cluster's accent (falls back to a neutral colour when the node has no
-  // cluster parent). Rendered as swatches in the "Nodes" legend section. Includes
-  // COLLAPSED containers too — the swatch + its collapse toggle stay available so
-  // the node can always be expanded again. Deduped by display name.
-  nodeEntries: NodeContainerEntry[];
-  // Every K8s-node container id (NOT name-deduped) — the single source for "which
-  // nodes are collapsible boxes", consumed by the node collapse toggle. Same set
-  // the swatches derive from, so the toggle and the legend never disagree.
-  nodeContainerIds: string[];
-  // True when `node` should appear in the icon Node-kinds legend — i.e. it renders
-  // as an actual glyph somewhere: either a DRAWN LEAF (service / controller mode,
-  // with pod-runs-on-node edges) OR a COLLAPSED container (which shows its kind
-  // icon on canvas once expand-collapse removes its children). An expanded
-  // container shows no icon, so it alone does not earn the icon slot.
+export interface ContainerDerivation {
+  containerEntries: NodeContainerEntry[]; // name-deduped, cluster-coloured swatches
+  containerIds: string[]; // every container id (not name-deduped) for the collapse toggle
+  title: string; // 'Nodes' (node mode) | 'Controllers' (controller mode)
+  collapseNoun: string; // 'nodes' | 'controllers'
+  // True when `node` should appear in the icon Node-kinds legend: in controller
+  // mode K8s nodes are leaves (always true if any node present); in node mode a
+  // node earns it only as a drawn leaf OR a collapsed container.
   showNodeKindIcon: boolean;
 }
 
-// Mode-agnostic split of `node`-kind elements into compound containers vs glyphs.
-// A node that boxes pods (cluster > node > pod) is an (expanded) container; a node
-// that pods point at via a drawn `pod-runs-on-node` edge is a leaf; a collapsed
-// container renders as a glyph too. Pure + deterministic.
-export function deriveNodeContainers(
+// A container in `node` mode is a K8s `node` that boxes pods; in `controller` mode
+// it is a synthesized controller (isController) that boxes pods. Pure + deterministic.
+export function deriveContainers(
   elements: readonly cytoscape.ElementDefinition[],
   fallbackColor: string,
+  mode: PodParentMode,
   collapsedIds: ReadonlySet<string> = new Set<string>()
-): NodeContainerDerivation {
+): ContainerDerivation {
   const parentIds = new Set<string>();
   const clusterColorById = new Map<string, string>();
+  let anyNodeKind = false;
   for (const el of elements) {
     if (el.group !== 'nodes') {
       continue;
     }
-    const d = el.data as Record<string, unknown>;
+    const d = el.data as cytoscape.NodeDataDefinition;
     if (typeof d.parent === 'string') {
       parentIds.add(d.parent);
+    }
+    if (d.kind === 'node') {
+      anyNodeKind = true;
     }
     if (d.isCluster === true && typeof d.id === 'string' && typeof d.clusterColor === 'string') {
       clusterColorById.set(d.id, d.clusterColor);
     }
   }
 
-  const nodeEntries: NodeContainerEntry[] = [];
-  const nodeContainerIds: string[] = [];
+  const isContainerKind = (d: cytoscape.NodeDataDefinition): boolean =>
+    mode === 'controller' ? d.isController === true : d.kind === 'node';
+
+  const containerEntries: NodeContainerEntry[] = [];
+  const containerIds: string[] = [];
   const seenNames = new Set<string>();
-  let showNodeKindIcon = false;
+  let showNodeKindIcon = mode === 'controller' && anyNodeKind; // nodes are leaves in controller mode
   for (const el of elements) {
     if (el.group !== 'nodes') {
       continue;
     }
-    const d = el.data as Record<string, unknown>;
-    if (d.kind !== 'node' || typeof d.id !== 'string') {
+    const d = el.data as cytoscape.NodeDataDefinition;
+    if (!isContainerKind(d) || typeof d.id !== 'string') {
+      // A K8s node that is NOT a container in node mode (drawn leaf) earns its icon.
+      if (mode === 'node' && d.kind === 'node' && typeof d.id === 'string' && !parentIds.has(d.id)) {
+        showNodeKindIcon = true;
+      }
       continue;
     }
     if (!parentIds.has(d.id)) {
-      // A drawn leaf node → it shows its icon.
-      showNodeKindIcon = true;
+      // A container kind with no children → drawn leaf, shows its icon (node mode only).
+      if (mode === 'node') {
+        showNodeKindIcon = true;
+      }
       continue;
     }
-    // A container. Collapsed containers render as a glyph, so they too put `node`
-    // in the icon legend; either way the container keeps its "Nodes" swatch.
-    nodeContainerIds.push(d.id);
-    if (collapsedIds.has(d.id)) {
+    containerIds.push(d.id);
+    if (mode === 'node' && collapsedIds.has(d.id)) {
       showNodeKindIcon = true;
     }
     const name = typeof d.label === 'string' ? d.label : d.id;
@@ -77,8 +81,14 @@ export function deriveNodeContainers(
     }
     seenNames.add(name);
     const parentColor = typeof d.parent === 'string' ? clusterColorById.get(d.parent) : undefined;
-    nodeEntries.push({ name, color: parentColor ?? fallbackColor });
+    containerEntries.push({ name, color: parentColor ?? fallbackColor });
   }
 
-  return { nodeEntries, nodeContainerIds, showNodeKindIcon };
+  return {
+    containerEntries,
+    containerIds,
+    title: mode === 'controller' ? 'Controllers' : 'Nodes',
+    collapseNoun: mode === 'controller' ? 'controllers' : 'nodes',
+    showNodeKindIcon,
+  };
 }

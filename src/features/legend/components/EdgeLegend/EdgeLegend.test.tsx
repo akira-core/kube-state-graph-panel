@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import React from 'react';
 
 import { COLOR_BY_EDGE_TYPE, EDGE_ENDPOINTS_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
+import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
 
 import { EdgeLegend } from './EdgeLegend';
 
@@ -88,7 +89,8 @@ describe('EdgeLegend', () => {
 
   describe('controller pod-parent mode', () => {
     it('lists pod-runs-on-node and drops controller-owns-pod (service edges still drawn)', () => {
-      render(<EdgeLegend mode="controller" />);
+      // The legend is list-only now; the mode is reflected by the edge types passed in.
+      render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('controller')} />);
       const legend = screen.getByTestId('edge-legend');
       expect(within(legend).getByTestId('edge-legend-row-pod-runs-on-node')).toBeInTheDocument();
       expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
@@ -97,24 +99,15 @@ describe('EdgeLegend', () => {
     });
   });
 
-  describe('mode toggle', () => {
-    it('renders no toggle button when onToggleMode is omitted', () => {
+  describe('no mode toggle (moved to LayoutModeControl at the top of the legend)', () => {
+    it('renders no pod-parent-mode toggle button', () => {
       render(<EdgeLegend />);
       expect(screen.queryByTestId('pod-parent-mode-toggle')).toBeNull();
     });
 
-    it('calls onToggleMode when the toggle is clicked', () => {
-      const onToggleMode = jest.fn();
-      render(<EdgeLegend mode="node" onToggleMode={onToggleMode} />);
-      fireEvent.click(screen.getByTestId('pod-parent-mode-toggle'));
-      expect(onToggleMode).toHaveBeenCalledTimes(1);
-    });
-
-    it('labels the toggle by the action it performs in the current mode', () => {
-      const { rerender } = render(<EdgeLegend mode="node" onToggleMode={jest.fn()} />);
-      expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under controllers');
-      rerender(<EdgeLegend mode="controller" onToggleMode={jest.fn()} />);
-      expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under nodes');
+    it('still renders no toggle when an explicit edge list is passed', () => {
+      render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('node')} />);
+      expect(screen.queryByTestId('pod-parent-mode-toggle')).toBeNull();
     });
   });
 });

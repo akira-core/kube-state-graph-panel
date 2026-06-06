@@ -1,6 +1,6 @@
 import type cytoscape from 'cytoscape';
 
-import { deriveNodeContainers } from './deriveNodeContainers';
+import { deriveContainers } from './deriveNodeContainers';
 
 const NEUTRAL = '#888888';
 
@@ -11,17 +11,23 @@ function edge(data: Record<string, unknown>): cytoscape.ElementDefinition {
   return { group: 'edges', data };
 }
 
-describe('deriveNodeContainers', () => {
+describe('deriveContainers — node mode', () => {
   it('treats a node that parents pods as a container coloured by its cluster', () => {
     const els = [
       node({ id: 'cluster/prod', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
       node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
       node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
     ];
-    const { nodeEntries, nodeContainerIds, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL);
-    expect(nodeEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
-    expect(nodeContainerIds).toEqual(['node/worker-0']);
+    const { containerEntries, containerIds, showNodeKindIcon, title, collapseNoun } = deriveContainers(
+      els,
+      NEUTRAL,
+      'node'
+    );
+    expect(containerEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
+    expect(containerIds).toEqual(['node/worker-0']);
     expect(showNodeKindIcon).toBe(false);
+    expect(title).toBe('Nodes');
+    expect(collapseNoun).toBe('nodes');
   });
 
   it('returns every node-container id (not name-deduped) for the collapse toggle', () => {
@@ -32,11 +38,11 @@ describe('deriveNodeContainers', () => {
       node({ id: 'pod/a', kind: 'pod', parent: 'node/w-1', label: 'a' }),
       node({ id: 'pod/b', kind: 'pod', parent: 'node/w-2', label: 'b' }),
     ];
-    const { nodeEntries, nodeContainerIds } = deriveNodeContainers(els, NEUTRAL);
+    const { containerEntries, containerIds } = deriveContainers(els, NEUTRAL, 'node');
     // swatches dedupe by name (one "worker") …
-    expect(nodeEntries).toEqual([{ name: 'worker', color: '#0ea5e9' }]);
+    expect(containerEntries).toEqual([{ name: 'worker', color: '#0ea5e9' }]);
     // … but BOTH container ids must collapse/expand together.
-    expect(nodeContainerIds).toEqual(['node/w-1', 'node/w-2']);
+    expect(containerIds).toEqual(['node/w-1', 'node/w-2']);
   });
 
   it('keeps a collapsed container in the swatch list AND puts node in the icon legend', () => {
@@ -45,9 +51,9 @@ describe('deriveNodeContainers', () => {
       node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
       node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
     ];
-    const { nodeEntries, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL, new Set(['node/worker-0']));
+    const { containerEntries, showNodeKindIcon } = deriveContainers(els, NEUTRAL, 'node', new Set(['node/worker-0']));
     // Still swatched (so its expand toggle stays available)…
-    expect(nodeEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
+    expect(containerEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
     // …and now also earns the icon slot (it renders as a glyph while collapsed).
     expect(showNodeKindIcon).toBe(true);
   });
@@ -57,8 +63,8 @@ describe('deriveNodeContainers', () => {
       node({ id: 'node/w', kind: 'node', label: 'w' }),
       node({ id: 'pod/a', kind: 'pod', parent: 'node/w', label: 'a' }),
     ];
-    const { nodeEntries } = deriveNodeContainers(els, NEUTRAL);
-    expect(nodeEntries).toEqual([{ name: 'w', color: NEUTRAL }]);
+    const { containerEntries } = deriveContainers(els, NEUTRAL, 'node');
+    expect(containerEntries).toEqual([{ name: 'w', color: NEUTRAL }]);
   });
 
   it('treats a childless node as a drawn leaf (not a container)', () => {
@@ -67,8 +73,8 @@ describe('deriveNodeContainers', () => {
       node({ id: 'pod/a', kind: 'pod', label: 'a' }),
       edge({ id: 'e', source: 'pod/a', target: 'node/w', edgeType: 'pod-runs-on-node' }),
     ];
-    const { nodeEntries, showNodeKindIcon } = deriveNodeContainers(els, NEUTRAL);
-    expect(nodeEntries).toEqual([]);
+    const { containerEntries, showNodeKindIcon } = deriveContainers(els, NEUTRAL, 'node');
+    expect(containerEntries).toEqual([]);
     expect(showNodeKindIcon).toBe(true);
   });
 
@@ -81,8 +87,8 @@ describe('deriveNodeContainers', () => {
       node({ id: 'pod/a', kind: 'pod', parent: 'node/w0', label: 'a' }),
       node({ id: 'pod/b', kind: 'pod', parent: 'node/w2', label: 'b' }),
     ];
-    const { nodeEntries } = deriveNodeContainers(els, NEUTRAL);
-    expect(nodeEntries).toEqual([
+    const { containerEntries } = deriveContainers(els, NEUTRAL, 'node');
+    expect(containerEntries).toEqual([
       { name: 'w0', color: '#0ea5e9' },
       { name: 'w2', color: '#8b5cf6' },
     ]);
@@ -96,7 +102,45 @@ describe('deriveNodeContainers', () => {
       node({ id: 'pod/a', kind: 'pod', parent: 'node/w-1', label: 'a' }),
       node({ id: 'pod/b', kind: 'pod', parent: 'node/w-2', label: 'b' }),
     ];
-    const { nodeEntries } = deriveNodeContainers(els, NEUTRAL);
-    expect(nodeEntries).toEqual([{ name: 'worker', color: '#0ea5e9' }]);
+    const { containerEntries } = deriveContainers(els, NEUTRAL, 'node');
+    expect(containerEntries).toEqual([{ name: 'worker', color: '#0ea5e9' }]);
+  });
+});
+
+describe('deriveContainers — controller mode', () => {
+  it('controller mode derives controller containers, not K8s nodes', () => {
+    const els = [
+      { group: 'nodes', data: { id: 'cl', isCluster: true, clusterColor: '#abc' } },
+      { group: 'nodes', data: { id: 'c1', kind: 'deployment', isController: true, label: 'web', parent: 'cl' } },
+      { group: 'nodes', data: { id: 'p1', kind: 'pod', parent: 'c1' } },
+    ] as cytoscape.ElementDefinition[];
+    const out = deriveContainers(els, '#999', 'controller', new Set());
+    expect(out.containerIds).toEqual(['c1']);
+    expect(out.containerEntries.map((e) => e.name)).toEqual(['web']);
+    expect(out.title).toBe('Controllers');
+    expect(out.collapseNoun).toBe('controllers');
+  });
+
+  it('controller mode colours a controller by its cluster parent accent', () => {
+    const els = [
+      node({ id: 'cl', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
+      node({ id: 'c1', kind: 'statefulset', isController: true, label: 'mongo', parent: 'cl' }),
+      node({ id: 'p1', kind: 'pod', parent: 'c1' }),
+    ];
+    const { containerEntries } = deriveContainers(els, NEUTRAL, 'controller');
+    expect(containerEntries).toEqual([{ name: 'mongo', color: '#0ea5e9' }]);
+  });
+
+  it('controller mode marks node as a leaf icon (showNodeKindIcon) when a K8s node is present', () => {
+    const els = [
+      node({ id: 'cl', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
+      node({ id: 'n1', kind: 'node', parent: 'cl', label: 'worker' }),
+      node({ id: 'c1', kind: 'deployment', isController: true, label: 'web', parent: 'cl' }),
+      node({ id: 'p1', kind: 'pod', parent: 'c1' }),
+    ];
+    const { showNodeKindIcon, containerIds } = deriveContainers(els, NEUTRAL, 'controller');
+    expect(showNodeKindIcon).toBe(true);
+    // K8s nodes are NOT containers in controller mode.
+    expect(containerIds).toEqual(['c1']);
   });
 });

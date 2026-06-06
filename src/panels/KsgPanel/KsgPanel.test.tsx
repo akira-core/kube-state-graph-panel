@@ -190,12 +190,66 @@ describe('KsgPanel', () => {
     expect(lastCall?.collapsedIds?.has('demo/node-a')).toBe(true);
   });
 
+  it('shows a Layout Node|Controller control at the top of the legend', () => {
+    render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+    expect(screen.getByTestId('layout-mode-control')).toBeInTheDocument();
+    expect(screen.getByText('Layout')).toBeInTheDocument();
+    expect(screen.getByLabelText('Node')).toBeInTheDocument();
+    expect(screen.getByLabelText('Controller')).toBeInTheDocument();
+  });
+
+  it('default-collapses every controller on entering controller mode and titles the section "Controllers"', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: 'demo/node-a',
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    // Enter controller mode via the segmented control.
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Controller'));
+    });
+    // The container section retitles to "Controllers"…
+    const containerLegend = screen.getByTestId('node-container-legend');
+    expect(within(containerLegend).getByRole('heading', { name: 'Controllers' })).toBeInTheDocument();
+    // …and the synthesized controller is default-collapsed (pushed to GraphCanvas).
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+  });
+
   it('does not render the cluster legend when there are no clusters', () => {
     render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
     expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();
   });
 
-  it('resolveSelectedNode carries a node\'s alerts onto the detail data', () => {
+  it("resolveSelectedNode carries a node's alerts onto the detail data", () => {
     const alerts = [{ name: 'HighMem', severity: 'critical' as const, time: 1717500000 }];
     const elements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'p1', label: 'mongo-0', kind: 'pod', alerts } },
@@ -214,7 +268,9 @@ describe('KsgPanel', () => {
               id: 'p1',
               type: 'pod',
               name: 'mongo-0',
-              alerts: [{ pod: 'mongo-0', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 }],
+              alerts: [
+                { pod: 'mongo-0', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 },
+              ],
             },
           },
           { data: { id: 'p2', type: 'pod', name: 'web' } },

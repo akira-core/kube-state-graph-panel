@@ -2,7 +2,7 @@ import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
@@ -10,6 +10,7 @@ import { useGraphData } from '../../features/graph-data';
 import {
   ClusterLegend,
   EdgeLegend,
+  LayoutModeControl,
   NodeContainerLegend,
   NodeLegend,
   StatusLegend,
@@ -22,7 +23,7 @@ import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
 
-import { deriveNodeContainers } from './deriveNodeContainers';
+import { deriveContainers } from './deriveNodeContainers';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 import { useCollapseGroup } from './useCollapseGroup';
 
@@ -114,10 +115,15 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // pod↔controller relationships between nesting and drawn edge. Default 'node'
   // returns the backend's native structure unchanged.
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('node');
-  const togglePodParentMode = useCallback(() => {
-    setPodParentMode((mode) => (mode === 'node' ? 'controller' : 'node'));
-  }, []);
   const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
+
+  // Latest mode-transformed elements, read by the entry-only default-collapse
+  // effect without making it a dependency (so a data refresh in controller mode
+  // never re-collapses — the user can keep a controller expanded).
+  const elementsRef = useRef(elements);
+  useLayoutEffect(() => {
+    elementsRef.current = elements;
+  });
 
   // Selected node id drives both the detail panel and (controlled) the cy
   // selection highlight. GraphCanvas reports taps via onSelect.
@@ -210,15 +216,43 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // next Set via onCollapsedChange (cue events / data-refresh prune).
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
-  // K8s `node` containers (swatched by their cluster) + whether `node` should also
-  // appear in the icon Node-kinds legend. In the default cluster>node>pod layout a
-  // node is a labelled container with no icon, so it is swatched in the "Nodes"
-  // section and dropped from Node-kinds. It earns its icon slot only when it
-  // renders as a glyph: a drawn leaf (service / controller mode) or a COLLAPSED
-  // container (which shows its kind icon once its children are hidden).
-  const { nodeEntries, nodeContainerIds, showNodeKindIcon } = useMemo(
-    () => deriveNodeContainers(elements, themeColors(theme).border.weak, collapsedIds),
-    [elements, theme, collapsedIds]
+  // Entering controller mode aggregates pods: default-collapse every controller
+  // container on each entry (re-collapse-all even after a prior expand). Controller
+  // ids are taken from the current (controller-mode) elements. Switching back to
+  // node mode prunes them via reconcileCollapse, so this only fires on entry — a
+  // data refresh while ALREADY in controller mode must NOT re-collapse (so the user
+  // can keep a controller expanded). The prevModeRef gates it to the node→controller
+  // transition only.
+  const prevModeRef = useRef<PodParentMode>(podParentMode);
+  useEffect(() => {
+    const entered = prevModeRef.current !== 'controller' && podParentMode === 'controller';
+    prevModeRef.current = podParentMode;
+    if (!entered) {
+      return;
+    }
+    const controllerIds = elementsRef.current
+      .filter((el) => el.group === 'nodes' && (el.data as cytoscape.NodeDataDefinition).isController === true)
+      .map((el) => (el.data as cytoscape.NodeDataDefinition).id)
+      .filter((id): id is string => typeof id === 'string');
+    setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
+  }, [podParentMode]);
+
+  // Mode-aware compound containers (swatched by their cluster) + whether `node`
+  // should also appear in the icon Node-kinds legend. In node mode the containers
+  // are the K8s `node` boxes ("Nodes"); in controller mode they are the
+  // synthesized controllers ("Controllers") and K8s nodes become leaf icons. A
+  // container is dropped from Node-kinds while it renders as a labelled box with
+  // no icon; it earns its icon slot only when it renders as a glyph: a drawn leaf
+  // or a COLLAPSED container (which shows its kind icon once its children hide).
+  const {
+    containerEntries,
+    containerIds,
+    title: containerTitle,
+    collapseNoun,
+    showNodeKindIcon,
+  } = useMemo(
+    () => deriveContainers(elements, themeColors(theme).border.weak, podParentMode, collapsedIds),
+    [elements, theme, podParentMode, collapsedIds]
   );
 
   // The kinds shown in the icon Node-kinds legend: drop `node` while it only
@@ -243,16 +277,16 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return ids;
   }, [elements]);
 
-  // K8s node container ids come from deriveNodeContainers (single source for
-  // "which nodes are collapsible boxes"), so the collapse toggle and the "Nodes"
-  // swatches can never reference different node sets.
+  // Container ids come from deriveContainers (single source for "which boxes are
+  // collapsible" in the current mode), so the collapse toggle and the swatch
+  // section can never reference different sets.
   const { allCollapsed: allClustersCollapsed, toggle: toggleClusters } = useCollapseGroup(
     clusterContainerIds,
     collapsedIds,
     setCollapsedIds
   );
   const { allCollapsed: allNodesCollapsed, toggle: toggleNodes } = useCollapseGroup(
-    nodeContainerIds,
+    containerIds,
     collapsedIds,
     setCollapsedIds
   );
@@ -282,14 +316,21 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     <div className={styles.root}>
       {options.showLegend && (
         <aside className={styles.legendArea}>
+          <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
           <ClusterLegend
             clusters={clusterEntries}
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          <NodeContainerLegend nodes={nodeEntries} onToggleCollapseAll={toggleNodes} allCollapsed={allNodesCollapsed} />
+          <NodeContainerLegend
+            nodes={containerEntries}
+            onToggleCollapseAll={toggleNodes}
+            allCollapsed={allNodesCollapsed}
+            title={containerTitle}
+            collapseNoun={collapseNoun}
+          />
           <NodeLegend kinds={nodeLegendKinds} />
-          <EdgeLegend edgeTypes={presentEdgeTypes} mode={podParentMode} onToggleMode={togglePodParentMode} />
+          <EdgeLegend edgeTypes={presentEdgeTypes} />
           <StatusLegend />
         </aside>
       )}
