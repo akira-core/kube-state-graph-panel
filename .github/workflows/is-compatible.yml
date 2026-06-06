@@ -6,6 +6,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # `comment-pr: 'yes'` below posts the Levitate report as a sticky PR
+      # comment via the GitHub issue-comments API, which needs write access to
+      # pull requests. Without this the step 403s ("Resource not accessible by
+      # integration") and fails the job even though `fail-if-incompatible: 'no'`.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
         with:
