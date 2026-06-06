@@ -109,13 +109,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const { elements: baseElements, error: normalizeError } = useGraphData(data);
 
   // Pod-parent view mode — local state, toggled from the legend (Grafana panel
-  // options are read-only at runtime, so this cannot be an option). 'service'
-  // re-parents pods under their selecting Service and swaps the pod↔node /
-  // pod↔service relationships between nesting and drawn edge. Default 'node'
+  // options are read-only at runtime, so this cannot be an option). 'controller'
+  // re-parents pods under their owning controller and swaps the pod↔node /
+  // pod↔controller relationships between nesting and drawn edge. Default 'node'
   // returns the backend's native structure unchanged.
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('node');
   const togglePodParentMode = useCallback(() => {
-    setPodParentMode((mode) => (mode === 'node' ? 'service' : 'node'));
+    setPodParentMode((mode) => (mode === 'node' ? 'controller' : 'node'));
   }, []);
   const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
 

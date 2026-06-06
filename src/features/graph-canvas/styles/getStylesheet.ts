@@ -53,7 +53,7 @@ function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, Edge
 export function getStylesheet({
   theme,
   // Master map covers all wire edge types (incl. pod-runs-on-node) so the
-  // stylesheet can colour the service-mode pod→node edge; resolving a type with
+  // stylesheet can colour the controller-mode pod→node edge; resolving a type with
   // no edges in the current view is harmless.
   colorMap = EDGE_STYLE_BY_TYPE,
 }: GetStylesheetInput): CyStylesheet[] {

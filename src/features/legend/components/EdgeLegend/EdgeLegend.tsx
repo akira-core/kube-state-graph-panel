@@ -29,8 +29,8 @@ function kindLabel(kind: NodeKind): string {
 // The pod↔service relationship is drawn on canvas as two opposite-direction edges
 // of the SAME colour (pod→service calls, service→pod selects). In the legend that
 // reads as redundant, so when BOTH are present they collapse to a single
-// bidirectional `pod ↔ svc` row. When only one is drawn (e.g. service mode drops
-// service-selects-pod) it renders normally as a single-direction row.
+// bidirectional `pod ↔ svc` row. When only one is drawn it renders normally as a
+// single-direction row. (Service edges are drawn in both pod-parent modes.)
 const SVC_PAIR = ['pod-calls-service', 'service-selects-pod'] as const;
 
 interface EdgeRow {
@@ -77,7 +77,7 @@ export interface EdgeLegendProps {
   edgeTypes?: readonly EdgeType[];
   // Current pod-parent mode; selects the default edge-type set and the toggle label.
   mode?: PodParentMode;
-  // When provided, renders a toggle button that flips node ⇄ service mode.
+  // When provided, renders a toggle button that flips node ⇄ controller mode.
   onToggleMode?: () => void;
 }
 
@@ -96,7 +96,7 @@ export function EdgeLegend({
   if (rows.length === 0) {
     return null;
   }
-  const toggleLabel = mode === 'node' ? 'Nest pods under services' : 'Nest pods under nodes';
+  const toggleLabel = mode === 'node' ? 'Nest pods under controllers' : 'Nest pods under nodes';
   return (
     <div data-testid="edge-legend">
       <div className={styles.header}>

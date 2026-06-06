@@ -31,7 +31,7 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
 // covering ALL wire edge types. The stylesheet resolves a colour/line-style per
 // edge from this map regardless of mode — styling an edge type that has no edges
 // in the current view is harmless. `pod-runs-on-node` only appears as a drawn
-// edge in `service` pod-parent mode (features/pod-parent-mode); in the default
+// edge in `controller` pod-parent mode (features/pod-parent-mode); in the default
 // `node` mode the backend expresses it as compound nesting (design D31) so no
 // such edge exists. Which types are *drawn* (and shown in the legend) per mode is
 // derived by `drawnEdgeTypesForMode`.

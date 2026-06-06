@@ -75,7 +75,7 @@ export interface NodeAlert {
 
 // Which K8s object a pod is compound-nested under (panel-side view toggle, not a
 // wire value). 'node' (default) = backend's view: pod nests in its K8s node,
-// `pod-runs-on-node` is nesting and `service-selects-pod` is drawn. 'service' =
-// pod nests in its selecting Service, `service-selects-pod` becomes nesting and
-// `pod-runs-on-node` is drawn. See features/pod-parent-mode.
-export type PodParentMode = 'node' | 'service';
+// `controller-owns-pod` is a drawn edge and `pod-runs-on-node` is nesting.
+// 'controller' = pod nests under its owning controller; `controller-owns-pod`
+// becomes nesting and `pod-runs-on-node` is drawn. See features/pod-parent-mode.
+export type PodParentMode = 'node' | 'controller';

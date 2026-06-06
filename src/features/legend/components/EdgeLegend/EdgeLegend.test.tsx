@@ -86,12 +86,14 @@ describe('EdgeLegend', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  describe('service pod-parent mode', () => {
-    it('lists pod-runs-on-node and drops service-selects-pod', () => {
-      render(<EdgeLegend mode="service" />);
+  describe('controller pod-parent mode', () => {
+    it('lists pod-runs-on-node and drops controller-owns-pod (service edges still drawn)', () => {
+      render(<EdgeLegend mode="controller" />);
       const legend = screen.getByTestId('edge-legend');
       expect(within(legend).getByTestId('edge-legend-row-pod-runs-on-node')).toBeInTheDocument();
-      expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
+      expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
+      // service-selects-pod is part of the merged pod↔svc row in both modes.
+      expect(within(legend).getByTestId('edge-legend-row-pod-svc')).toBeInTheDocument();
     });
   });
 
@@ -110,8 +112,8 @@ describe('EdgeLegend', () => {
 
     it('labels the toggle by the action it performs in the current mode', () => {
       const { rerender } = render(<EdgeLegend mode="node" onToggleMode={jest.fn()} />);
-      expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under services');
-      rerender(<EdgeLegend mode="service" onToggleMode={jest.fn()} />);
+      expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under controllers');
+      rerender(<EdgeLegend mode="controller" onToggleMode={jest.fn()} />);
       expect(screen.getByTestId('pod-parent-mode-toggle')).toHaveAttribute('aria-label', 'Nest pods under nodes');
     });
   });
