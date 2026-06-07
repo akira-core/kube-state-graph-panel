@@ -20,7 +20,7 @@ npm run format       # prettier --write
 npm run test         # jest --watch --onlyChanged (default during dev)
 npm run test:ci      # jest --passWithNoTests --maxWorkers 4
 npm run e2e          # playwright (requires Grafana running)
-npm run server       # docker compose up --build
+npm run server       # docker compose --profile backend up --build (full stack: grafana + backend)
 ```
 
 Run a single Jest test file:
@@ -41,18 +41,23 @@ Plugin source mounts into Grafana via `dist/` bind mount; hot-reload works witho
 ```bash
 npm install
 npm run build                                    # (or `npm run dev` to keep webpack watching)
-docker compose up -d
+docker compose up -d                             # showcase only (no backend) — /d/ksg-switch-demo
+docker compose --profile backend up -d           # full stack (adds backend) — /d/ksg-demo goes live too
 # Grafana → http://localhost:3000 (anonymous auth enabled in dev)
 ```
 
-`docker compose` brings up four services:
+There is **one** `docker-compose.yaml` with **Compose profiles** (the old `docker-compose.switch-demo.yaml`
+was folded in). Both dashboards are always provisioned from `provisioning/dashboards/`; the backend stack
+sits behind the `backend` profile so the inline `KSG Showcase` (`/d/ksg-switch-demo`) can run alone. The
+default `up` (no profile) starts only `grafana` — `KSG Demo` (`/d/ksg-demo`) then shows an expected
+datasource error until you add `--profile backend`. The four services:
 
-| Service                            | Role                                                                                                            |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `grafana`                          | hosts the panel (`dist/` bind mount) + provisioned `KSG Demo` dashboard + Infinity datasource                   |
-| `kube-state-graph` (`ksg-backend`) | the v0.0.14 backend; `KSG_PROM_URL` points it at VictoriaMetrics                                                |
-| `victoriametrics`                  | the backend's topology data source (PromQL)                                                                     |
-| `ksg-seeder`                       | loops `dev/victoriametrics/seed.sh`, pushing a synthetic fixture that exercises **every** node kind + edge type |
+| Service                            | Profile   | Role                                                                                                            |
+| ---------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
+| `grafana`                          | (always)  | hosts the panel (`dist/` bind mount) + both provisioned dashboards + Infinity datasource                        |
+| `kube-state-graph` (`ksg-backend`) | `backend` | the backend; `KSG_PROM_URL` points it at VictoriaMetrics                                                        |
+| `victoriametrics`                  | `backend` | the backend's topology data source (PromQL)                                                                     |
+| `ksg-seeder`                       | `backend` | loops `dev/victoriametrics/seed.sh`, pushing a synthetic fixture that exercises **every** node kind + edge type |
 
 **The v0.0.14 backend derives the whole graph from PromQL over a `[start,end]` window — it does NOT read the Kubernetes API.** So the demo seeds VictoriaMetrics instead of mounting a kubeconfig. Two consequences encoded in the demo:
 

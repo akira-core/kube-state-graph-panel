@@ -12,12 +12,19 @@ Grafana panel plugin that visualizes Kubernetes resource topology (Pods, Service
 
 ```bash
 npm install
-npm run dev               # webpack watch, outputs to dist/
-docker compose up -d      # grafana + kube-state-graph backend + victoriametrics + seeder
+npm run dev                              # webpack watch, outputs to dist/
+
+# Pick a run mode (one Grafana; both dashboards are always provisioned):
+docker compose up -d                     # grafana only → backend-free Showcase (/d/ksg-switch-demo)
+docker compose --profile backend up -d   # + VictoriaMetrics + seeder + kube-state-graph
+                                         #   → KSG Demo (/d/ksg-demo) goes live too (== `npm run server`)
 # Open http://localhost:3000 (default Grafana login)
 ```
 
-The `KSG Demo` dashboard is auto-provisioned and opens with one configured `Kube State Graph` panel.
+Both dashboards are provisioned from `provisioning/dashboards/` and are independent: `KSG Showcase`
+(`/d/ksg-switch-demo`) runs off an Infinity **inline** target (no backend), while `KSG Demo`
+(`/d/ksg-demo`) drives the real backend via the provisioned Infinity datasource. Without the
+`backend` profile, `KSG Demo` shows an (expected) datasource error — open `KSG Showcase` instead.
 
 ### Variable filtering
 

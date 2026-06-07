@@ -11,7 +11,7 @@
     "lint:fix": "eslint --cache --fix . && prettier --write .",
     "format": "prettier --write .",
     "e2e": "playwright test",
-    "server": "docker compose up --build",
+    "server": "docker compose --profile backend up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest",
     "init-hooks": "git config core.hooksPath .githooks",
     "prepare": "git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks || true"
