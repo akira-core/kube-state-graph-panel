@@ -127,6 +127,7 @@ describe('KsgPanel', () => {
       />
     );
     const legend = screen.getByTestId('cluster-legend');
+    fireEvent.click(within(legend).getByTestId('cluster-legend-fold-toggle'));
     expect(within(legend).getByText('demo')).toBeInTheDocument();
   });
 
@@ -239,7 +240,7 @@ describe('KsgPanel', () => {
     // The panel defaults to controller mode, so the container section is "Controllers"
     // on initial load — no toggle needed.
     const containerLegend = screen.getByTestId('node-container-legend');
-    expect(within(containerLegend).getByRole('heading', { name: 'Controllers' })).toBeInTheDocument();
+    expect(within(containerLegend).getByRole('heading', { name: /Controllers/ })).toBeInTheDocument();
     // …and the synthesized controller is default-collapsed (pushed to GraphCanvas)
     // by the initial-load effect once the graph data is present.
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
@@ -331,7 +332,8 @@ describe('KsgPanel', () => {
       />
     );
     const legend = screen.getByTestId('storageclass-legend');
-    expect(within(legend).getByRole('heading', { name: 'Storage classes' })).toBeInTheDocument();
+    expect(within(legend).getByRole('heading', { name: /Storage classes/ })).toBeInTheDocument();
+    fireEvent.click(within(legend).getByTestId('storageclass-legend-fold-toggle'));
     expect(within(legend).getByText('fast-ssd')).toBeInTheDocument();
     // Collapse-all pushes the storageclass container id to GraphCanvas.
     fireEvent.click(screen.getByTestId('storageclass-collapse-toggle'));

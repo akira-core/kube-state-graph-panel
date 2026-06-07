@@ -19,7 +19,8 @@ describe('NodeContainerLegend', () => {
       />
     );
     const legend = screen.getByTestId('node-container-legend');
-    expect(within(legend).getByRole('heading', { name: 'Nodes' })).toBeInTheDocument();
+    expect(within(legend).getByRole('heading', { name: /Nodes/ })).toBeInTheDocument();
+    fireEvent.click(within(legend).getByTestId('node-container-legend-fold-toggle'));
     expect(within(legend).getAllByRole('listitem')).toHaveLength(2);
     expect(within(legend).getByTestId('node-container-legend-row-worker-0')).toBeInTheDocument();
     expect(within(legend).getByText('worker-2')).toBeInTheDocument();
@@ -37,6 +38,6 @@ describe('NodeContainerLegend', () => {
       <NodeContainerLegend nodes={[{ name: 'web', color: '#0ea5e9' }]} title="Controllers" collapseNoun="controllers" />
     );
     const legend = screen.getByTestId('node-container-legend');
-    expect(within(legend).getByRole('heading', { name: 'Controllers' })).toBeInTheDocument();
+    expect(within(legend).getByRole('heading', { name: /Controllers/ })).toBeInTheDocument();
   });
 });

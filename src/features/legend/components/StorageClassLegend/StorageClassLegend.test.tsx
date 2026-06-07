@@ -19,7 +19,8 @@ describe('StorageClassLegend', () => {
       />
     );
     const legend = screen.getByTestId('storageclass-legend');
-    expect(within(legend).getByRole('heading', { name: 'Storage classes' })).toBeInTheDocument();
+    expect(within(legend).getByRole('heading', { name: /Storage classes/ })).toBeInTheDocument();
+    fireEvent.click(within(legend).getByTestId('storageclass-legend-fold-toggle'));
     expect(within(legend).getAllByRole('listitem')).toHaveLength(2);
     expect(within(legend).getByTestId('storageclass-legend-row-fast-ssd')).toBeInTheDocument();
     expect(within(legend).getByText('standard')).toBeInTheDocument();
