@@ -10,9 +10,10 @@
 #
 # Bucket A only — the backend has NO contract for the showcase's switch fabric,
 # per-node status/alerts, or app/version/role pod labels, so those are absent here
-# (hard backend limits, not omissions). Result: 19 nodes / 13 edges + 4 owners.
+# (hard backend limits, not omissions). Result: 20 nodes / 13 edges + 4 owners
+# (the +1 over the 19-node base is the synthesised `prod/storageclass/fast-ssd` group).
 #
-#   prod > {worker-0 > gateway, mongo-0, mongo-2; worker-1 > mongo-1; mongo-svc; 3 PVCs}
+#   prod > {worker-0 > gateway, mongo-0, mongo-2; worker-1 > mongo-1; mongo-svc; fast-ssd > data-mongo-0/1/2}
 #   dr   > {worker-2 > consumer, nats-0, nats-1, nats-2; nats-svc}
 # pod-runs-on-node is NOT a drawn edge — it IS the cluster > node > pod nesting.
 
@@ -45,6 +46,15 @@ kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-2",owner_kind="Statefu
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-0",persistentvolumeclaim="data-mongo-0",volume="data"} 1
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-1",persistentvolumeclaim="data-mongo-1",volume="data"} 1
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-2",persistentvolumeclaim="data-mongo-2",volume="data"} 1
+
+# --- PVC StorageClass (kube_persistentvolumeclaim_info carries the `storageclass`
+#     label). The backend resolves (cluster,namespace,claim) → storageclass and
+#     synthesises a `prod/storageclass/fast-ssd` compound group, nesting each PVC as
+#     cluster > storageclass > pvc. All three mongo replicas share one StorageClass
+#     (a StatefulSet volumeClaimTemplate uses a single storageClassName). ---
+kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-0",storageclass="fast-ssd"} 1
+kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-1",storageclass="fast-ssd"} 1
+kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-2",storageclass="fast-ssd"} 1
 
 # --- mongo-svc ClusterIP service. A 2-label `mongo-svc.prod.svc…` connection
 #     string resolves to this Service node + fans service-selects-pod to mongo-*. ---
