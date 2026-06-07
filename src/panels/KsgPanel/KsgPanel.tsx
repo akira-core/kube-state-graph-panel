@@ -14,6 +14,7 @@ import {
   NodeContainerLegend,
   NodeLegend,
   StatusLegend,
+  StorageClassLegend,
   type ClusterLegendEntry,
 } from '../../features/legend';
 import { NodeDetailPanel, type NodeDetailData } from '../../features/node-detail';
@@ -23,7 +24,9 @@ import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
 
+import { deriveLegendKinds } from './deriveLegendKinds';
 import { deriveContainers } from './deriveNodeContainers';
+import { deriveStorageClassContainers } from './deriveStorageClassContainers';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 import { useCollapseGroup } from './useCollapseGroup';
 
@@ -82,7 +85,7 @@ export function resolveSelectedNode(
       continue;
     }
     const d = el.data as cytoscape.NodeDataDefinition;
-    if (d.id === selectedNodeId && d.isCluster !== true) {
+    if (d.id === selectedNodeId && d.isCluster !== true && d.isStorageClass !== true) {
       return {
         id: selectedNodeId,
         label: typeof d.label === 'string' ? d.label : selectedNodeId,
@@ -167,26 +170,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
-  // Node kinds present in the graph (first-seen order), so the node legend lists
-  // only what's on screen — same principle as the cluster swatches. Cluster
-  // containers carry no kind and are excluded.
-  const presentKinds = useMemo<string[]>(() => {
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const el of elements) {
-      if (el.group !== 'nodes') {
-        continue;
-      }
-      const d = el.data as cytoscape.NodeDataDefinition;
-      if (d.isCluster === true || typeof d.kind !== 'string' || seen.has(d.kind)) {
-        continue;
-      }
-      seen.add(d.kind);
-      ordered.push(d.kind);
-    }
-    return ordered;
-  }, [elements]);
-
   // Edge types present in the graph, ordered by the canonical edge-style map for
   // a stable legend. `elements` is already mode-transformed (applyPodParentMode),
   // so this is exactly the set of drawn edges currently on screen.
@@ -240,30 +223,35 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
   }, [podParentMode, elements]);
 
-  // Mode-aware compound containers (swatched by their cluster) + whether `node`
-  // should also appear in the icon Node-kinds legend. In node mode the containers
-  // are the K8s `node` boxes ("Nodes"); in controller mode they are the
-  // synthesized controllers ("Controllers") and K8s nodes become leaf icons. A
-  // container is dropped from Node-kinds while it renders as a labelled box with
-  // no icon; it earns its icon slot only when it renders as a glyph: a drawn leaf
-  // or a COLLAPSED container (which shows its kind icon once its children hide).
+  // Mode-aware compound containers (swatched by their cluster) for the "Nodes" /
+  // "Controllers" section. In node mode these are the K8s `node` boxes; in controller
+  // mode the synthesized controllers. Childless candidates are drawn leaves, not
+  // containers. Whether a kind ALSO shows in the icon Node-kinds legend is decided by
+  // deriveLegendKinds (below), not here.
   const {
     containerEntries,
     containerIds,
     title: containerTitle,
     collapseNoun,
-    showNodeKindIcon,
   } = useMemo(
-    () => deriveContainers(elements, themeColors(theme).border.weak, podParentMode, collapsedIds),
-    [elements, theme, podParentMode, collapsedIds]
+    () => deriveContainers(elements, themeColors(theme).border.weak, podParentMode),
+    [elements, theme, podParentMode]
   );
 
-  // The kinds shown in the icon Node-kinds legend: drop `node` while it only
-  // renders as an (expanded) container — it lives in the "Nodes" swatch section.
-  const nodeLegendKinds = useMemo(
-    () => (showNodeKindIcon ? presentKinds : presentKinds.filter((kind) => kind !== 'node')),
-    [presentKinds, showNodeKindIcon]
+  // StorageClass compound groups (cluster > storageclass > pvc). Mode-INDEPENDENT
+  // (unlike the node/controller containers above): a StorageClass always boxes its
+  // PVCs in both pod-parent modes, so it gets its own swatch section + collapse group.
+  const { containerEntries: storageClassEntries, containerIds: storageClassIds } = useMemo(
+    () => deriveStorageClassContainers(elements, themeColors(theme).border.weak),
+    [elements, theme]
   );
+
+  // The kinds shown in the icon Node-kinds legend — collapse- + container-aware, so
+  // the legend lists exactly what renders as a glyph: drawn leaves + collapsed
+  // containers; expanded containers (Nodes / Controllers / Storage classes) and
+  // collapse-hidden children drop out. This is why collapsing a storageclass swaps
+  // `pvc` → `storageclass` (and node⇄pod, controller⇄pod likewise).
+  const nodeLegendKinds = useMemo(() => deriveLegendKinds(elements, collapsedIds), [elements, collapsedIds]);
 
   // Cluster container ids = backend cluster containers (isCluster).
   const clusterContainerIds = useMemo<string[]>(() => {
@@ -290,6 +278,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const { allCollapsed: allNodesCollapsed, toggle: toggleNodes } = useCollapseGroup(
     containerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
+  const { allCollapsed: allStorageClassesCollapsed, toggle: toggleStorageClasses } = useCollapseGroup(
+    storageClassIds,
     collapsedIds,
     setCollapsedIds
   );
@@ -331,6 +324,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             allCollapsed={allNodesCollapsed}
             title={containerTitle}
             collapseNoun={collapseNoun}
+          />
+          <StorageClassLegend
+            storageClasses={storageClassEntries}
+            onToggleCollapseAll={toggleStorageClasses}
+            allCollapsed={allStorageClassesCollapsed}
           />
           <NodeLegend kinds={nodeLegendKinds} />
           <EdgeLegend edgeTypes={presentEdgeTypes} />

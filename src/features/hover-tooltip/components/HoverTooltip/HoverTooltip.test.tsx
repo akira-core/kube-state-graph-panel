@@ -61,6 +61,22 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('1.2.3')).toBeInTheDocument();
   });
 
+  it('shows synthesized context for a storageclass group (kind + cluster + grouped PVCs)', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/storageclass/fast-ssd',
+      group: 'nodes',
+      data: { id: 'prod/storageclass/fast-ssd', label: 'fast-ssd', isStorageClass: true, labels: {} },
+      storageClass: { cluster: 'prod', pvcLabels: ['data-mongo-0', 'data-mongo-1', 'data-mongo-2'] },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('fast-ssd')).toBeInTheDocument(); // title (name)
+    expect(screen.getByText('storageclass')).toBeInTheDocument(); // synthesized kind value
+    expect(screen.getByText('cluster:')).toBeInTheDocument();
+    expect(screen.getByText('prod')).toBeInTheDocument();
+    expect(screen.getByText('PVCs (3):')).toBeInTheDocument();
+    expect(screen.getByText('data-mongo-0, data-mongo-1, data-mongo-2')).toBeInTheDocument();
+  });
+
   it('joins multiple ip addresses with a comma', () => {
     useHoverElement.mockReturnValue({
       id: 'node-1',

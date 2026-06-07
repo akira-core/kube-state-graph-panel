@@ -293,9 +293,61 @@ describe('KsgPanel', () => {
     expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
   });
 
+  it('renders a "Storage classes" legend section and collapses storage classes via its toggle', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          {
+            data: { id: 'demo/storageclass/fast-ssd', type: 'storageclass', name: 'fast-ssd', parent: 'cluster:demo' },
+          },
+          {
+            data: {
+              id: 'demo/pvc-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'demo/storageclass/fast-ssd',
+              labels: { cluster: 'demo' },
+            },
+          },
+          {
+            data: { id: 'demo/p0', type: 'pod', name: 'mongo-0', parent: 'cluster:demo', labels: { cluster: 'demo' } },
+          },
+        ],
+        edges: [{ data: { id: 'e0', type: 'pod-mounts-pvc', source: 'demo/p0', target: 'demo/pvc-0' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const legend = screen.getByTestId('storageclass-legend');
+    expect(within(legend).getByRole('heading', { name: 'Storage classes' })).toBeInTheDocument();
+    expect(within(legend).getByText('fast-ssd')).toBeInTheDocument();
+    // Collapse-all pushes the storageclass container id to GraphCanvas.
+    fireEvent.click(screen.getByTestId('storageclass-collapse-toggle'));
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(true);
+  });
+
   it('does not render the cluster legend when there are no clusters', () => {
     render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
     expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();
+  });
+
+  it('does not render the storage-class legend when there are no storage classes', () => {
+    render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+    expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
   });
 
   it("resolveSelectedNode carries a node's alerts onto the detail data", () => {

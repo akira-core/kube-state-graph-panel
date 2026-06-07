@@ -37,6 +37,31 @@ function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
 
+// A node's panel-side identity, keyed off its upstream `type`:
+//   - `cluster`  → a kind-less decorative container (its own palette accent colour).
+//   - `storageclass` → a compound GROUP that carries its `kind` (so it can appear in
+//     the icon legend when collapsed + be filterable) AND the `isStorageClass` flag
+//     (so it gets its own "Storage classes" swatch section + is excluded from the
+//     detail panel). It behaves like the K8s `node` container: icon-less while an
+//     expanded box, shows its icon when collapsed. It carries NO status (a grouping
+//     box has no health).
+//   - everything else → a leaf carrying its kind + status.
+// One branch, one place.
+type NodeIdentity =
+  | { isCluster: true; cluster: string; clusterColor: string }
+  | { kind: NodeKind; isStorageClass: true }
+  | { kind: NodeKind; status: NodeStatus };
+
+function resolveNodeIdentity(type: string, label: string, status: NodeStatus): NodeIdentity {
+  if (type === 'cluster') {
+    return { isCluster: true, cluster: label, clusterColor: colorForCluster(label) };
+  }
+  if (type === 'storageclass') {
+    return { kind: 'storageclass', isStorageClass: true };
+  }
+  return { kind: type as NodeKind, status };
+}
+
 // Project the optional upstream `alerts` array onto typed NodeAlert[]. Anti-corruption
 // boundary: malformed entries (missing/ill-typed name, severity or time) are dropped,
 // not thrown — consistent with the partial-parse contract. `severity` is kept as a
@@ -162,15 +187,11 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     const namespace = labels?.namespace;
     const label = isString(d.name) ? d.name : d.id;
     const isCluster = d.type === 'cluster';
-    // A cluster container carries no kind (it is not a NodeKind — identified by
-    // isCluster, kept out of the kind filter / shapes) and gets a palette colour;
-    // every other node carries its kind. One branch, one place.
-    const identity = isCluster
-      ? { isCluster: true, cluster: label, clusterColor: colorForCluster(label) }
-      : { kind: d.type as NodeKind, status: isNodeStatus(d.status) ? d.status : FALLBACK_STATUS };
-    // Alerts ride on any non-cluster node; cluster containers never carry them
-    // (and are excluded from the detail panel that consumes them).
-    const alerts = isCluster ? undefined : parseAlerts(d.alerts);
+    const isStorageClass = d.type === 'storageclass';
+    const identity = resolveNodeIdentity(d.type, label, isNodeStatus(d.status) ? d.status : FALLBACK_STATUS);
+    // Alerts ride on any leaf node; grouping containers (cluster / storageclass)
+    // never carry them (and are excluded from the detail panel that consumes them).
+    const alerts = isCluster || isStorageClass ? undefined : parseAlerts(d.alerts);
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',

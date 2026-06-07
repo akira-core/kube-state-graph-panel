@@ -20,6 +20,16 @@ declare module 'cytoscape' {
     // distinguishes a controller container from a K8s `node` container in
     // controller mode (deriveContainers).
     isController?: boolean;
+    // true only on a backend-synthesized StorageClass compound group node
+    // (data.type === 'storageclass'; cluster > storageclass > pvc nesting). UNLIKE
+    // isCluster, it ALSO carries a real `kind: 'storageclass'` — it renders exactly
+    // like the K8s `node` container (icon-less while an expanded :parent, shows its
+    // kind glyph when collapsed/leaf) and is filterable via visibleKinds. The flag
+    // itself only drives three non-style behaviours: its own "Storage classes" swatch
+    // legend section, exclusion from the detail panel, and synthesized hover context.
+    // It nests under its cluster, tints from that cluster's accent, and stays
+    // interactive / collapsible.
+    isStorageClass?: boolean;
   }
 
   interface EdgeDataDefinition {

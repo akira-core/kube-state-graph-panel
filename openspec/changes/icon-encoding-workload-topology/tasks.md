@@ -14,11 +14,10 @@
 >
 > **本次精修(2026-06-07,branch `feat/dynamic-layout`)**:依使用者回饋,拓樸雙模式預設由 `node` 改為 `controller`(初次載入即全摺疊聚合);`node` 模式改為**過濾掉**合成 controller 節點與 `controller-owns-pod` 邊(乾淨 `cluster > node > pod`、不顯示 controller),`controller-owns-pod` 自此 synthesis-internal、兩模式皆不繪製(`drawnEdgeTypesForMode('node')` 移除之);預設摺疊改於初次載入觸發、ref 守衛使 data refresh 不重摺,並修正 `useExpandCollapse` 在 expand-collapse API 初始化後才套用摺疊的競態。修掉一個 `node` 模式 workload 全消失的 bug:cytoscape alias `data` 物件、expand-collapse 摺疊時就地改寫邊端點污染 `baseElements` —— `applyPodParentMode` 兩模式皆改回傳獨立淺拷貝物件(見 D13)。icon:pod 改 k8s 七邊形、statefulset 改堆疊磁碟(自繪 inline SVG)。typecheck / lint / test:ci(274) / build 全綠、`openspec validate --strict` 通過、no-backend demo(`/d/ksg-switch-demo`)實機驗證三模式切換正確。spec / design 同步:pod-parent-mode + graph-data-integration + design.md(D6 / D8 / D9 / D10 / D11 + 新增 D13)。
 
-## 1. Icon 資產與授權
+## 1. Icon 資產
 
-- [ ] 1.1 從 Argo CD (`ui/src/assets/images/resources/`) vendoring 所需 kind 的單色 resource SVG(pod/node/pvc/service/deployment/statefulset/daemonset/job/cronjob + 通用 fallback;**無 replicaset**),sanitize(去 `<script>`/外部 ref),統一 `viewBox="0 0 24 24"`,缺的自畫
-- [ ] 1.2 將每個 SVG 的單色 fill 改為 `currentColor` sentinel,放入 `src/`(供 raw text 匯入)
-- [ ] 1.3 新增 `docs/THIRD_PARTY.md`,記載「Argo CD resource icons, Apache-2.0」attribution
+- [x] 1.1 全套單色 outline glyph 自繪於 `ICON_SVG_BY_KIND`。**不 vendoring Argo CD**(實抓後為填色剪影 + 多色 + cronjob 壞 clip-path,與 outline 風格衝突;見 D2)→ 無第三方檔、無需 attribution。
+- [x] 1.2 依使用者回饋重繪 workload controller glyph(k8s/Argo 視覺語彙):deployment=滾動更新環形箭頭、statefulset=有序分層方框、daemonset=每節點方框+基線、job=方格+勾、cronjob=時鐘;Playwright 實機驗證。
 
 ## 2. 常數與型別(單一來源 map)
 
@@ -95,3 +94,23 @@
 - [x] 12.4 `npm run build` 成功;確認 vendored SVG 在 sign 前 bundle 完成、plugin-validator 不拒
 - [ ] 12.5 本機 demo 手動驗證:icon 隨 light/dark 主題上色、node⇄controller 切換巢狀正確、controller 模式預設聚合摺疊、controller-owns-pod / pod-runs-on-node 依模式繪製、K8s node fabric 分層 + `node-to-switch` 與 `switch-to-switch` 視覺一致、legend(含最上方 layout 分段控制與 NodeContainerLegend 容器來源)正確
 - [x] 12.6 `openspec validate icon-encoding-workload-topology --strict` 通過
+
+## 13. StorageClass compound 容器 + demo(2026-06-07 擴充)
+
+> 後端(latest / v0.0.21,commit `e092ce6`)以 `kube_persistentvolumeclaim_info` 的 `storageclass` label 合成 `type:"storageclass"` 群組節點、巢狀 `cluster > storageclass > pvc`。panel 比照 cluster 以**旗標**處理(無 `kind`、永不畫 icon),新增獨立「Storage classes」legend 區段。見 D14。本次併入本 change(storageclass 由原「out of scope」改為「in scope — 僅 compound GROUP 容器」)。
+
+- [x] 13.1 `cytoscape.d.ts`:`NodeDataDefinition` 加 `isStorageClass?: boolean`
+- [x] 13.2 `normalize.ts`:新增 `resolveNodeIdentity` 對 `type === 'storageclass'` 標 `isStorageClass`、不給 `kind` / `status` / `alerts`、`parent` 穿透(TDD:`normalize.test.ts` RED→GREEN)
+- [x] 13.3 `getStylesheet.ts`:`node[?isStorageClass]` 強制 `background-image:'none'`(展開+收合),底色 / 邊框 / label 取父 cluster accent;更新 snapshot + 加 headless 行為測試
+- [x] 13.4 新增純函式 `deriveStorageClassContainers.ts`(name 去重 + 父 cluster 上色 + 全部 id)(TDD)
+- [x] 13.5 新增 `StorageClassLegend` 元件(`SwatchLegend` 包裝,獨立 testId)+ barrel 匯出(TDD)
+- [x] 13.6 `KsgPanel.tsx`:串接 derivation + `useCollapseGroup` +「Storage classes」區段(NodeContainerLegend 後、NodeLegend 前);`resolveSelectedNode` 排除 `isStorageClass`;更新 `KsgPanel.test.tsx` + `resolveSelectedNode.test.ts`
+- [x] 13.7 Backend demo:`dev/victoriametrics/topology.prom` 加 3 條 `kube_persistentvolumeclaim_info{…storageclass="fast-ssd"}` + 更新檔頭計數;`docker compose up -d --force-recreate kube-state-graph` 重建至新 `latest`(v0.0.21);後端 `/v1/graph` 確認 synthesise `prod/storageclass/fast-ssd`(20 nodes / 13 edges)
+- [x] 13.8 Showcase:`ksg-switch-demo.json` 加 `prod/storageclass/fast-ssd` 群組節點 + 3 PVC re-parent(node 腳本:計數斷言 + JSON 驗證)
+- [x] 13.9 驗證:typecheck / lint(零警告) / test:ci(287) / build 全綠;Playwright 雙 demo 實機截圖確認 `fast-ssd` 容器巢狀於 prod、PVC 在內、無 icon、「Storage classes」legend 區段出現於兩模式、未漏進 Node kinds
+- [x] 13.10 hover context(使用者回饋「currently only names too simple」,選 Option 2 = 維持無 kind):`useHoverElement` 自 cy parent/children 合成 storageclass 的 `kind: storageclass` + cluster + 群組 PVC 清單(排序),`HoverTooltip` 顯示(長清單 `wrap` 換行);不寫回 node data。TDD(useHoverElement.test.tsx + HoverTooltip.test.tsx),test:ci(289) 全綠,Playwright 實機確認 tooltip 顯示 `fast-ssd / kind:storageclass / cluster:prod / PVCs (3):…`
+- [x] 13.11 收合 icon(使用者回饋「收合的時候需要有一個圖案」):新增 `STORAGECLASS_ICON_SVG`(三層磁碟堆疊 glyph)+ 收合態選擇器,僅在收合時畫該 glyph(展開仍無 icon)——比照 K8s node 容器。**(13.12 取代:後續確認後改晉升為真 NodeKind,glyph 移入 `ICON_SVG_BY_KIND`、移除專屬選擇器。)**
+- [x] 13.12b storageclass glyph 整形(使用者「圓柱體不整齊」):由 3 段不相連圓盤改為單一連續圓柱 + 2 條內部分層弧線(database 形)。glyph-only(`iconSvgByKind.ts`),無 spec/測試影響。
+- [x] 13.12c 服務邊改色(使用者「svc to pod edge 跟 status 搞混」):由綠 `#10b981` 改為靛 `#6366f1`(避開 status 綠/黃/紅)。**(13.12d 取代:再統一為 pod-calls-pod 橘。)**
+- [x] 13.12d 服務邊統一為 pod-to-pod + 自圖例省略(使用者「pod↔svc 本質仍是 pod-to-pod、只多一層;移掉 pod↔svc legend、edge 色改與 pod-to-pod 相同」):`pod-calls-service` / `service-selects-pod` 改用與 `pod-calls-pod` 相同的橘 `#f97316`;`EdgeLegend` 由「合併為 `pod ↔ svc` 雙向列」改為**完全省略**該對(`SVC_OMITTED_FROM_LEGEND`);順手移除 `EdgeGlyph` 已無人使用的 `bidirectional` prop(原僅供合併列)+ 其測試。改寫 EdgeLegend.test / EdgeGlyph.test;colorByEdgeType.test 改為斷言服務對 == pod-calls-pod 色。panel-rendering spec「邊顏色」requirement + Edge legend scenario(改用 pod-calls-pod 為例 + 新增「服務邊省略」scenario)同步。test:ci(299) / lint / typecheck / build 全綠;Playwright 實機確認服務邊與 pod-calls-pod 同為橘、edge legend 只剩 `pod→pvc` / `pod→pod`(無 svc 列)。
+- [x] 13.12 **最終收斂——storageclass 晉升為真 `NodeKind`、Node-kinds 圖例 collapse-aware**(使用者回饋「node kind 需要在 sc 收合的時候顯示 storageclass,可以取代 pvc」)。改動:`types.ts` `NodeKind` += `storageclass`;glyph 移入 `ICON_SVG_BY_KIND`(移除 standalone export 與 getStylesheet 內所有 `node[?isStorageClass]` 選擇器——改走 base `node` + `node:parent`,與 K8s node 容器同路徑);`categoryByKind` += `storageclass: 'Storage'`;`normalize` 改賦 `{kind:'storageclass', isStorageClass}`(仍無 status/alerts)。新增純函式 `deriveLegendKinds(elements, collapsedIds)` 取代 `presentKinds` + `deriveContainers.showNodeKindIcon`:Node-kinds 圖例只列「以 glyph 呈現」者(drawn leaf + 收合容器;展開容器 + 被收合祖先隱藏的子節點不列)→ 收合 SC 時 storageclass 取代 pvc(node⇄pod、controller⇄pod 同理)。順帶套用審查 5 findings:#1 childless-guard(deriveStorageClassContainers 跳過無子 SC)、#3 抽出 `clusterColorIndex.buildClusterColorIndex` 供 deriveContainers + deriveStorageClassContainers 共用、#4 `StorageClassDerivation` 欄位改名 `containerEntries/containerIds` 對齊 sibling、#2(weak/medium fallback)因 storageclass 改走 `node:parent` 而自動與 node 一致、#5 無 drift。TDD:新增 `deriveLegendKinds.test.ts`、改寫 `deriveNodeContainers.test.ts`(移除 showNodeKindIcon)/`deriveStorageClassContainers.test.ts`/`normalize.test.ts`/`getStylesheet.test.ts`(+snapshot);test:ci(296) / lint / typecheck / build 全綠;Playwright 實機確認展開→Node-kinds 顯示 pvc、收合→顯示 storageclass(取代 pvc)且收合盒有磁碟 glyph

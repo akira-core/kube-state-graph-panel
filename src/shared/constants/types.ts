@@ -19,7 +19,11 @@ export type NodeKind =
   | 'statefulset'
   | 'daemonset'
   | 'job'
-  | 'cronjob';
+  | 'cronjob'
+  // A backend-synthesized StorageClass compound GROUP (cluster > storageclass > pvc).
+  // It is also tagged `isStorageClass` (see cytoscape.d.ts) and behaves like the K8s
+  // `node` container: icon-less while an expanded box, shows its icon when collapsed.
+  | 'storageclass';
 
 // Full wire contract: every edge type the backend's core graph can carry.
 // `switch-to-switch` / `node-to-switch` are the physical network-fabric edges

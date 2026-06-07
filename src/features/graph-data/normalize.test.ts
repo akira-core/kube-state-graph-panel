@@ -379,6 +379,56 @@ describe('normalizeGraph', () => {
     expect(elements.some((e) => (e.data as Record<string, unknown>).isCluster === true)).toBe(false);
   });
 
+  it('tags a storageclass group container (kind=storageclass, no status/alerts) and passes PVC nesting through', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
+          {
+            data: {
+              id: 'prod/storageclass/fast-ssd',
+              type: 'storageclass',
+              name: 'fast-ssd',
+              parent: 'cluster/prod',
+              // A group node never carries alerts even if upstream sends them.
+              alerts: [{ name: 'x', severity: 'warning', time: 1 }],
+            },
+          },
+          {
+            data: {
+              id: 'pvc/data-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'prod/storageclass/fast-ssd',
+              status: 'warning',
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const { elements, errors } = normalizeGraph(raw);
+    expect(errors).toEqual([]);
+    const byId = new Map(elements.map((e) => [e.data.id as string, e.data as Record<string, unknown>]));
+    const sc = byId.get('prod/storageclass/fast-ssd');
+    // Tagged as a storageclass container: it carries its `kind` (so it can show in the
+    // icon legend when collapsed + be filterable) AND the `isStorageClass` flag (own
+    // "Storage classes" section, excluded from detail). Like the K8s node container it
+    // is a grouping box — NO status, NO alerts. It is NOT a cluster, and keeps its
+    // backend parent + label.
+    expect(sc?.isStorageClass).toBe(true);
+    expect(sc?.kind).toBe('storageclass');
+    expect(sc?.status).toBeUndefined();
+    expect(sc?.alerts).toBeUndefined();
+    expect(sc?.isCluster).toBeUndefined();
+    expect(sc?.parent).toBe('cluster/prod');
+    expect(sc?.label).toBe('fast-ssd');
+    // The PVC nests under the storageclass group verbatim and keeps kind + status.
+    expect(byId.get('pvc/data-0')?.parent).toBe('prod/storageclass/fast-ssd');
+    expect(byId.get('pvc/data-0')?.kind).toBe('pvc');
+    expect(byId.get('pvc/data-0')?.status).toBe('warning');
+  });
+
   describe('node alerts', () => {
     const withAlerts = (alerts: unknown): ReturnType<typeof normalizeGraph> =>
       normalizeGraph({

@@ -18,14 +18,9 @@ describe('deriveContainers — node mode', () => {
       node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
       node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
     ];
-    const { containerEntries, containerIds, showNodeKindIcon, title, collapseNoun } = deriveContainers(
-      els,
-      NEUTRAL,
-      'node'
-    );
+    const { containerEntries, containerIds, title, collapseNoun } = deriveContainers(els, NEUTRAL, 'node');
     expect(containerEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
     expect(containerIds).toEqual(['node/worker-0']);
-    expect(showNodeKindIcon).toBe(false);
     expect(title).toBe('Nodes');
     expect(collapseNoun).toBe('nodes');
   });
@@ -45,19 +40,6 @@ describe('deriveContainers — node mode', () => {
     expect(containerIds).toEqual(['node/w-1', 'node/w-2']);
   });
 
-  it('keeps a collapsed container in the swatch list AND puts node in the icon legend', () => {
-    const els = [
-      node({ id: 'cluster/prod', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
-      node({ id: 'node/worker-0', kind: 'node', parent: 'cluster/prod', label: 'worker-0' }),
-      node({ id: 'pod/a', kind: 'pod', parent: 'node/worker-0', label: 'a' }),
-    ];
-    const { containerEntries, showNodeKindIcon } = deriveContainers(els, NEUTRAL, 'node', new Set(['node/worker-0']));
-    // Still swatched (so its expand toggle stays available)…
-    expect(containerEntries).toEqual([{ name: 'worker-0', color: '#0ea5e9' }]);
-    // …and now also earns the icon slot (it renders as a glyph while collapsed).
-    expect(showNodeKindIcon).toBe(true);
-  });
-
   it('falls back to the neutral colour when a node container has no cluster parent', () => {
     const els = [
       node({ id: 'node/w', kind: 'node', label: 'w' }),
@@ -73,9 +55,9 @@ describe('deriveContainers — node mode', () => {
       node({ id: 'pod/a', kind: 'pod', label: 'a' }),
       edge({ id: 'e', source: 'pod/a', target: 'node/w', edgeType: 'pod-runs-on-node' }),
     ];
-    const { containerEntries, showNodeKindIcon } = deriveContainers(els, NEUTRAL, 'node');
+    const { containerEntries, containerIds } = deriveContainers(els, NEUTRAL, 'node');
     expect(containerEntries).toEqual([]);
-    expect(showNodeKindIcon).toBe(true);
+    expect(containerIds).toEqual([]);
   });
 
   it('colours each node by its own cluster across multiple clusters', () => {
@@ -114,7 +96,7 @@ describe('deriveContainers — controller mode', () => {
       node({ id: 'c1', kind: 'deployment', isController: true, label: 'web', parent: 'cl' }),
       node({ id: 'p1', kind: 'pod', parent: 'c1' }),
     ];
-    const out = deriveContainers(els, '#999', 'controller', new Set());
+    const out = deriveContainers(els, '#999', 'controller');
     expect(out.containerIds).toEqual(['c1']);
     expect(out.containerEntries.map((e) => e.name)).toEqual(['web']);
     expect(out.title).toBe('Controllers');
@@ -131,16 +113,14 @@ describe('deriveContainers — controller mode', () => {
     expect(containerEntries).toEqual([{ name: 'mongo', color: '#0ea5e9' }]);
   });
 
-  it('controller mode marks node as a leaf icon (showNodeKindIcon) when a K8s node is present', () => {
+  it('controller mode does not treat a K8s node as a container', () => {
     const els = [
       node({ id: 'cl', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
       node({ id: 'n1', kind: 'node', parent: 'cl', label: 'worker' }),
       node({ id: 'c1', kind: 'deployment', isController: true, label: 'web', parent: 'cl' }),
       node({ id: 'p1', kind: 'pod', parent: 'c1' }),
     ];
-    const { showNodeKindIcon, containerIds } = deriveContainers(els, NEUTRAL, 'controller');
-    expect(showNodeKindIcon).toBe(true);
-    // K8s nodes are NOT containers in controller mode.
+    const { containerIds } = deriveContainers(els, NEUTRAL, 'controller');
     expect(containerIds).toEqual(['c1']);
   });
 });

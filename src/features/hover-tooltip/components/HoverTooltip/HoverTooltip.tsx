@@ -11,6 +11,9 @@ import { type HoverTooltipProps } from './HoverTooltip.types';
 interface TooltipRow {
   key: string;
   value: string;
+  // When true the row wraps (like the label rows) instead of clipping to one line —
+  // used for long synthesized values such as a storageclass's grouped PVC list.
+  wrap?: boolean;
 }
 
 // title + the structured attributes (kind/namespace/ipAddress, or edgeType) we
@@ -120,6 +123,23 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     const labelRaw = data.label;
     const idRaw = data.id;
     const title = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
+    // A storageclass compound group carries its kind but no namespace / ipAddress and
+    // no backend labels, so the generic attrs below would be just the kind. This
+    // branch ADDS the context that lives on the node's PARENT / CHILDREN, not its own
+    // data (gathered in useHoverElement): which cluster it belongs to and the PVCs it
+    // groups — so the tooltip is more than the bare name.
+    if (data.isStorageClass === true) {
+      const kindValue = typeof data.kind === 'string' ? data.kind : 'storageclass';
+      const scAttrs: TooltipRow[] = [{ key: 'kind', value: kindValue }];
+      const sc = hovered.storageClass;
+      if (sc?.cluster !== undefined && sc.cluster.length > 0) {
+        scAttrs.push({ key: 'cluster', value: sc.cluster });
+      }
+      if (sc !== undefined && sc.pvcLabels.length > 0) {
+        scAttrs.push({ key: `PVCs (${String(sc.pvcLabels.length)})`, value: sc.pvcLabels.join(', '), wrap: true });
+      }
+      return { title, attrs: scAttrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
+    }
     const attrs: TooltipRow[] = [];
     if (typeof data.kind === 'string') {
       attrs.push({ key: 'kind', value: data.kind });
@@ -210,7 +230,7 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
     >
       <div className={styles.title}>{title}</div>
       {attrs.map((row) => (
-        <div key={row.key} className={styles.row}>
+        <div key={row.key} className={row.wrap === true ? styles.labelRow : styles.row}>
           <span className={styles.rowKey}>{row.key}:</span>
           <span>{row.value}</span>
         </div>

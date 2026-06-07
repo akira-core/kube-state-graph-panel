@@ -18,7 +18,7 @@
 
 **Non-Goals:**
 
-- ingress/pv/storageclass/configmap/secret/rbac 的節點與邊（等後端與需求）。
+- ingress/pv/configmap/secret/rbac 的節點與邊（等後端與需求）。StorageClass 已納入——但僅作為 compound GROUP 容器（`cluster > storageclass > pvc` 巢狀,見 D14）,非 leaf kind、非邊。
 - 低 zoom 的 icon→純形狀 level-of-detail 切換。
 - 狀態角標（badge）——先只用邊框色。
 - 後端程式碼（本 repo 為 panel-only）。後端契約僅提供 pod 上的 `data.owner` metadata；controller 節點與 `controller-owns-pod` 邊由 panel 自 owner 合成（D9），非後端產生。standalone workload `data.type` 節點若後端日後直接發送亦可渲染。
@@ -33,12 +33,13 @@
 - **理由**：形狀通道已用罄；icon 近乎無限且辨識度高（產業慣例 icon=身分）。icon 本身是非顏色的形狀編碼，a11y 仍不依賴顏色。
 - **Alternatives**：(a) 形狀=超大類、icon=kind（保留冗餘 a11y）——但增加複雜度，且使用者明確選擇統一容器；(b) 純文字 type 標籤——大圖缺乏視覺節奏。
 
-### D2. 單色可染 icon（Argo CD 集），非官方彩色徽章
+### D2. 單色可染 icon:**原創自繪**(採 k8s / Argo CD 視覺語彙),非 vendoring、非官方彩色徽章
 
-icon 為單色 line-art、帶 `currentColor` sentinel，隨主題注入色。資產 vendoring 自 Argo CD 的 monochrome resource SVG（Apache-2.0 相容），缺的自畫；attribution 寫 `docs/THIRD_PARTY.md`。
+icon 為單色 line-art、帶 `currentColor` sentinel,隨主題注入色,全部**自繪原創**。`ICON_SVG_BY_KIND` 是唯一資料源。
 
-- **理由**：官方 `kubernetes/community` icon 經抓原始檔證實是固定 `#326ce5` 藍 + 白多色徽章、**無單色版、無法隨主題重新上色**，與「融入 light/dark」目標衝突。Material Design Icons 雖可 `currentColor` 上色但無 per-resource K8s icon。Argo CD 是唯一可染的 per-resource K8s icon 慣例。
-- **Trade-off**：辨識度略低於官方藍徽章；需自行維護這套 SVG 與上游同步。
+- **理由**:官方 `kubernetes/community` icon 經抓原始檔證實是固定 `#326ce5` 藍 + 白多色徽章、**無單色版、無法隨主題重新上色**,與「融入 light/dark」目標衝突。
+- **(2026-06-07 修正,原訂 vendoring Argo CD 已否決)**:實抓 Argo CD `ui/src/assets/images/resources/*.svg` 後發現它們**並非乾淨單色 line-art**——是**填色剪影**(與本面板 outline 風格衝突)、**多色**(`#8fa4b1` + `#fff` 高光,無法乾淨 `currentColor` 染色)、且 `cronjob.svg` **參照不存在的 `clip-path url(#b)`(壞檔)**、非方形 viewBox。故**不 vendoring**,改為**自繪**對應 glyph(沿用其可辨識的視覺語彙):workload controller —— `deployment` = 滾動更新環形箭頭(Argo deploy motif)、`statefulset` = 有序分層方框(ordinal 點)、`daemonset` = 每節點方框 + 基線、`job` = 方格 + 勾、`cronjob` = 時鐘。其餘 kind(pod 七邊形、node 螢幕、pvc/storageclass 圓柱、service hub-spoke、switch 機架、external 雲)亦全自繪。
+- **Trade-off**:無第三方相依、無 attribution(原 `docs/THIRD_PARTY.md` 不需要)、風格一致(全 outline);代價是辨識度依賴自繪品質、需自行維護。
 
 ### D3. 上色集中在 `getStylesheet`，純函式 `tintSvgToDataUri`
 
@@ -120,6 +121,21 @@ controller 為**預設模式**,故全摺疊在**初始載入**(controller 首次
 
 - **理由**:cytoscape **別名(alias)**了交給 `cy.add` 的 `data` 物件(不深拷貝),而 expand-collapse 擴充在摺疊某個 controller 時會**就地 mutate** 其入射邊的 `data.source` / `data.target` 以改道。若直接以參考傳遞 normalized 的 `baseElements`,該就地 mutation 會污染共用的 `baseElements`——導致切回 `node` 模式時出現 `controller → pvc` 邊(controller 被過濾掉 → 整個 workload 孤立、消失)。淺拷貝每個 element 的 `data` 即可讓 normalized 輸入跨模式切換維持原狀(此為實際發現並修復的 bug)。
 - **取捨**:每次模式套用多配置一輪淺拷貝物件;基數小(單圖 element 數),代價可忽略,換得 `baseElements` 不可變的正確性保證。
+
+### D14. StorageClass 為 compound 容器,**完全比照 K8s node 容器**(真 `NodeKind` + collapse-aware 圖例)
+
+後端(latest)以 `kube_persistentvolumeclaim_info` 的 `storageclass` label 解析出每個 PVC 的 StorageClass,合成 `type: "storageclass"` 群組節點(id `<cluster>/storageclass/<sc>`、`parent` = 該 cluster 容器),把每個有解析到 SC 的 PVC re-parent 進去,巢狀為 `cluster > storageclass > pvc`。panel 端把它當成與 K8s `node` 容器**完全對等**——是一個**真的 `NodeKind`**,同時帶 `isStorageClass` 旗標標示其「自成一區的分組容器」身分(經數輪使用者回饋收斂:展開要像容器、收合要有圖案、且 Node-kinds 圖例在收合時要顯示 storageclass 取代 pvc):
+
+- `types.ts` `NodeKind` 加入 `'storageclass'`;`ICON_SVG_BY_KIND` 加入其 glyph(三層磁碟堆疊,distinct from pvc 單柱);`categoryByKind` → `Storage`。因 `ALL_KINDS` = `ICON_SVG_BY_KIND` keys,它**自動**進預設可見集(無 filter 退化)。
+- `normalizeGraph` `resolveNodeIdentity`:`type === 'storageclass'` → `{ kind: 'storageclass', isStorageClass: true }`(有 kind、**無** status / alerts——分組盒無健康)。
+- `getStylesheet`:**不**需要任何 storageclass 專屬選擇器。它走 base `node`(由 kind 解析 icon)+ `node:parent`(展開為容器時 `background-image:'none'`、取父 cluster accent)——與 K8s `node` 容器同一條路徑:**展開無 icon、收合/leaf 顯示其 kind icon**。
+- `isStorageClass` 旗標僅用於三處非樣式行為:(a)`deriveStorageClassContainers` → 獨立「Storage classes」swatch 區段(**mode-independent**,node/controller 皆在,有 collapse-all);(b)`resolveSelectedNode` 排除(純分組盒、無 detail);(c)`HoverTooltip` 合成 context(見下)。
+- **collapse-aware Node-kinds 圖例(`deriveLegendKinds`,本次新增、取代舊 `presentKinds` + `showNodeKindIcon`)**:Node-kinds 圖例只列「目前以 glyph 呈現於畫布」的 kind——drawn leaf + **收合的**容器計入;**展開的**容器(Clusters / Nodes|Controllers / Storage classes 各自 swatch 區段)與「被收合祖先隱藏」的子節點不計入。故收合某 storageclass → 其 PVC 被聚合隱藏(pvc 退出)、收合的 SC 顯示其 glyph(storageclass 進入)= **storageclass 取代 pvc**;node⇄pod、controller⇄pod 同理一致。`cluster`(無 kind)永不入此圖例。
+- **hover context**:storageclass 無 backend labels,`useHoverElement` 於 hover 當下自 cy 讀 parent/children 合成 `cluster` + 群組 PVC 清單(排序),`HoverTooltip` 顯示(長清單 `wrap` 換行);`kind: storageclass` 因已有 kind 而自然顯示。
+
+- **理由**:使用者歷經「無 icon→hover 要 context→收合要 icon→收合要進 Node-kinds 取代 pvc」逐步收斂,最終等同「storageclass 就是一種像 `node` 的容器型 kind」。直接晉升為真 `NodeKind` 讓 base-node 樣式與 icon 自動沿用(零 storageclass 專屬樣式),`deriveLegendKinds` 的 collapse-aware 規則一次解決 node/controller/storageclass 三者「展開隱藏 kind、收合顯示」的一致行為。`isStorageClass` 旗標保留以表達「它另成一個 swatch 區段、不是普通 leaf」。
+- **Trade-off**:`deriveLegendKinds` 取代 `deriveContainers` 的 `showNodeKindIcon`,故 node/pod 在「收合 node」時行為也變一致(pod 退出、node 進入)——比舊行為(pod 殘留)更誠實地反映畫布。storageclass 成為可在 panel options `visibleKinds` 過濾的 kind(與 node 一致)。
+- **Alternatives(皆否決)**:(a)無 kind 旗標 + 收合態專屬選擇器畫 icon——無法讓 storageclass 進 Node-kinds 圖例(使用者要它收合時取代 pvc);(b)demo-only 不動 panel——收合盒空白、且會以 fallback glyph 漏進 Other 區。
 
 ## Risks / Trade-offs
 

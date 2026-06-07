@@ -11,22 +11,20 @@ import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTyp
 import { EdgeLegend } from './EdgeLegend';
 
 describe('EdgeLegend', () => {
-  // The pod↔service pair (pod-calls-service + service-selects-pod) collapses to a
-  // single bidirectional row, so the default legend has one fewer row than the
-  // master map has edge types.
+  // The pod↔service pair (pod-calls-service + service-selects-pod) is OMITTED from
+  // the legend (it is the pod-to-pod relationship via a Service), so the default
+  // legend has two fewer rows than the node drawn-set has edge types.
   const SVC_PAIR = ['pod-calls-service', 'service-selects-pod'];
 
-  it('renders one row per drawn edge type, collapsing the pod↔svc pair into one', () => {
+  it('omits the pod↔svc pair entirely (one row per OTHER drawn edge type)', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const items = within(legend).getAllByRole('listitem');
-    // The default legend lists the node-mode drawn set; the pod↔svc pair (both
-    // present) collapses to a single bidirectional row, so the row count is the
-    // node drawn-set size minus one.
-    expect(items).toHaveLength(drawnEdgeTypesForMode('node').length - 1);
+    // The default legend lists the node-mode drawn set minus the two omitted svc edges.
+    expect(items).toHaveLength(drawnEdgeTypesForMode('node').length - SVC_PAIR.length);
   });
 
-  it('renders each non-merged edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
+  it('renders each non-omitted edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
@@ -45,24 +43,23 @@ describe('EdgeLegend', () => {
     }
   });
 
-  it('collapses pod-calls-service + service-selects-pod into one bidirectional pod ↔ svc row', () => {
+  it('omits both svc edges and any merged pod↔svc row from the legend', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
-    // The two single-direction svc rows are gone…
+    // The pod↔service relationship is conceptually pod-to-pod, so neither the two
+    // single-direction svc rows nor a merged pod↔svc row appear.
     expect(within(legend).queryByTestId('edge-legend-row-pod-calls-service')).toBeNull();
     expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
-    // …replaced by one merged row with both endpoints and a two-headed arrow.
-    const row = within(legend).getByTestId('edge-legend-row-pod-svc');
-    expect(within(row).getByText('pod')).toBeInTheDocument();
-    expect(within(row).getByText('svc')).toBeInTheDocument();
-    expect(within(row).getByTestId('edge-glyph-arrow-start')).toBeInTheDocument();
-    // Coloured with the shared svc-edge green.
-    expect(within(row).getByTestId('edge-glyph').querySelector('polygon')?.getAttribute('fill')).toBe(
-      COLOR_BY_EDGE_TYPE['pod-calls-service'].color
-    );
+    expect(within(legend).queryByTestId('edge-legend-row-pod-svc')).toBeNull();
   });
 
-  it('places a same-colour arrow glyph between the endpoints of every non-merged drawn edge type', () => {
+  it('colours service edges the same as pod-calls-pod on canvas (single shared style)', () => {
+    // Canvas colour parity (the legend omits svc, but the style map must unify them).
+    expect(COLOR_BY_EDGE_TYPE['service-selects-pod'].color).toBe(COLOR_BY_EDGE_TYPE['pod-calls-pod'].color);
+    expect(COLOR_BY_EDGE_TYPE['pod-calls-service'].color).toBe(COLOR_BY_EDGE_TYPE['pod-calls-pod'].color);
+  });
+
+  it('places a same-colour arrow glyph between the endpoints of every non-omitted drawn edge type', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     // Iterate the node-mode drawn set (controller-owns-pod is no longer drawn in
@@ -100,14 +97,15 @@ describe('EdgeLegend', () => {
   });
 
   describe('controller pod-parent mode', () => {
-    it('lists pod-runs-on-node and drops controller-owns-pod (service edges still drawn)', () => {
+    it('lists pod-runs-on-node and drops controller-owns-pod + the omitted svc pair', () => {
       // The legend is list-only now; the mode is reflected by the edge types passed in.
       render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('controller')} />);
       const legend = screen.getByTestId('edge-legend');
       expect(within(legend).getByTestId('edge-legend-row-pod-runs-on-node')).toBeInTheDocument();
       expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
-      // service-selects-pod is part of the merged pod↔svc row in both modes.
-      expect(within(legend).getByTestId('edge-legend-row-pod-svc')).toBeInTheDocument();
+      // service edges are omitted from the legend in both modes (still drawn on canvas).
+      expect(within(legend).queryByTestId('edge-legend-row-pod-svc')).toBeNull();
+      expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
     });
   });
 

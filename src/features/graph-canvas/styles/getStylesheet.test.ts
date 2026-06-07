@@ -157,6 +157,49 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
+  it('renders a storageclass group like a node container: icon-less when expanded, kind icon when collapsed/leaf', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        {
+          group: 'nodes',
+          data: {
+            id: 'prod/storageclass/fast-ssd',
+            label: 'fast-ssd',
+            kind: 'storageclass',
+            isStorageClass: true,
+            parent: 'cluster/prod',
+          },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' },
+        },
+        // A childless storageclass models the collapsed/leaf state (it drops out of
+        // node:parent → base node styling resolves its kind icon).
+        { group: 'nodes', data: { id: 'sc-leaf', label: 'gp2', kind: 'storageclass', isStorageClass: true } },
+      ],
+    });
+    const sc = cy.getElementById('prod/storageclass/fast-ssd');
+    // EXPANDED (a :parent) → labelled container box, NO icon (node:parent), and tinted
+    // with its parent cluster's accent — exactly like a K8s `node` container.
+    expect(sc.style('background-image')).toBe('none');
+    expect(sc.style('shape')).toBe('round-rectangle');
+    expect(sc.style('background-color')).toBe(cy.getElementById('cluster/prod').style('background-color'));
+    expect(Number(sc.style('background-opacity'))).toBeCloseTo(0.1);
+    // COLLAPSED / leaf (childless) → shows its storageclass kind icon (the disk stack),
+    // just like a collapsed K8s node container shows its icon.
+    expect(cy.getElementById('sc-leaf').style('background-image')).toBe(
+      tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor)
+    );
+    // The PVC nested inside still carries its own kind icon.
+    expect(cy.getElementById('pvc/data-0').style('background-image')).toMatch(/^data:image\/svg\+xml,/);
+    cy.destroy();
+  });
+
   it('highlights a selected node with a crisp outline ring plus an underlay halo, leaving its border untouched', () => {
     const selectedStyle = styleFor('node:selected');
     // A distinct outline ring is drawn OUTSIDE the node (outline-* is separate from

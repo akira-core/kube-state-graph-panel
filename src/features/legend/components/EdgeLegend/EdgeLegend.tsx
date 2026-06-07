@@ -26,12 +26,13 @@ function kindLabel(kind: NodeKind | 'controller'): string {
   return kind === 'service' ? 'svc' : kind;
 }
 
-// The pod↔service relationship is drawn on canvas as two opposite-direction edges
-// of the SAME colour (pod→service calls, service→pod selects). In the legend that
-// reads as redundant, so when BOTH are present they collapse to a single
-// bidirectional `pod ↔ svc` row. When only one is drawn it renders normally as a
-// single-direction row. (Service edges are drawn in both pod-parent modes.)
-const SVC_PAIR = ['pod-calls-service', 'service-selects-pod'] as const;
+// A pod↔service relationship is conceptually still pod-to-pod: a pod calls a Service
+// which selects pods — an extra hop, not a distinct relationship. On canvas both its
+// edges (pod→service calls, service→pod selects) share the pod-calls-pod colour; in
+// the legend they are OMITTED entirely (the single `pod → pod` row covers them), so
+// the legend doesn't present Service as its own relationship colour. (Service edges
+// are still drawn on canvas in both pod-parent modes.)
+const SVC_OMITTED_FROM_LEGEND: ReadonlySet<EdgeType> = new Set(['pod-calls-service', 'service-selects-pod']);
 
 interface EdgeRow {
   key: string;
@@ -39,35 +40,14 @@ interface EdgeRow {
   lineStyle: LineStyle;
   from: NodeKind | 'controller';
   to: NodeKind | 'controller';
-  bidirectional: boolean;
 }
 
 function buildRows(types: readonly EdgeType[]): EdgeRow[] {
-  const mergeSvc = SVC_PAIR.every((t) => types.includes(t));
-  const rows: EdgeRow[] = [];
-  let mergedEmitted = false;
-  for (const edgeType of types) {
-    if (mergeSvc && (SVC_PAIR as readonly string[]).includes(edgeType)) {
-      if (mergedEmitted) {
-        continue;
-      }
-      mergedEmitted = true;
-      const style = EDGE_STYLE_BY_TYPE['pod-calls-service'];
-      rows.push({
-        key: 'pod-svc',
-        color: style.color,
-        lineStyle: style.lineStyle,
-        from: 'pod',
-        to: 'service',
-        bidirectional: true,
-      });
-      continue;
-    }
+  return types.map((edgeType) => {
     const style = EDGE_STYLE_BY_TYPE[edgeType];
     const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType];
-    rows.push({ key: edgeType, color: style.color, lineStyle: style.lineStyle, from, to, bidirectional: false });
-  }
-  return rows;
+    return { key: edgeType, color: style.color, lineStyle: style.lineStyle, from, to };
+  });
 }
 
 export interface EdgeLegendProps {
@@ -81,8 +61,11 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
   const styles = useStyles2(getStyles);
   // Only known edge types can be rendered (the endpoint/style maps key off them);
   // an unknown type present in the data is drawn on-canvas via the fallback style
-  // but omitted from the legend.
-  const types = (edgeTypes ?? drawnEdgeTypesForMode('node')).filter((t) => t in EDGE_STYLE_BY_TYPE);
+  // but omitted from the legend. The pod↔service pair is also omitted (it is the
+  // pod-to-pod relationship via a Service — covered by the `pod → pod` row).
+  const types = (edgeTypes ?? drawnEdgeTypesForMode('node')).filter(
+    (t) => t in EDGE_STYLE_BY_TYPE && !SVC_OMITTED_FROM_LEGEND.has(t)
+  );
   const rows = buildRows(types);
   // Mirror ClusterLegend: nothing to show → render nothing.
   if (rows.length === 0) {
@@ -92,11 +75,11 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
     <div data-testid="edge-legend">
       <h4>Edge types</h4>
       <ul className={styles.list}>
-        {rows.map(({ key, color, lineStyle, from, to, bidirectional }) => (
+        {rows.map(({ key, color, lineStyle, from, to }) => (
           <li key={key} className={styles.row} data-testid={`edge-legend-row-${key}`} style={{ color }}>
             <span>{kindLabel(from)}</span>
             <span className={styles.glyph}>
-              <EdgeGlyph color={color} lineStyle={lineStyle} bidirectional={bidirectional} />
+              <EdgeGlyph color={color} lineStyle={lineStyle} />
             </span>
             <span>{kindLabel(to)}</span>
           </li>

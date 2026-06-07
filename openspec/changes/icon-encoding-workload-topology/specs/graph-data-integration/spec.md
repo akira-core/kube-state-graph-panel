@@ -71,3 +71,13 @@
 
 - **WHEN** 以相同 input 多次呼叫 `normalizeGraph`
 - **THEN** 合成的 controller 節點與 owns 邊集合、排序、id 完全一致,輸入未被就地修改
+
+### Requirement: StorageClass compound 容器之正規化(真 NodeKind + 容器旗標)
+
+後端(latest)以 PVC 的 `kube_persistentvolumeclaim_info` `storageclass` label 解析出每個 PVC 的 StorageClass,並合成 `type: "storageclass"` 群組節點(id `<cluster>/storageclass/<sc>`,`parent` = 該 cluster 容器),把有解析到 StorageClass 的 PVC 的 `data.parent` 指向它,巢狀為 `cluster > storageclass > pvc`。`normalizeGraph` SHALL 將此節點正規化為**容器型的真 `NodeKind`**(比照 K8s `node` 容器):賦予 `kind: 'storageclass'`(使其可進 icon 圖例/收合時顯示、可被 `visibleKinds` 過濾)**並**標 `isStorageClass: true`(標示其自成 swatch 區段、排除於 detail 面板);MUST **不**賦予 `status` / `alerts`(分組盒無健康)。其 `parent` 以及其下 PVC 的 `parent` 一律**原樣穿透**(panel 不自造此節點、不改其巢狀——它由後端產生,僅由 panel 正規化)。
+
+#### Scenario: storageclass 群組正規化為容器型 kind,PVC 巢狀原樣穿透
+
+- **WHEN** 上游節點 `data.type === 'storageclass'`(帶 `parent` 指向其 cluster 容器),且其下 PVC 的 `parent` 指向該群組
+- **THEN** normalize 賦予 `kind: 'storageclass'` 與 `isStorageClass: true`,**無** `status`、**無** `alerts`(即使上游帶 `alerts` 亦丟棄),並原樣保留其 `parent` 與 `label`(= `name`)
+- **AND** 其下 PVC 的 `data.parent` 原樣指向該 storageclass 群組,且 PVC 仍攜帶自身的 `kind` 與 `status`(`cluster > storageclass > pvc`)
