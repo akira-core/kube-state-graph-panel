@@ -1,7 +1,7 @@
 # Legend default-fold for swatch sections
 
 **Date:** 2026-06-07
-**Status:** Design approved, pending spec review
+**Status:** Implemented 2026-06-07
 
 ## Problem
 
@@ -114,11 +114,14 @@ adjustments each:
 The collapse-all tests (clicking `node-collapse-toggle` etc.) and the "renders nothing when
 empty" tests are unaffected.
 
-### No panel/e2e impact
+### Panel test impact
 
-No `KsgPanel` test or Playwright spec references the swatch row test ids
-(`cluster-legend-row-*`, `node-container-legend-row-*`, `storageclass-legend-row-*`), so the
-change is contained to the legend feature's own tests.
+`KsgPanel.test.tsx` does not reference the swatch row test ids, but it asserts legend rows and
+headings by visible text (`getByText('demo')`, `getByText('fast-ssd')`,
+`getByRole('heading', { name: 'Controllers' })`, `getByRole('heading', { name: 'Storage classes' })`),
+so three of its tests needed the same migration as the wrapper tests: expand the section before
+asserting a row, and relax heading-name queries to a regex (the heading now includes `(N)`). No
+Playwright e2e spec references the legend, so e2e is unaffected.
 
 ## Out of scope (YAGNI)
 
