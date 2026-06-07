@@ -58,6 +58,12 @@ function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; le
       padding: '0 8px',
       overflowY: 'auto',
       borderRight: `1px solid ${borderWeak}`,
+      // Shrink every section heading one step (h4 → h5) so long titles like
+      // "Storage Classes (N)" fit on one line in the 200px rail. The fold-toggle
+      // button inherits this via `font: inherit`.
+      '& h4': {
+        fontSize: theme.typography.h5.fontSize,
+      },
       '& > div + div': {
         marginTop: 8,
         paddingTop: 8,

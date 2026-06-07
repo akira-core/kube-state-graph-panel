@@ -29,7 +29,7 @@ export function StorageClassLegend({
 }: Readonly<StorageClassLegendProps>): React.JSX.Element | null {
   return (
     <SwatchLegend
-      title="Storage classes"
+      title="Storage Classes"
       testId="storageclass-legend"
       rowTestIdPrefix="storageclass-legend-row-"
       entries={storageClasses}

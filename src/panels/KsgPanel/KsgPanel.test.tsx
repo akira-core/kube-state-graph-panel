@@ -332,7 +332,7 @@ describe('KsgPanel', () => {
       />
     );
     const legend = screen.getByTestId('storageclass-legend');
-    expect(within(legend).getByRole('heading', { name: /Storage classes/ })).toBeInTheDocument();
+    expect(within(legend).getByRole('heading', { name: /Storage Classes/ })).toBeInTheDocument();
     fireEvent.click(within(legend).getByTestId('storageclass-legend-fold-toggle'));
     expect(within(legend).getByText('fast-ssd')).toBeInTheDocument();
     // Collapse-all pushes the storageclass container id to GraphCanvas.

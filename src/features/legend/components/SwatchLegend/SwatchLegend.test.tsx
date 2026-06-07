@@ -21,7 +21,7 @@ describe('SwatchLegend', () => {
     expect(within(legend).queryAllByRole('listitem')).toHaveLength(0);
     expect(within(legend).getByRole('heading', { name: /Nodes/ })).toBeInTheDocument();
     const toggle = within(legend).getByTestId('demo-legend-fold-toggle');
-    expect(toggle).toHaveTextContent('Nodes (2)');
+    expect(toggle).toHaveTextContent('Nodes(2)');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -44,9 +44,9 @@ describe('SwatchLegend', () => {
   it('shows the entry count in the title whether folded or expanded', () => {
     render(<SwatchLegend title="Nodes" entries={TWO} {...COMMON} />);
     const toggle = screen.getByTestId('demo-legend-fold-toggle');
-    expect(toggle).toHaveTextContent('Nodes (2)');
+    expect(toggle).toHaveTextContent('Nodes(2)');
     fireEvent.click(toggle);
-    expect(toggle).toHaveTextContent('Nodes (2)');
+    expect(toggle).toHaveTextContent('Nodes(2)');
   });
 
   it('fires onToggleCollapseAll without changing fold state', () => {

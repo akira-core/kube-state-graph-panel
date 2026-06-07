@@ -25,7 +25,14 @@ export interface SwatchLegendProps {
   collapseNoun?: string;
 }
 
-function getStyles(): { list: string; row: string; swatch: string; header: string; foldToggle: string } {
+function getStyles(): {
+  list: string;
+  row: string;
+  swatch: string;
+  header: string;
+  heading: string;
+  foldToggle: string;
+} {
   return {
     ...legendListStyles(),
     swatch: css({
@@ -37,6 +44,10 @@ function getStyles(): { list: string; row: string; swatch: string; header: strin
       borderWidth: 1.5,
     }),
     header: css({ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }),
+    // Zero the heading's default margin so the title text centres on the same line
+    // as the collapse-all IconButton (the header centres each child incl. h4 margins,
+    // which otherwise pushes the title ~5px above the icon).
+    heading: css({ margin: 0 }),
     // The fold control is styled to read as the surrounding <h4> heading text: no
     // button chrome, inherits the heading font/colour, just a clickable caret + title.
     foldToggle: css({
@@ -50,6 +61,10 @@ function getStyles(): { list: string; row: string; swatch: string; header: strin
       font: 'inherit',
       color: 'inherit',
       cursor: 'pointer',
+      // Keep the caret glued to the title on one line. Without this a title that is
+      // ~2px too wide for the rail (e.g. "Storage Classes (1)") wraps, and the
+      // vertically-centred caret detaches from the centred two-line text.
+      whiteSpace: 'nowrap',
     }),
   };
 }
@@ -87,7 +102,7 @@ export function SwatchLegend({
   return (
     <div data-testid={testId}>
       <div className={styles.header}>
-        <h4>
+        <h4 className={styles.heading}>
           <button
             type="button"
             className={styles.foldToggle}
@@ -96,7 +111,7 @@ export function SwatchLegend({
             onClick={() => setFolded((f) => !f)}
           >
             <Icon name={caretIcon} size="sm" />
-            {`${title} (${entries.length})`}
+            {`${title}(${entries.length})`}
           </button>
         </h4>
         {onToggleCollapseAll !== undefined && (
