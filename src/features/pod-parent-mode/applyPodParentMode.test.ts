@@ -25,9 +25,59 @@ const hasEdge = (els: El[], edgeType: string, source: string, target: string): b
   edgeDatas(els).some((d) => d.edgeType === edgeType && d.source === source && d.target === target);
 
 describe('applyPodParentMode', () => {
-  it('returns the input untouched in node mode (passthrough)', () => {
-    const els = [node('cl', 'node'), node('p1', 'pod', 'n1'), node('c1', 'deployment', 'cl'), owns('c1', 'p1')];
-    expect(applyPodParentMode(els, 'node')).toBe(els);
+  it('drops synthesized controllers + controller-owns-pod edges in node mode, keeping everything else', () => {
+    const controller: El = {
+      group: 'nodes',
+      data: { id: 'c1', kind: 'deployment', parent: 'cl', isController: true },
+    };
+    const els = [
+      node('cl', 'node'),
+      node('p1', 'pod', 'n1'),
+      controller,
+      owns('c1', 'p1'),
+      edge('call', 'p1', 'other', 'pod-calls-pod'),
+    ];
+    const out = applyPodParentMode(els, 'node');
+
+    // The synthesized controller node is dropped.
+    expect(nodeData(out, 'c1')).toBeUndefined();
+    // The controller-owns-pod edge is dropped.
+    expect(hasEdge(out, 'controller-owns-pod', 'c1', 'p1')).toBe(false);
+    // Everything else survives unchanged (non-controller nodes + unrelated edges).
+    expect(nodeData(out, 'cl')).toBeDefined();
+    expect(nodeData(out, 'p1')?.parent).toBe('n1');
+    expect(hasEdge(out, 'pod-calls-pod', 'p1', 'other')).toBe(true);
+    expect(out).toHaveLength(3);
+  });
+
+  it('passes non-controller node elements through in node mode (no isController nodes are dropped)', () => {
+    const els = [
+      node('cl', 'node'),
+      node('n1', 'node', 'cl'),
+      node('p1', 'pod', 'n1'),
+      node('svc', 'service', 'cl'),
+      edge('sel', 'svc', 'p1', 'service-selects-pod'),
+    ];
+    const out = applyPodParentMode(els, 'node');
+
+    // No isController nodes present → nothing is dropped; same set passes through.
+    expect(out).toHaveLength(els.length);
+    expect(nodeData(out, 'n1')?.parent).toBe('cl');
+    expect(nodeData(out, 'svc')).toBeDefined();
+    expect(hasEdge(out, 'service-selects-pod', 'svc', 'p1')).toBe(true);
+  });
+
+  it('does not mutate the input elements in node mode (filter returns a new array)', () => {
+    const controller: El = {
+      group: 'nodes',
+      data: { id: 'c1', kind: 'deployment', parent: 'cl', isController: true },
+    };
+    const els = [node('cl', 'node'), node('p1', 'pod', 'n1'), controller, owns('c1', 'p1')];
+    const snapshot = JSON.stringify(els);
+    const out = applyPodParentMode(els, 'node');
+    // A new array is returned (not the same reference), input is unchanged.
+    expect(out).not.toBe(els);
+    expect(JSON.stringify(els)).toBe(snapshot);
   });
 
   it('re-parents a pod under its controller and synthesises a pod-runs-on-node edge in controller mode', () => {
@@ -123,5 +173,41 @@ describe('applyPodParentMode', () => {
     const snapshot = JSON.stringify(els);
     applyPodParentMode(els, 'controller');
     expect(JSON.stringify(els)).toBe(snapshot);
+  });
+
+  // Regression: cytoscape ALIASES the data object handed to cy.add, and the
+  // expand-collapse extension re-routes a collapsed controller's edges by mutating
+  // data.source in place. Every returned element must own a fresh data object so
+  // that downstream mutation cannot leak back into the shared normalized input —
+  // otherwise toggling controller→node corrupts edge endpoints and the workload
+  // orphans (controller default-collapse → pod-mounts-pvc re-pointed to controller).
+  it('returns pass-through edges as fresh data so downstream mutation cannot corrupt the input (controller mode)', () => {
+    const pvcEdge = edge('e-pvc', 'p1', 'pv1', 'pod-mounts-pvc');
+    const els = [
+      node('n1', 'node', 'cl'),
+      node('p1', 'pod', 'n1'),
+      node('c1', 'statefulset', 'cl'),
+      node('pv1', 'pvc', 'cl'),
+      owns('c1', 'p1'),
+      pvcEdge,
+    ];
+    const out = applyPodParentMode(els, 'controller');
+    const outPvc = out.find((e) => e.data.id === 'e-pvc');
+    expect(outPvc?.data).not.toBe(pvcEdge.data);
+
+    // Simulate cytoscape re-routing the collapsed controller's edge in place.
+    (outPvc?.data as cytoscape.EdgeDataDefinition).source = 'c1';
+    expect((pvcEdge.data as cytoscape.EdgeDataDefinition).source).toBe('p1');
+  });
+
+  it('returns pass-through elements as fresh data in node mode', () => {
+    const pvcEdge = edge('e-pvc', 'p1', 'pv1', 'pod-mounts-pvc');
+    const els = [node('p1', 'pod', 'n1'), node('pv1', 'pvc', 'cl'), pvcEdge];
+    const out = applyPodParentMode(els, 'node');
+    const outPvc = out.find((e) => e.data.id === 'e-pvc');
+    expect(outPvc?.data).not.toBe(pvcEdge.data);
+
+    (outPvc?.data as cytoscape.EdgeDataDefinition).source = 'x';
+    expect((pvcEdge.data as cytoscape.EdgeDataDefinition).source).toBe('p1');
   });
 });

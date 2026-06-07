@@ -40,7 +40,7 @@
 - 合成 MUST 為 immutable(產生新元素,不就地修改輸入),且對相同輸入位元組級確定(節點/邊排序穩定)。
 - 無 owner 的 pod MUST NOT 觸發任何 controller 節點或邊。
 
-合成後,在 `node` 模式下 controller 節點為 cluster 之下的 leaf、以 `controller-owns-pod` drawn edge 連到其 pod;在 `controller` 模式下 `applyPodParentMode` 以這些 owns 邊把 pod re-parent 進 controller(見 pod-parent-mode 規格)。
+合成後,`controller-owns-pod` 為 **synthesis-internal**、**永不繪製**:在 `node` 模式下 `applyPodParentMode` **drop** 掉所有合成的 controller 節點(`data.isController === true`)與其 `controller-owns-pod` 邊,呈現乾淨的 cluster > node > pod 基礎設施視圖(**不顯示 controller**);在 `controller` 模式下 `applyPodParentMode` 以這些 owns 邊把 pod re-parent 進 controller(owns 邊轉為 nesting,亦不繪製)(見 pod-parent-mode 規格)。
 
 #### Scenario: 多個同控制器的 pod 共用一個 controller 節點
 

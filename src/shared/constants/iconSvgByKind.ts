@@ -26,7 +26,8 @@ const SVG_CLOSE = '</svg>';
 const icon = (inner: string): string => `${SVG_OPEN}${inner}${SVG_CLOSE}`;
 
 export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
-  pod: icon('<polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5"/>'),
+  // The iconic Kubernetes 7-sided heptagon. Reads as "a pod".
+  pod: icon('<polygon points="12,3 19,6.4 20.8,14 15.9,20.1 8.1,20.1 3.2,14 5,6.4"/>'),
   // Desktop computer: a monitor screen on a stand. Reads as "a machine / host".
   node: icon('<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v3M8.5 19h7"/>'),
   pvc: icon('<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6 v12 a7 2.6 0 0 0 14 0 V6"/>'),
@@ -44,8 +45,9 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   deployment: icon(
     '<rect x="3.5" y="6" width="17" height="12" rx="2"/><circle cx="8" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="16" cy="12" r="1.4"/>'
   ),
+  // A box of stacked, ordered persistent disks. Reads as "ordered stateful pods".
   statefulset: icon(
-    '<rect x="4" y="5" width="16" height="5" rx="1.2"/><rect x="4" y="13" width="16" height="5" rx="1.2"/><circle cx="7.5" cy="7.5" r="0.9"/><circle cx="7.5" cy="15.5" r="0.9"/>'
+    '<rect x="4" y="4.5" width="16" height="15" rx="2"/><ellipse cx="12" cy="8.4" rx="4.8" ry="1.5"/><ellipse cx="12" cy="12" rx="4.8" ry="1.5"/><ellipse cx="12" cy="15.6" rx="4.8" ry="1.5"/>'
   ),
   daemonset: icon(
     '<rect x="2.5" y="9" width="5" height="6" rx="1"/><rect x="9.5" y="9" width="5" height="6" rx="1"/><rect x="16.5" y="9" width="5" height="6" rx="1"/>'

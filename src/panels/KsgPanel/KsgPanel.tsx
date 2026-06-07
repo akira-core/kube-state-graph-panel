@@ -2,7 +2,7 @@ import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
@@ -112,9 +112,10 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // Pod-parent view mode — local state, toggled from the legend (Grafana panel
   // options are read-only at runtime, so this cannot be an option). 'controller'
   // re-parents pods under their owning controller and swaps the pod↔node /
-  // pod↔controller relationships between nesting and drawn edge. Default 'node'
-  // returns the backend's native structure unchanged.
-  const [podParentMode, setPodParentMode] = useState<PodParentMode>('node');
+  // pod↔controller relationships between nesting and drawn edge. Default
+  // 'controller' aggregates pods under their owning controller; 'node' is the
+  // infrastructure view (clean cluster > node > pod backend topology).
+  const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
   const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
 
   // Selected node id drives both the detail panel and (controlled) the cy
@@ -208,24 +209,36 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // next Set via onCollapsedChange (cue events / data-refresh prune).
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
-  // Entering controller mode aggregates pods: default-collapse every controller
-  // container. Controllers are collected from the current elements at toggle time
-  // (they exist in both modes), so a data refresh while in controller mode never
-  // re-collapses — the user can keep a controller expanded.
-  const handleModeChange = useCallback(
-    (next: PodParentMode) => {
-      setPodParentMode(next);
-      if (next !== 'controller') {
-        return;
-      }
-      const controllerIds = elements
-        .filter((el) => el.group === 'nodes' && (el.data as cytoscape.NodeDataDefinition).isController === true)
-        .map((el) => (el.data as cytoscape.NodeDataDefinition).id)
-        .filter((id): id is string => typeof id === 'string');
-      setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
-    },
-    [elements]
-  );
+  // Default-aggregate: the first render where controllers are present while in
+  // controller mode (initial load OR re-entry) collapses them all so pods start
+  // aggregated. The ref prevents re-collapsing on a later data refresh (a
+  // user-expanded controller stays open) and resets when leaving controller mode
+  // so the next entry re-collapses. Reading `elements` here (a dep) is required to
+  // catch the async first data load.
+  const collapsedForEntryRef = useRef(false);
+  useEffect(() => {
+    if (podParentMode !== 'controller') {
+      collapsedForEntryRef.current = false;
+      return;
+    }
+    if (collapsedForEntryRef.current) {
+      return;
+    }
+    const controllerIds = elements
+      .filter((el) => el.group === 'nodes' && (el.data as cytoscape.NodeDataDefinition).isController === true)
+      .map((el) => (el.data as cytoscape.NodeDataDefinition).id)
+      .filter((id): id is string => typeof id === 'string');
+    if (controllerIds.length === 0) {
+      return;
+    }
+    collapsedForEntryRef.current = true;
+    // Synchronous setState in an effect is intentional and one-shot here: the
+    // collapsed-set is React-owned UI state seeded from the (async) graph data on
+    // the first controller-mode entry, and the ref guard makes it fire at most
+    // once per entry — no cascading-render loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot, ref-guarded default-collapse seeded from async data
+    setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
+  }, [podParentMode, elements]);
 
   // Mode-aware compound containers (swatched by their cluster) + whether `node`
   // should also appear in the icon Node-kinds legend. In node mode the containers
@@ -306,7 +319,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     <div className={styles.root}>
       {options.showLegend && (
         <aside className={styles.legendArea}>
-          <LayoutModeControl mode={podParentMode} onChange={handleModeChange} />
+          <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
           <ClusterLegend
             clusters={clusterEntries}
             onToggleCollapseAll={toggleClusters}

@@ -1,7 +1,7 @@
 import { drawnEdgeTypesForMode } from './drawnEdgeTypesForMode';
 
 describe('drawnEdgeTypesForMode', () => {
-  it('draws controller-owns-pod (not pod-runs-on-node) in node mode; switch fabric in both modes', () => {
+  it('draws neither controller-owns-pod nor pod-runs-on-node in node mode; switch fabric in both modes', () => {
     const drawn = drawnEdgeTypesForMode('node');
     expect(drawn).toEqual(
       expect.arrayContaining([
@@ -9,13 +9,14 @@ describe('drawnEdgeTypesForMode', () => {
         'pod-calls-pod',
         'pod-calls-service',
         'service-selects-pod',
-        'controller-owns-pod',
         'switch-to-switch',
         'node-to-switch',
       ])
     );
-    expect(drawn).toHaveLength(7);
+    expect(drawn).toHaveLength(6);
     expect(drawn).not.toContain('pod-runs-on-node');
+    // controller-owns-pod is filtered out of node mode entirely, so it is never drawn there.
+    expect(drawn).not.toContain('controller-owns-pod');
   });
 
   it('draws pod-runs-on-node (not controller-owns-pod) in controller mode; switch fabric still drawn', () => {
@@ -45,6 +46,6 @@ describe('drawnEdgeTypesForMode', () => {
     const first = drawnEdgeTypesForMode('node');
     first.push('pod-runs-on-node');
     expect(drawnEdgeTypesForMode('node')).not.toContain('pod-runs-on-node');
-    expect(drawnEdgeTypesForMode('node')).toHaveLength(7);
+    expect(drawnEdgeTypesForMode('node')).toHaveLength(6);
   });
 });

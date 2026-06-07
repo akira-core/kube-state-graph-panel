@@ -11,6 +11,8 @@
 > **本次擴充(2026-06-06)——修正後端合約並補新需求**:後端只在 pod 發 typed `data.owner`、不發 controller 節點/邊 → normalize 自 owner 合成 controller 節點與 `controller-owns-pod` 邊(group 9);layout 切換鈕移至 legend 最上方分段控制 + controller 模式預設聚合摺疊(group 8);controller 模式 K8s node 併入 switch fabric 分層、`node-to-switch` 比照 `switch-to-switch`(group 10 + 2.7 + 4.5)。controller 拓樸(group 5 / 6 / 7.2 / 7.4 / 8 / 9 / 10)為本次主要實作目標。
 >
 > **已實作(2026-06-06,branch `feat/dynamic-layout`,commits `30104f8..bc7dea8`)**:group 2.1 / 2.4 / 2.6 / 2.7 / 2.8、4.5、5、6、7.2 / 7.4、8、9、10、12.1–12.4 / 12.6 全部完成(TDD、subagent 實作 + 雙階段審查,typecheck / lint / test:ci(268) / build 全綠,`openspec validate --strict` 通過)。**未做**:group 1(icon vendoring,刻意延後)、2.5(status 邊框資料驅動,非本 feature 範圍)、demo 手動驗證(10.3 / 11.x / 12.5)。
+>
+> **本次精修(2026-06-07,branch `feat/dynamic-layout`)**:依使用者回饋,拓樸雙模式預設由 `node` 改為 `controller`(初次載入即全摺疊聚合);`node` 模式改為**過濾掉**合成 controller 節點與 `controller-owns-pod` 邊(乾淨 `cluster > node > pod`、不顯示 controller),`controller-owns-pod` 自此 synthesis-internal、兩模式皆不繪製(`drawnEdgeTypesForMode('node')` 移除之);預設摺疊改於初次載入觸發、ref 守衛使 data refresh 不重摺,並修正 `useExpandCollapse` 在 expand-collapse API 初始化後才套用摺疊的競態。修掉一個 `node` 模式 workload 全消失的 bug:cytoscape alias `data` 物件、expand-collapse 摺疊時就地改寫邊端點污染 `baseElements` —— `applyPodParentMode` 兩模式皆改回傳獨立淺拷貝物件(見 D13)。icon:pod 改 k8s 七邊形、statefulset 改堆疊磁碟(自繪 inline SVG)。typecheck / lint / test:ci(274) / build 全綠、`openspec validate --strict` 通過、no-backend demo(`/d/ksg-switch-demo`)實機驗證三模式切換正確。spec / design 同步:pod-parent-mode + graph-data-integration + design.md(D6 / D8 / D9 / D10 / D11 + 新增 D13)。
 
 ## 1. Icon 資產與授權
 
@@ -25,7 +27,7 @@
 - [x] 2.3 新增 `src/shared/constants/categoryByKind.ts`:panel-owned `kind → 超大類`(Workloads/Networking/Storage/Cluster/Other)查表,供 legend 分組
 - [x] 2.4 `colorByEdgeType.ts`:加入 `controller-owns-pod` 顏色/線型;`EDGE_ENDPOINTS_BY_TYPE` 加入 `controller-owns-pod`(`controller → pod`)
 - [ ] 2.5 `colorByStatus.ts`:`STATUS_BORDER_KINDS` 改為資料驅動判定(任何有 `data.status` 的 kind),或由 stylesheet 選擇器以「有 status」為條件
-- [x] 2.6 `drawnEdgeTypesForMode.ts`:以 `EDGE_STYLE_BY_TYPE` master 涵蓋 8 種 EdgeType;`node` 回傳含 `controller-owns-pod`、`controller` 回傳含 `pod-runs-on-node`,兩者皆含 service 相關邊**與常駐的 `switch-to-switch` / `node-to-switch`(`...SWITCH_EDGES`)**;`ALL_EDGE_TYPES` = 8 種
+- [x] 2.6 `drawnEdgeTypesForMode.ts`:以 `EDGE_STYLE_BY_TYPE` master 涵蓋 8 種 EdgeType;`node` 不含 `controller-owns-pod`(synthesis-internal,兩模式皆不繪製)、`controller` 回傳含 `pod-runs-on-node`,兩者皆含 service 相關邊**與常駐的 `switch-to-switch` / `node-to-switch`(`...SWITCH_EDGES`)**;`ALL_EDGE_TYPES` = 8 種
 - [x] 2.7 `colorByEdgeType.ts`:`EDGE_STYLE_BY_TYPE['node-to-switch']` 改用與 `switch-to-switch` 相同的 infra 色(移除獨立靛色 `#6366f1`),使兩者顏色/線型一致
 - [x] 2.8 改寫過時 doc-comments(service-mode 語意):`colorByEdgeType.ts`(`pod-runs-on-node 僅 service 模式`、`node→switch 獨立靛色直連 uplink`)、`drawnEdgeTypesForMode.ts` header、`types.ts` 的 `PodParentMode`(`'service'` 說明)→ 改為 controller 模式語意與 `node-to-switch` 共用 infra 色 + taxi
 
@@ -45,7 +47,7 @@
 ## 5. 拓樸雙模式(TDD)
 
 - [x] 5.1 改寫 `drawnEdgeTypesForMode.test.ts`:node/controller 兩模式邊集合(RED→GREEN 對應 2.6)
-- [x] 5.2 改寫 `applyPodParentMode.test.ts`:node passthrough、controller 單一/多 owner re-parent + 合成 `pod-runs-on-node` + 移除 `controller-owns-pod`、無 owner 不動、service 邊兩模式保留、跨 cluster `pod-calls-pod` 不受影響、不就地修改(RED)
+- [x] 5.2 改寫 `applyPodParentMode.test.ts`:node 模式過濾掉合成 controller 節點與 `controller-owns-pod` 邊、controller 單一/多 owner re-parent + 合成 `pod-runs-on-node` + 移除 `controller-owns-pod`、無 owner 不動、service 邊兩模式保留、跨 cluster `pod-calls-pod` 不受影響、不就地修改(RED)
 - [x] 5.3 改寫 `applyPodParentMode.ts`:來源邊改 `controller-owns-pod`,邏輯一般化(GREEN)
 
 ## 6. Cytoscape 模式切換重建
@@ -62,9 +64,9 @@
 
 ## 8. Layout 切換控制(legend 最上方分段)與 controller 模式預設聚合
 
-- [x] 8.1 新增 legend **最上方**的 layout 分段控制(`RadioButtonGroup`,`Node` / `Controller`,標籤 `Layout`);`KsgPanel` 以 local state 持有 `podParentMode`(預設 `'node'`),分段控制即時切換;`applyPodParentMode` 串接改 `'node' | 'controller'`
+- [x] 8.1 新增 legend **最上方**的 layout 分段控制(`RadioButtonGroup`,`Node` / `Controller`,標籤 `Layout`);`KsgPanel` 以 local state 持有 `podParentMode`(預設 `'controller'`),分段控制即時切換;`applyPodParentMode` 串接改 `'node' | 'controller'`
 - [x] 8.2 `EdgeLegend` 移除 `mode` / `onToggleMode` props(切換鈕移至上方),只負責列邊;更新測試(對應 7.2)
-- [x] 8.3 controller 模式預設聚合:切入 `controller` 模式時 `KsgPanel` 將所有 controller 容器 id 併入 `collapsedIds`(每次進入皆全摺疊);切回 `node` 由 `reconcileCollapse` 淘汰;不影響 cluster / node 的 collapse 選擇;測試覆蓋切入/再切入/不影響他容器
+- [x] 8.3 controller 模式預設聚合:初次載入(controller 為預設)以及每次切入 `controller` 模式時 `KsgPanel` 將所有 controller 容器 id 併入 `collapsedIds`(每次進入皆全摺疊,ref 守衛使 data refresh 不重摺);切回 `node` 由 `reconcileCollapse` 淘汰;不影響 cluster / node 的 collapse 選擇;測試覆蓋切入/再切入/不影響他容器
 - [x] 8.4 `visibleKinds` / `visibleEdgeTypes` MultiSelect 預設值涵蓋新 kind 與新 edge type
 
 ## 9. Controller 節點與 controller-owns-pod 邊合成(normalize, TDD)

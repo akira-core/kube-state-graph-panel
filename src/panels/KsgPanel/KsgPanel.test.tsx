@@ -184,6 +184,11 @@ describe('KsgPanel', () => {
         })}
       />
     );
+    // K8s `node` boxes are containers only in node mode; the panel now defaults to
+    // controller mode, so switch to node mode first to expose the node toggle.
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Node'));
+    });
     fireEvent.click(screen.getByTestId('node-collapse-toggle'));
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
     const lastCall = calls.at(-1)?.[0];
@@ -198,7 +203,7 @@ describe('KsgPanel', () => {
     expect(screen.getByLabelText('Controller')).toBeInTheDocument();
   });
 
-  it('default-collapses every controller on entering controller mode and titles the section "Controllers"', () => {
+  it('defaults to controller mode: titles the section "Controllers" and default-collapses every controller on initial load', () => {
     const payload = {
       elements: {
         nodes: [
@@ -231,14 +236,58 @@ describe('KsgPanel', () => {
         })}
       />
     );
-    // Enter controller mode via the segmented control.
+    // The panel defaults to controller mode, so the container section is "Controllers"
+    // on initial load — no toggle needed.
+    const containerLegend = screen.getByTestId('node-container-legend');
+    expect(within(containerLegend).getByRole('heading', { name: 'Controllers' })).toBeInTheDocument();
+    // …and the synthesized controller is default-collapsed (pushed to GraphCanvas)
+    // by the initial-load effect once the graph data is present.
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+  });
+
+  it('re-collapses controllers after leaving and re-entering controller mode', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: 'demo/node-a',
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    // Leave controller mode (node mode drops the synthesized controller container).
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Node'));
+    });
+    // Re-enter controller mode — the effect re-collapses the controllers.
     act(() => {
       fireEvent.click(screen.getByLabelText('Controller'));
     });
-    // The container section retitles to "Controllers"…
-    const containerLegend = screen.getByTestId('node-container-legend');
-    expect(within(containerLegend).getByRole('heading', { name: 'Controllers' })).toBeInTheDocument();
-    // …and the synthesized controller is default-collapsed (pushed to GraphCanvas).
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
     const lastCall = calls.at(-1)?.[0];
     expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);

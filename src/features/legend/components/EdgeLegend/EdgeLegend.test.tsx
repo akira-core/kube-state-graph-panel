@@ -1,7 +1,11 @@
 import { render, screen, within } from '@testing-library/react';
 import React from 'react';
 
-import { COLOR_BY_EDGE_TYPE, EDGE_ENDPOINTS_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
+import {
+  COLOR_BY_EDGE_TYPE,
+  EDGE_ENDPOINTS_BY_TYPE,
+  EDGE_STYLE_BY_TYPE,
+} from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
 
 import { EdgeLegend } from './EdgeLegend';
@@ -12,11 +16,14 @@ describe('EdgeLegend', () => {
   // master map has edge types.
   const SVC_PAIR = ['pod-calls-service', 'service-selects-pod'];
 
-  it('renders one row per edge type, collapsing the pod↔svc pair into one', () => {
+  it('renders one row per drawn edge type, collapsing the pod↔svc pair into one', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const items = within(legend).getAllByRole('listitem');
-    expect(items).toHaveLength(Object.keys(COLOR_BY_EDGE_TYPE).length - 1);
+    // The default legend lists the node-mode drawn set; the pod↔svc pair (both
+    // present) collapses to a single bidirectional row, so the row count is the
+    // node drawn-set size minus one.
+    expect(items).toHaveLength(drawnEdgeTypesForMode('node').length - 1);
   });
 
   it('renders each non-merged edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
@@ -55,13 +62,15 @@ describe('EdgeLegend', () => {
     );
   });
 
-  it('places a same-colour arrow glyph between the endpoints of every non-merged edge type', () => {
+  it('places a same-colour arrow glyph between the endpoints of every non-merged drawn edge type', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
-    for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE).filter(([t]) => !SVC_PAIR.includes(t))) {
+    // Iterate the node-mode drawn set (controller-owns-pod is no longer drawn in
+    // node mode, so it has no row); the merged svc pair is covered separately.
+    for (const edgeType of drawnEdgeTypesForMode('node').filter((t) => !SVC_PAIR.includes(t))) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const glyph = within(row).getByTestId('edge-glyph');
-      expect(glyph.querySelector('polygon')?.getAttribute('fill')).toBe(style.color);
+      expect(glyph.querySelector('polygon')?.getAttribute('fill')).toBe(EDGE_STYLE_BY_TYPE[edgeType].color);
     }
   });
 
@@ -103,11 +112,18 @@ describe('EdgeLegend', () => {
   });
 
   describe('controller-owns-pod label', () => {
-    it('shows "controller" as the FROM label (not "deployment") in node mode', () => {
+    it('is no longer drawn in node mode (filtered out of the node drawn-set)', () => {
       render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('node')} />);
       const legend = screen.getByTestId('edge-legend');
+      expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
+    });
+
+    it('still shows "controller" as the FROM label (not "deployment") when explicitly listed', () => {
+      // The type stays in the endpoint/style maps, so if it is ever passed in
+      // explicitly the label logic must still resolve to the generic "controller".
+      render(<EdgeLegend edgeTypes={['controller-owns-pod']} />);
+      const legend = screen.getByTestId('edge-legend');
       const row = within(legend).getByTestId('edge-legend-row-controller-owns-pod');
-      // FROM label must be the generic word "controller", not the structural representative "deployment".
       expect(within(row).getByText('controller')).toBeInTheDocument();
       expect(within(row).getByText('pod')).toBeInTheDocument();
       expect(within(row).queryByText('deployment')).toBeNull();
