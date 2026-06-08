@@ -9,7 +9,7 @@ const sample: NodeDetailData = {
   label: 'mongo-0',
   kind: 'pod',
   status: 'critical',
-  alerts: [{ pod: 'mongo-1', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 }],
+  alerts: [{ pod: 'mongo-1', service: 'mongo', name: 'HighMemory', severity: 'critical', timeRecords: [1717500000] }],
 };
 
 describe('NodeDetailPanel', () => {

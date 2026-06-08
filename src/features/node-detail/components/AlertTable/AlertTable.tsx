@@ -1,6 +1,6 @@
 import { css } from '@emotion/css';
 import { dateTimeFormat, type GrafanaTheme2 } from '@grafana/data';
-import { type CellProps, type Column, InteractiveTable, useStyles2 } from '@grafana/ui';
+import { type CellProps, type Column, InteractiveTable, Tooltip, useStyles2 } from '@grafana/ui';
 import React, { useMemo } from 'react';
 
 import { severityColor } from '../../../../shared/constants/colorBySeverity';
@@ -13,6 +13,8 @@ const PLACEHOLDER = '—';
 function getStyles(theme: GrafanaTheme2): {
   empty: string;
   severityBadge: string;
+  countBadge: string;
+  occurrenceList: string;
   timeButton: string;
 } {
   const colors = theme.colors as unknown as {
@@ -30,7 +32,22 @@ function getStyles(theme: GrafanaTheme2): {
       textTransform: 'uppercase',
       letterSpacing: 0.4,
     }),
-    // Time renders as a link-styled button so the rewind affordance is obvious
+    // Count renders as a tabbable pill so its occurrence-time tooltip is reachable by
+    // both hover and keyboard.
+    countBadge: css({
+      display: 'inline-block',
+      minWidth: 18,
+      textAlign: 'center',
+      fontSize: 11,
+      fontWeight: 600,
+      padding: '1px 6px',
+      borderRadius: 10,
+      cursor: 'default',
+      color: colors.text.secondary,
+      border: `1px solid ${colors.text.secondary}`,
+    }),
+    occurrenceList: css({ display: 'flex', flexDirection: 'column', gap: 2, fontVariantNumeric: 'tabular-nums' }),
+    // Last seen renders as a link-styled button so the rewind affordance is obvious
     // and keyboard-accessible (not a bare clickable cell).
     timeButton: css({
       background: 'none',
@@ -48,11 +65,25 @@ function getStyles(theme: GrafanaTheme2): {
 
 // Stable id per alert row so InteractiveTable (react-table) does not thrash.
 function rowId(alert: NodeAlert, index: number): string {
-  return alert.id ?? `${alert.name}-${String(alert.time)}-${String(index)}`;
+  return alert.id ?? `${alert.name}-${alert.timeRecords.join(',')}-${String(index)}`;
+}
+
+// Last occurrence = max. timeRecords is ascending (normalize sorts it), so it is the
+// final element. Guard the empty case defensively (normalize never emits an empty list)
+// so the cell never formats NaN.
+function lastSeen(alert: NodeAlert): number {
+  return alert.timeRecords.length > 0 ? alert.timeRecords[alert.timeRecords.length - 1]! : 0;
 }
 
 export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<AlertTableProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
+
+  const fmt = useMemo(
+    () =>
+      (timeSec: number): string =>
+        dateTimeFormat(timeSec * 1000, timeZone !== undefined ? { timeZone } : {}),
+    [timeZone]
+  );
 
   // columns + data must be memoized (InteractiveTable / react-table requirement).
   const data = useMemo(() => alerts, [alerts]);
@@ -81,27 +112,50 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
         },
       },
       {
-        id: 'time',
-        header: 'Time',
+        id: 'count',
+        header: 'Count',
         cell: ({ row }: CellProps<NodeAlert>) => {
-          const { time } = row.original;
-          const label = dateTimeFormat(time * 1000, timeZone !== undefined ? { timeZone } : {});
+          const { timeRecords } = row.original;
+          // The badge shows the occurrence count; its tooltip enumerates every
+          // occurrence time (the full "occur time" list).
+          return (
+            <Tooltip
+              content={
+                <div className={styles.occurrenceList} data-testid="alert-occurrences">
+                  {timeRecords.map((t, i) => (
+                    <span key={`${String(t)}-${String(i)}`}>{fmt(t)}</span>
+                  ))}
+                </div>
+              }
+            >
+              <span className={styles.countBadge} data-testid="alert-count" tabIndex={0}>
+                {timeRecords.length}
+              </span>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        id: 'lastSeen',
+        header: 'Last seen',
+        cell: ({ row }: CellProps<NodeAlert>) => {
+          const t = lastSeen(row.original);
           return (
             <button
               type="button"
               className={styles.timeButton}
               data-testid="alert-time"
               onClick={() => {
-                onAlertTimeClick(time);
+                onAlertTimeClick(t);
               }}
             >
-              {label}
+              {fmt(t)}
             </button>
           );
         },
       },
     ],
-    [styles.severityBadge, styles.timeButton, timeZone, onAlertTimeClick]
+    [styles, fmt, onAlertTimeClick]
   );
 
   if (data.length === 0) {

@@ -62,9 +62,9 @@ export type NodeStatus = 'normal' | 'warning' | 'critical';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
 // A single alert attached to a node, carried on the optional upstream graph-JSON
-// node field `alerts` and surfaced in the detail panel's alert table.
-// `time` is Unix epoch SECONDS (matches the backend start/end convention); the
-// panel converts to milliseconds only at the render / time-rewind boundary.
+// node field `alerts` and surfaced in the detail panel's alert table. The backend
+// groups repeats of the same alert into ONE entry whose `time_records` wire field
+// lists every occurrence time; `normalizeGraph` projects that to `timeRecords`.
 export interface NodeAlert {
   pod?: string;
   service?: string;
@@ -73,8 +73,13 @@ export interface NodeAlert {
   // colour (see SEVERITY_COLOR), any other custom label is kept verbatim and
   // rendered in the critical fallback colour. Never dropped for being "unknown".
   severity: string;
-  time: number; // Unix epoch seconds
-  id?: string; // optional stable row id; synthesised from name+time+index if absent
+  // Every occurrence time of this (grouped) alert, Unix epoch SECONDS, ASCENDING.
+  // Count = timeRecords.length, last-seen = max(timeRecords) (the last element); both
+  // are derived at render, never stored. A legacy backend's single `time` scalar
+  // normalises to a one-element list. The panel converts to milliseconds only at the
+  // render / time-rewind boundary.
+  timeRecords: number[];
+  id?: string; // optional stable row id; synthesised from name+records+index if absent
 }
 
 // Which K8s object a pod is compound-nested under (panel-side view toggle, not a

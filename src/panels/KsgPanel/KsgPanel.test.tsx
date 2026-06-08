@@ -353,7 +353,7 @@ describe('KsgPanel', () => {
   });
 
   it("resolveSelectedNode carries a node's alerts onto the detail data", () => {
-    const alerts = [{ name: 'HighMem', severity: 'critical' as const, time: 1717500000 }];
+    const alerts = [{ name: 'HighMem', severity: 'critical' as const, timeRecords: [1717500000] }];
     const elements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'p1', label: 'mongo-0', kind: 'pod', alerts } },
     ];

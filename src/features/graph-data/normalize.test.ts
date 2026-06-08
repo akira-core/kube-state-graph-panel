@@ -438,61 +438,106 @@ describe('normalizeGraph', () => {
         },
       });
 
-    it('carries a well-formed alerts array onto data.alerts', () => {
+    it('parses time_records onto NodeAlert.timeRecords (ascending), keeping pod/service/id', () => {
       const { elements, errors } = withAlerts([
-        { pod: 'mongo-0', service: 'mongo', name: 'HighMem', severity: 'critical', time: 1717500000, id: 'a1' },
-        { name: 'Restart', severity: 'warning', time: 1717500300 },
+        {
+          pod: 'mongo-0',
+          service: 'mongo',
+          name: 'HighMem',
+          severity: 'critical',
+          time_records: [1717500300, 1717500000],
+          id: 'a1',
+        },
+        { name: 'Restart', severity: 'warning', time_records: [1717500300] },
       ]);
       expect(errors).toEqual([]);
       expect(elements[0]?.data.alerts).toEqual([
-        { pod: 'mongo-0', service: 'mongo', name: 'HighMem', severity: 'critical', time: 1717500000, id: 'a1' },
-        { name: 'Restart', severity: 'warning', time: 1717500300 },
+        {
+          pod: 'mongo-0',
+          service: 'mongo',
+          name: 'HighMem',
+          severity: 'critical',
+          timeRecords: [1717500000, 1717500300], // sorted ascending
+          id: 'a1',
+        },
+        { name: 'Restart', severity: 'warning', timeRecords: [1717500300] },
       ]);
     });
 
-    it('drops alert entries with a bad/missing name, non-string/empty severity or bad time, keeping valid ones', () => {
+    it('falls back to a legacy scalar time → single-element timeRecords (epoch 0 valid)', () => {
       const { elements } = withAlerts([
-        { name: 'ok', severity: 'warning', time: 1717500000 },
-        { name: 'epoch0', severity: 'warning', time: 0 }, // 0 is a valid Unix second
-        { severity: 'critical', time: 1717500000 }, // missing name
-        { name: 'noSev', time: 1717500000 }, // missing severity
-        { name: 'emptySev', severity: '', time: 1717500000 }, // empty severity string
-        { name: 'numSev', severity: 2, time: 1717500000 }, // severity not a string
-        { name: 'strTime', severity: 'warning', time: '1717500000' }, // time not a number
-        { name: 'nanTime', severity: 'warning', time: NaN }, // non-finite
-        { name: 'infTime', severity: 'warning', time: Infinity }, // non-finite
-        { name: 'negTime', severity: 'warning', time: -5 }, // negative epoch
-        'nope', // not an object
+        { name: 'Legacy', severity: 'warning', time: 1717500000 },
+        { name: 'Epoch0', severity: 'warning', time: 0 },
       ]);
       expect(elements[0]?.data.alerts).toEqual([
-        { name: 'ok', severity: 'warning', time: 1717500000 },
-        { name: 'epoch0', severity: 'warning', time: 0 },
+        { name: 'Legacy', severity: 'warning', timeRecords: [1717500000] },
+        { name: 'Epoch0', severity: 'warning', timeRecords: [0] },
       ]);
+    });
+
+    it('prefers time_records over a legacy scalar time when both are present', () => {
+      const { elements } = withAlerts([
+        { name: 'both', severity: 'warning', time: 999, time_records: [1717500000, 1717500300] },
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'both', severity: 'warning', timeRecords: [1717500000, 1717500300] },
+      ]);
+    });
+
+    it('falls back to scalar time when time_records is present but all-invalid', () => {
+      const { elements } = withAlerts([{ name: 'fb', severity: 'warning', time: 1717500000, time_records: [NaN, -1] }]);
+      expect(elements[0]?.data.alerts).toEqual([{ name: 'fb', severity: 'warning', timeRecords: [1717500000] }]);
+    });
+
+    it('filters non-finite/negative entries inside time_records and sorts the rest', () => {
+      const { elements } = withAlerts([
+        { name: 'noisy', severity: 'warning', time_records: [1717500300, -5, NaN, Infinity, 1717500000, 0] },
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'noisy', severity: 'warning', timeRecords: [0, 1717500000, 1717500300] },
+      ]);
+    });
+
+    it('drops alert entries with a bad/missing name or non-string/empty severity, keeping valid ones', () => {
+      const { elements } = withAlerts([
+        { name: 'ok', severity: 'warning', time_records: [1717500000] },
+        { severity: 'critical', time_records: [1717500000] }, // missing name
+        { name: 'noSev', time_records: [1717500000] }, // missing severity
+        { name: 'emptySev', severity: '', time_records: [1717500000] }, // empty severity string
+        { name: 'numSev', severity: 2, time_records: [1717500000] }, // severity not a string
+        'nope', // not an object
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([{ name: 'ok', severity: 'warning', timeRecords: [1717500000] }]);
     });
 
     it('keeps any non-empty severity string, including custom labels the backend defines', () => {
       const { elements } = withAlerts([
-        { name: 'i', severity: 'info', time: 1717500000 },
-        { name: 'w', severity: 'warning', time: 1717500001 },
-        { name: 'c', severity: 'critical', time: 1717500002 },
-        { name: 'n', severity: 'normal', time: 1717500003 }, // not a known tier, kept verbatim
-        { name: 'x', severity: 'fatal', time: 1717500004 }, // custom label, kept verbatim
-        { name: 'p', severity: 'P1', time: 1717500005 }, // custom label, kept verbatim
+        { name: 'i', severity: 'info', time_records: [1717500000] },
+        { name: 'n', severity: 'normal', time_records: [1717500003] }, // not a known tier, kept verbatim
+        { name: 'x', severity: 'fatal', time_records: [1717500004] }, // custom label, kept verbatim
+        { name: 'p', severity: 'P1', time_records: [1717500005] }, // custom label, kept verbatim
       ]);
       expect(elements[0]?.data.alerts).toEqual([
-        { name: 'i', severity: 'info', time: 1717500000 },
-        { name: 'w', severity: 'warning', time: 1717500001 },
-        { name: 'c', severity: 'critical', time: 1717500002 },
-        { name: 'n', severity: 'normal', time: 1717500003 },
-        { name: 'x', severity: 'fatal', time: 1717500004 },
-        { name: 'p', severity: 'P1', time: 1717500005 },
+        { name: 'i', severity: 'info', timeRecords: [1717500000] },
+        { name: 'n', severity: 'normal', timeRecords: [1717500003] },
+        { name: 'x', severity: 'fatal', timeRecords: [1717500004] },
+        { name: 'p', severity: 'P1', timeRecords: [1717500005] },
       ]);
     });
 
-    it('omits the alerts field when absent, empty, or all entries malformed', () => {
+    it('omits the alerts field when absent, empty, or no entry has a valid occurrence time', () => {
       expect(withAlerts(undefined).elements[0]?.data.alerts).toBeUndefined();
       expect(withAlerts([]).elements[0]?.data.alerts).toBeUndefined();
-      expect(withAlerts([{ name: 'x' }]).elements[0]?.data.alerts).toBeUndefined();
+      // no time at all
+      expect(withAlerts([{ name: 'x', severity: 'warning' }]).elements[0]?.data.alerts).toBeUndefined();
+      // empty record + no scalar
+      expect(
+        withAlerts([{ name: 'x', severity: 'warning', time_records: [] }]).elements[0]?.data.alerts
+      ).toBeUndefined();
+      // all-invalid records + invalid scalar
+      expect(
+        withAlerts([{ name: 'x', severity: 'warning', time: -1, time_records: [NaN, -5] }]).elements[0]?.data.alerts
+      ).toBeUndefined();
     });
 
     it('never carries alerts on a cluster container node', () => {
@@ -500,7 +545,12 @@ describe('normalizeGraph', () => {
         elements: {
           nodes: [
             {
-              data: { id: 'c1', type: 'cluster', name: 'demo', alerts: [{ name: 'x', severity: 'warning', time: 1 }] },
+              data: {
+                id: 'c1',
+                type: 'cluster',
+                name: 'demo',
+                alerts: [{ name: 'x', severity: 'warning', time_records: [1] }],
+              },
             },
           ],
           edges: [],

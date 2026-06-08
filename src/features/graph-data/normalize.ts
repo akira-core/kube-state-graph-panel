@@ -62,12 +62,33 @@ function resolveNodeIdentity(type: string, label: string, status: NodeStatus): N
   return { kind: type as NodeKind, status };
 }
 
+// A single Unix-seconds value is valid iff finite and non-negative: NaN/±Infinity
+// would render "Invalid date" and yield a {from:NaN,to:NaN} rewind; a negative epoch
+// would rewind to a bogus pre-1970 window. Reject all of them.
+function isValidEpochSeconds(n: unknown): n is number {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0;
+}
+
+// Resolve an alert's occurrence times to an ASCENDING `timeRecords` list. Primary
+// source is the upstream `time_records` array (kept = valid epoch seconds, sorted
+// ascending). When that yields nothing, fall back to the legacy single `time` scalar
+// as a one-occurrence list. Returns undefined when no valid occurrence time exists.
+function parseTimeRecords(entry: Record<string, unknown>): number[] | undefined {
+  if (Array.isArray(entry.time_records)) {
+    const valid = entry.time_records.filter(isValidEpochSeconds);
+    if (valid.length > 0) {
+      return valid.sort((a, b) => a - b);
+    }
+  }
+  return isValidEpochSeconds(entry.time) ? [entry.time] : undefined;
+}
+
 // Project the optional upstream `alerts` array onto typed NodeAlert[]. Anti-corruption
-// boundary: malformed entries (missing/ill-typed name, severity or time) are dropped,
-// not thrown — consistent with the partial-parse contract. `severity` is kept as a
-// free-form string: any non-empty label survives (custom labels are colour-mapped
-// downstream, not dropped), only a missing/non-string/empty severity is rejected.
-// Returns undefined when no valid alert survives so the node carries no `alerts` field.
+// boundary: malformed entries (missing/ill-typed name or severity, or no valid
+// occurrence time) are dropped, not thrown — consistent with the partial-parse
+// contract. `severity` is kept as a free-form string: any non-empty label survives
+// (custom labels are colour-mapped downstream, not dropped). Returns undefined when no
+// valid alert survives so the node carries no `alerts` field.
 function parseAlerts(v: unknown): NodeAlert[] | undefined {
   if (!Array.isArray(v)) {
     return undefined;
@@ -77,23 +98,17 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
     if (!isPlainObject(entry)) {
       continue;
     }
-    // `time` must be a finite, non-negative Unix-seconds value: NaN/±Infinity
-    // would render "Invalid date" and yield a {from:NaN,to:NaN} rewind; a
-    // negative epoch would rewind to a bogus pre-1970 window. Drop all of them.
-    if (
-      !isString(entry.name) ||
-      !isString(entry.severity) ||
-      entry.severity.length === 0 ||
-      typeof entry.time !== 'number' ||
-      !Number.isFinite(entry.time) ||
-      entry.time < 0
-    ) {
+    if (!isString(entry.name) || !isString(entry.severity)) {
+      continue;
+    }
+    const timeRecords = parseTimeRecords(entry);
+    if (timeRecords === undefined) {
       continue;
     }
     alerts.push({
       name: entry.name,
       severity: entry.severity,
-      time: entry.time,
+      timeRecords,
       ...(isString(entry.pod) ? { pod: entry.pod } : {}),
       ...(isString(entry.service) ? { service: entry.service } : {}),
       ...(isString(entry.id) ? { id: entry.id } : {}),
