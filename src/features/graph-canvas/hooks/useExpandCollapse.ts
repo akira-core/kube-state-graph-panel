@@ -27,6 +27,7 @@ export function useExpandCollapse({
   enabled,
   isReady,
   apiRef,
+  collapsedIdsRef,
   suppressRef,
   onCollapsedChange,
 }: UseExpandCollapseProps): void {
@@ -35,13 +36,25 @@ export function useExpandCollapse({
     if (!enabled || !isReady || cy === null) {
       return;
     }
-    apiRef.current = cy.expandCollapse({
+    const api = cy.expandCollapse({
       layoutBy: null,
       fisheye: false,
       animate: false,
       undoable: false,
       cueEnabled: true,
     });
+    apiRef.current = api;
+    // Apply any collapse that was desired BEFORE the extension existed.
+    // useCytoscape's diff-patch effect also reconciles collapse, but it is declared
+    // ahead of this hook in GraphCanvas, so on the render where the api first
+    // initialises it has already run with a null api and skipped. Without this, a
+    // collapse set on mount (controller mode's default-collapse) would never apply.
+    const toCollapse = cy.nodes(':parent').filter((n) => collapsedIdsRef.current.has(n.id()));
+    if (toCollapse.length > 0) {
+      suppressRef.current = true;
+      api.collapse(toCollapse);
+      suppressRef.current = false;
+    }
     const handleCue = (): void => {
       // Programmatic apply in progress (useCytoscape) — ignore the echoed event.
       if (suppressRef.current) {
@@ -57,5 +70,5 @@ export function useExpandCollapse({
     };
     // collapsedIdsRef/suppressRef are stable refs; re-bind only on instance swap
     // or when the enabled gate flips.
-  }, [cyRef, enabled, isReady, apiRef, suppressRef, onCollapsedChange]);
+  }, [cyRef, enabled, isReady, apiRef, collapsedIdsRef, suppressRef, onCollapsedChange]);
 }

@@ -16,6 +16,26 @@ declare module 'cytoscape' {
     isCluster?: boolean; // true only on a backend-provided cluster container node
     cluster?: string; // cluster name carried on the container node
     clusterColor?: string; // accent colour assigned in normalize so the stylesheet stays pure
+    // true only on a panel-synthesized controller node (see normalize.ts);
+    // distinguishes a controller container from a K8s `node` container in
+    // controller mode (deriveContainers).
+    isController?: boolean;
+    // Worst STATUS a COLLAPSED container would HIDE, surfaced as its border tint in
+    // getStylesheet. On a synthesized controller = worst child-pod status; on a k8s
+    // `node` container = worst of its OWN status and its child pods' statuses
+    // (worst-wins). Aggregated in normalize. Omitted when that worst is `normal` (so the
+    // folded box keeps its neutral / own-status border).
+    worstStatus?: NodeStatus;
+    // true only on a backend-synthesized StorageClass compound group node
+    // (data.type === 'storageclass'; cluster > storageclass > pvc nesting). UNLIKE
+    // isCluster, it ALSO carries a real `kind: 'storageclass'` — it renders exactly
+    // like the K8s `node` container (icon-less while an expanded :parent, shows its
+    // kind glyph when collapsed/leaf) and is filterable via visibleKinds. The flag
+    // itself only drives three non-style behaviours: its own "Storage classes" swatch
+    // legend section, exclusion from the detail panel, and synthesized hover context.
+    // It nests under its cluster, tints from that cluster's accent, and stays
+    // interactive / collapsible.
+    isStorageClass?: boolean;
   }
 
   interface EdgeDataDefinition {

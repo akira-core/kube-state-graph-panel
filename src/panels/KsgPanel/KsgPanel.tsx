@@ -2,7 +2,7 @@ import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
 import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
@@ -10,9 +10,11 @@ import { useGraphData } from '../../features/graph-data';
 import {
   ClusterLegend,
   EdgeLegend,
+  LayoutModeControl,
   NodeContainerLegend,
   NodeLegend,
   StatusLegend,
+  StorageClassLegend,
   type ClusterLegendEntry,
 } from '../../features/legend';
 import { NodeDetailPanel, type NodeDetailData } from '../../features/node-detail';
@@ -22,7 +24,9 @@ import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
 
-import { deriveNodeContainers } from './deriveNodeContainers';
+import { deriveLegendKinds } from './deriveLegendKinds';
+import { deriveContainers } from './deriveNodeContainers';
+import { deriveStorageClassContainers } from './deriveStorageClassContainers';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 import { useCollapseGroup } from './useCollapseGroup';
 
@@ -46,14 +50,22 @@ function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; le
       position: 'relative',
     }),
     // Legend sits to the LEFT of the canvas (rendered before it in the DOM).
-    // A hairline divider separates each stacked section (Node kinds / Edge
-    // types / Clusters): a top border on every section after the first.
+    // Order: Layout toggle, then the reference sections (Node Kinds / Edge Types /
+    // Status), then the swatch sections (Clusters / Nodes|Controllers / Storage
+    // Classes). A hairline divider separates each stacked section: a top border on
+    // every section after the first.
     legendArea: css({
       width: 200,
       flexShrink: 0,
       padding: '0 8px',
       overflowY: 'auto',
       borderRight: `1px solid ${borderWeak}`,
+      // Shrink every section heading one step (h4 → h5) so long titles like
+      // "Storage Classes (N)" fit on one line in the 200px rail. The fold-toggle
+      // button inherits this via `font: inherit`.
+      '& h4': {
+        fontSize: theme.typography.h5.fontSize,
+      },
       '& > div + div': {
         marginTop: 8,
         paddingTop: 8,
@@ -81,7 +93,7 @@ export function resolveSelectedNode(
       continue;
     }
     const d = el.data as cytoscape.NodeDataDefinition;
-    if (d.id === selectedNodeId && d.isCluster !== true) {
+    if (d.id === selectedNodeId && d.isCluster !== true && d.isStorageClass !== true) {
       return {
         id: selectedNodeId,
         label: typeof d.label === 'string' ? d.label : selectedNodeId,
@@ -109,14 +121,12 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const { elements: baseElements, error: normalizeError } = useGraphData(data);
 
   // Pod-parent view mode — local state, toggled from the legend (Grafana panel
-  // options are read-only at runtime, so this cannot be an option). 'service'
-  // re-parents pods under their selecting Service and swaps the pod↔node /
-  // pod↔service relationships between nesting and drawn edge. Default 'node'
-  // returns the backend's native structure unchanged.
-  const [podParentMode, setPodParentMode] = useState<PodParentMode>('node');
-  const togglePodParentMode = useCallback(() => {
-    setPodParentMode((mode) => (mode === 'node' ? 'service' : 'node'));
-  }, []);
+  // options are read-only at runtime, so this cannot be an option). 'controller'
+  // re-parents pods under their owning controller and swaps the pod↔node /
+  // pod↔controller relationships between nesting and drawn edge. Default
+  // 'controller' aggregates pods under their owning controller; 'node' is the
+  // infrastructure view (clean cluster > node > pod backend topology).
+  const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
   const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
 
   // Selected node id drives both the detail panel and (controlled) the cy
@@ -168,26 +178,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
-  // Node kinds present in the graph (first-seen order), so the node legend lists
-  // only what's on screen — same principle as the cluster swatches. Cluster
-  // containers carry no kind and are excluded.
-  const presentKinds = useMemo<string[]>(() => {
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const el of elements) {
-      if (el.group !== 'nodes') {
-        continue;
-      }
-      const d = el.data as cytoscape.NodeDataDefinition;
-      if (d.isCluster === true || typeof d.kind !== 'string' || seen.has(d.kind)) {
-        continue;
-      }
-      seen.add(d.kind);
-      ordered.push(d.kind);
-    }
-    return ordered;
-  }, [elements]);
-
   // Edge types present in the graph, ordered by the canonical edge-style map for
   // a stable legend. `elements` is already mode-transformed (applyPodParentMode),
   // so this is exactly the set of drawn edges currently on screen.
@@ -210,23 +200,79 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // next Set via onCollapsedChange (cue events / data-refresh prune).
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
-  // K8s `node` containers (swatched by their cluster) + whether `node` should also
-  // appear in the icon Node-kinds legend. In the default cluster>node>pod layout a
-  // node is a labelled container with no icon, so it is swatched in the "Nodes"
-  // section and dropped from Node-kinds. It earns its icon slot only when it
-  // renders as a glyph: a drawn leaf (service / controller mode) or a COLLAPSED
-  // container (which shows its kind icon once its children are hidden).
-  const { nodeEntries, nodeContainerIds, showNodeKindIcon } = useMemo(
-    () => deriveNodeContainers(elements, themeColors(theme).border.weak, collapsedIds),
-    [elements, theme, collapsedIds]
+  // Default-aggregate: the first render where controllers are present while in
+  // controller mode (initial load OR re-entry) collapses them all so pods start
+  // aggregated. The ref prevents re-collapsing on a later data refresh (a
+  // user-expanded controller stays open) and resets when leaving controller mode
+  // so the next entry re-collapses. Reading `elements` here (a dep) is required to
+  // catch the async first data load.
+  const collapsedForEntryRef = useRef(false);
+  useEffect(() => {
+    if (podParentMode !== 'controller') {
+      collapsedForEntryRef.current = false;
+      return;
+    }
+    if (collapsedForEntryRef.current) {
+      return;
+    }
+    const controllerIds = elements
+      .filter((el) => el.group === 'nodes' && (el.data as cytoscape.NodeDataDefinition).isController === true)
+      .map((el) => (el.data as cytoscape.NodeDataDefinition).id)
+      .filter((id): id is string => typeof id === 'string');
+    if (controllerIds.length === 0) {
+      return;
+    }
+    collapsedForEntryRef.current = true;
+    // Synchronous setState in an effect is intentional and one-shot here: the
+    // collapsed-set is React-owned UI state seeded from the (async) graph data on
+    // the first controller-mode entry, and the ref guard makes it fire at most
+    // once per entry — no cascading-render loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot, ref-guarded default-collapse seeded from async data
+    setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
+  }, [podParentMode, elements]);
+
+  // Mode-aware compound containers (swatched by their cluster) for the "Nodes" /
+  // "Controllers" section. In node mode these are the K8s `node` boxes; in controller
+  // mode the synthesized controllers. Childless candidates are drawn leaves, not
+  // containers. Whether a kind ALSO shows in the icon Node-kinds legend is decided by
+  // deriveLegendKinds (below), not here.
+  const {
+    containerEntries,
+    containerIds,
+    title: containerTitle,
+    collapseNoun,
+  } = useMemo(
+    () => deriveContainers(elements, themeColors(theme).border.weak, podParentMode),
+    [elements, theme, podParentMode]
   );
 
-  // The kinds shown in the icon Node-kinds legend: drop `node` while it only
-  // renders as an (expanded) container — it lives in the "Nodes" swatch section.
-  const nodeLegendKinds = useMemo(
-    () => (showNodeKindIcon ? presentKinds : presentKinds.filter((kind) => kind !== 'node')),
-    [presentKinds, showNodeKindIcon]
+  // StorageClass compound groups (cluster > storageclass > pvc). Mode-INDEPENDENT
+  // (unlike the node/controller containers above): a StorageClass always boxes its
+  // PVCs in both pod-parent modes, so it gets its own swatch section + collapse group.
+  const { containerEntries: storageClassEntries, containerIds: storageClassIds } = useMemo(
+    () => deriveStorageClassContainers(elements, themeColors(theme).border.weak),
+    [elements, theme]
   );
+
+  // Default-fold storage classes: a storageclass compound group starts collapsed on the
+  // first load it appears. Mode-INDEPENDENT (unlike the controller default-collapse
+  // above) since a storageclass boxes its PVCs in both pod-parent modes. Ref-guarded so
+  // it fires once per mount — a user-expanded storageclass survives a later data refresh.
+  const storageClassesFoldedRef = useRef(false);
+  useEffect(() => {
+    if (storageClassesFoldedRef.current || storageClassIds.length === 0) {
+      return;
+    }
+    storageClassesFoldedRef.current = true;
+    setCollapsedIds((prev) => new Set([...prev, ...storageClassIds]));
+  }, [storageClassIds]);
+
+  // The kinds shown in the icon Node-kinds legend — collapse- + container-aware, so
+  // the legend lists exactly what renders as a glyph: drawn leaves + collapsed
+  // containers; expanded containers (Nodes / Controllers / Storage classes) and
+  // collapse-hidden children drop out. This is why collapsing a storageclass swaps
+  // `pvc` → `storageclass` (and node⇄pod, controller⇄pod likewise).
+  const nodeLegendKinds = useMemo(() => deriveLegendKinds(elements, collapsedIds), [elements, collapsedIds]);
 
   // Cluster container ids = backend cluster containers (isCluster).
   const clusterContainerIds = useMemo<string[]>(() => {
@@ -243,16 +289,21 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return ids;
   }, [elements]);
 
-  // K8s node container ids come from deriveNodeContainers (single source for
-  // "which nodes are collapsible boxes"), so the collapse toggle and the "Nodes"
-  // swatches can never reference different node sets.
+  // Container ids come from deriveContainers (single source for "which boxes are
+  // collapsible" in the current mode), so the collapse toggle and the swatch
+  // section can never reference different sets.
   const { allCollapsed: allClustersCollapsed, toggle: toggleClusters } = useCollapseGroup(
     clusterContainerIds,
     collapsedIds,
     setCollapsedIds
   );
   const { allCollapsed: allNodesCollapsed, toggle: toggleNodes } = useCollapseGroup(
-    nodeContainerIds,
+    containerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
+  const { allCollapsed: allStorageClassesCollapsed, toggle: toggleStorageClasses } = useCollapseGroup(
+    storageClassIds,
     collapsedIds,
     setCollapsedIds
   );
@@ -282,15 +333,27 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     <div className={styles.root}>
       {options.showLegend && (
         <aside className={styles.legendArea}>
+          <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
+          <NodeLegend kinds={nodeLegendKinds} />
+          <EdgeLegend edgeTypes={presentEdgeTypes} />
+          <StatusLegend />
           <ClusterLegend
             clusters={clusterEntries}
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          <NodeContainerLegend nodes={nodeEntries} onToggleCollapseAll={toggleNodes} allCollapsed={allNodesCollapsed} />
-          <NodeLegend kinds={nodeLegendKinds} />
-          <EdgeLegend edgeTypes={presentEdgeTypes} mode={podParentMode} onToggleMode={togglePodParentMode} />
-          <StatusLegend />
+          <NodeContainerLegend
+            nodes={containerEntries}
+            onToggleCollapseAll={toggleNodes}
+            allCollapsed={allNodesCollapsed}
+            title={containerTitle}
+            collapseNoun={collapseNoun}
+          />
+          <StorageClassLegend
+            storageClasses={storageClassEntries}
+            onToggleCollapseAll={toggleStorageClasses}
+            allCollapsed={allStorageClassesCollapsed}
+          />
         </aside>
       )}
       <div className={styles.canvasArea}>

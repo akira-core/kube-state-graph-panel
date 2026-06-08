@@ -2,7 +2,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
-import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
+import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
@@ -53,7 +53,7 @@ function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, Edge
 export function getStylesheet({
   theme,
   // Master map covers all wire edge types (incl. pod-runs-on-node) so the
-  // stylesheet can colour the service-mode pod→node edge; resolving a type with
+  // stylesheet can colour the controller-mode pod→node edge; resolving a type with
   // no edges in the current view is harmless.
   colorMap = EDGE_STYLE_BY_TYPE,
 }: GetStylesheetInput): CyStylesheet[] {
@@ -66,12 +66,26 @@ export function getStylesheet({
   const borderColor = colors.border.medium;
   const selectedColor = colors.primary.main;
 
-  // Status border for managed leaf kinds (pod/node/pvc). Spread (below) between
-  // the container selectors and node:selected so it overrides the neutral
-  // node:parent border (a K8s node is itself a compound parent) yet still yields
+  // Status border, DATA-DRIVEN: any node CARRYING a status gets it (no hardcoded kind
+  // whitelist). normalize keeps `status` only on nodes the backend gave one (pod/node/
+  // pvc in practice; service/external/cluster/storageclass carry none → neutral border).
+  // Spread (below) between the container selectors and node:selected so it overrides the
+  // neutral node:parent border (a K8s node is itself a compound parent) yet still yields
   // to the selection highlight. Colours come from STATUS_COLOR (single source).
   const statusSelectors: CyStylesheet[] = Object.entries(STATUS_COLOR).map(([status, color]) => ({
-    selector: STATUS_BORDER_KINDS.map((kind) => `node[kind="${kind}"][status="${status}"]`).join(', '),
+    selector: `node[status="${status}"]`,
+    style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
+  }));
+
+  // A COLLAPSED container (controller / k8s node) borders in the worst STATUS it HIDES
+  // among its descendants (data.worstStatus, aggregated in normalize: a controller's
+  // worst child-pod status; a k8s node's worst of its own + child statuses). Gated on
+  // the collapsed-node class so an EXPANDED container keeps its neutral / own-status
+  // border; spread (below) AFTER statusSelectors so a collapsed node's worst-child
+  // status overrides its OWN status border. Scope (controller + node only) is enforced
+  // in normalize — only those nodes carry data.worstStatus.
+  const collapsedContainerStatusSelectors: CyStylesheet[] = Object.entries(STATUS_COLOR).map(([status, color]) => ({
+    selector: `node[worstStatus="${status}"].cy-expand-collapse-collapsed-node`,
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
@@ -191,13 +205,29 @@ export function getStylesheet({
       },
     },
     ...statusSelectors,
+    // Declared AFTER statusSelectors: a collapsed k8s node's worst-child status must
+    // override its OWN status border; a controller has no status border so this is its
+    // only tint.
+    ...collapsedContainerStatusSelectors,
     {
-      // Declared AFTER the container selectors so the selection highlight wins
-      // for selected leaf nodes AND node containers (clusters are events:'no').
+      // Selection highlight = a crisp outline RING + a soft underlay halo, NOT a
+      // border override. A blue selection border used to clobber the status border
+      // (statusSelectors above), so clicking an unhealthy pod hid the very colour
+      // signalling its health. `outline-*` draws a separate ring OUTSIDE the node
+      // (offset off the border, so a gap separates the two) and `underlay-*` glows
+      // from behind — both leave border + background + icon untouched, so the
+      // status colour survives while the selection reads boldly. Combined with the
+      // focus dimming (FADED_CLASS) it stands out clearly. Declared AFTER the
+      // container/status selectors so it applies to selected leaf nodes AND node
+      // containers (clusters are events:'no' and cannot be selected).
       selector: 'node:selected',
       style: {
-        'border-color': selectedColor,
-        'border-width': 3,
+        'outline-color': selectedColor,
+        'outline-width': 3,
+        'outline-offset': 3,
+        'underlay-color': selectedColor,
+        'underlay-opacity': 0.35,
+        'underlay-padding': 6,
       },
     },
     {
@@ -222,14 +252,15 @@ export function getStylesheet({
       },
     },
     {
-      // Switch↔switch fabric edges route orthogonally (taxi) so the many edges
-      // converging on one switch share clean right-angle channels instead of
-      // overlapping béziers. node→switch is intentionally EXCLUDED — a k8s node
-      // links to its switch as a direct (bézier) uplink, kept visually separate
-      // from the switch fabric (own indigo colour). Declared AFTER the base `edge`
-      // selector so its curve-style wins; sets only routing props, leaving
-      // line-color / arrow from the `edge` selector intact.
-      selector: "edge[edgeType='switch-to-switch']",
+      // Switch↔switch and node→switch fabric edges route orthogonally (taxi) so
+      // the many edges converging on one switch share clean right-angle channels
+      // instead of overlapping béziers. node→switch shares the same routing because
+      // K8s nodes are now pinned one tier above the switch fabric (controller mode),
+      // so their uplinks are parallel vertical segments — taxi keeps them aligned
+      // with the inter-switch wiring. Declared AFTER the base `edge` selector so
+      // its curve-style wins; sets only routing props, leaving line-color / arrow
+      // from the `edge` selector intact.
+      selector: "edge[edgeType='switch-to-switch'], edge[edgeType='node-to-switch']",
       style: {
         'curve-style': 'taxi',
         'taxi-direction': 'vertical',

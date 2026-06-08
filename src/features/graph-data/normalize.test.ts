@@ -1,3 +1,5 @@
+import type cytoscape from 'cytoscape';
+
 import { normalizeGraph } from './normalize';
 
 // Fixtures mirror upstream kube-state-graph golden cytoscape payloads
@@ -98,6 +100,23 @@ describe('normalizeGraph', () => {
     const result = normalizeGraph(raw);
     expect(result.elements[0]?.data.ipAddress).toBeUndefined();
     expect(result.elements[1]?.data.ipAddress).toBeUndefined();
+  });
+
+  it('emits status only when the backend provides one (data-driven: a service without status gets none, a pod keeps its warning)', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'svc', name: 'svc', type: 'service', labels: { namespace: 'shop' } } },
+          { data: { id: 'p', name: 'p', type: 'pod', status: 'warning', labels: {} } },
+        ],
+        edges: [],
+      },
+    };
+    const byId = new Map(normalizeGraph(raw).elements.map((e) => [e.data.id, e.data]));
+    // No backend status → omitted → the stylesheet's node[status] selector won't border it.
+    expect(byId.get('svc')?.status).toBeUndefined();
+    // A valid backend status survives verbatim.
+    expect(byId.get('p')?.status).toBe('warning');
   });
 
   it('accepts the unwrapped { nodes, edges } shape identically', () => {
@@ -377,6 +396,56 @@ describe('normalizeGraph', () => {
     expect(elements.some((e) => (e.data as Record<string, unknown>).isCluster === true)).toBe(false);
   });
 
+  it('tags a storageclass group container (kind=storageclass, no status/alerts) and passes PVC nesting through', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
+          {
+            data: {
+              id: 'prod/storageclass/fast-ssd',
+              type: 'storageclass',
+              name: 'fast-ssd',
+              parent: 'cluster/prod',
+              // A group node never carries alerts even if upstream sends them.
+              alerts: [{ name: 'x', severity: 'warning', time: 1 }],
+            },
+          },
+          {
+            data: {
+              id: 'pvc/data-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'prod/storageclass/fast-ssd',
+              status: 'warning',
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const { elements, errors } = normalizeGraph(raw);
+    expect(errors).toEqual([]);
+    const byId = new Map(elements.map((e) => [e.data.id as string, e.data as Record<string, unknown>]));
+    const sc = byId.get('prod/storageclass/fast-ssd');
+    // Tagged as a storageclass container: it carries its `kind` (so it can show in the
+    // icon legend when collapsed + be filterable) AND the `isStorageClass` flag (own
+    // "Storage classes" section, excluded from detail). Like the K8s node container it
+    // is a grouping box — NO status, NO alerts. It is NOT a cluster, and keeps its
+    // backend parent + label.
+    expect(sc?.isStorageClass).toBe(true);
+    expect(sc?.kind).toBe('storageclass');
+    expect(sc?.status).toBeUndefined();
+    expect(sc?.alerts).toBeUndefined();
+    expect(sc?.isCluster).toBeUndefined();
+    expect(sc?.parent).toBe('cluster/prod');
+    expect(sc?.label).toBe('fast-ssd');
+    // The PVC nests under the storageclass group verbatim and keeps kind + status.
+    expect(byId.get('pvc/data-0')?.parent).toBe('prod/storageclass/fast-ssd');
+    expect(byId.get('pvc/data-0')?.kind).toBe('pvc');
+    expect(byId.get('pvc/data-0')?.status).toBe('warning');
+  });
+
   describe('node alerts', () => {
     const withAlerts = (alerts: unknown): ReturnType<typeof normalizeGraph> =>
       normalizeGraph({
@@ -386,55 +455,106 @@ describe('normalizeGraph', () => {
         },
       });
 
-    it('carries a well-formed alerts array onto data.alerts', () => {
+    it('parses time_records onto NodeAlert.timeRecords (ascending), keeping pod/service/id', () => {
       const { elements, errors } = withAlerts([
-        { pod: 'mongo-0', service: 'mongo', name: 'HighMem', severity: 'critical', time: 1717500000, id: 'a1' },
-        { name: 'Restart', severity: 'warning', time: 1717500300 },
+        {
+          pod: 'mongo-0',
+          service: 'mongo',
+          name: 'HighMem',
+          severity: 'critical',
+          time_records: [1717500300, 1717500000],
+          id: 'a1',
+        },
+        { name: 'Restart', severity: 'warning', time_records: [1717500300] },
       ]);
       expect(errors).toEqual([]);
       expect(elements[0]?.data.alerts).toEqual([
-        { pod: 'mongo-0', service: 'mongo', name: 'HighMem', severity: 'critical', time: 1717500000, id: 'a1' },
-        { name: 'Restart', severity: 'warning', time: 1717500300 },
+        {
+          pod: 'mongo-0',
+          service: 'mongo',
+          name: 'HighMem',
+          severity: 'critical',
+          timeRecords: [1717500000, 1717500300], // sorted ascending
+          id: 'a1',
+        },
+        { name: 'Restart', severity: 'warning', timeRecords: [1717500300] },
       ]);
     });
 
-    it('drops malformed alert entries (bad/missing name, severity or time) and keeps valid ones', () => {
+    it('falls back to a legacy scalar time → single-element timeRecords (epoch 0 valid)', () => {
       const { elements } = withAlerts([
-        { name: 'ok', severity: 'warning', time: 1717500000 },
-        { name: 'epoch0', severity: 'warning', time: 0 }, // 0 is a valid Unix second
-        { severity: 'critical', time: 1717500000 }, // missing name
-        { name: 'badSev', severity: 'fatal', time: 1717500000 }, // severity not in enum
-        { name: 'normalSev', severity: 'normal', time: 1717500000 }, // 'normal' is node status, not alert severity
-        { name: 'strTime', severity: 'warning', time: '1717500000' }, // time not a number
-        { name: 'nanTime', severity: 'warning', time: NaN }, // non-finite
-        { name: 'infTime', severity: 'warning', time: Infinity }, // non-finite
-        { name: 'negTime', severity: 'warning', time: -5 }, // negative epoch
+        { name: 'Legacy', severity: 'warning', time: 1717500000 },
+        { name: 'Epoch0', severity: 'warning', time: 0 },
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'Legacy', severity: 'warning', timeRecords: [1717500000] },
+        { name: 'Epoch0', severity: 'warning', timeRecords: [0] },
+      ]);
+    });
+
+    it('prefers time_records over a legacy scalar time when both are present', () => {
+      const { elements } = withAlerts([
+        { name: 'both', severity: 'warning', time: 999, time_records: [1717500000, 1717500300] },
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'both', severity: 'warning', timeRecords: [1717500000, 1717500300] },
+      ]);
+    });
+
+    it('falls back to scalar time when time_records is present but all-invalid', () => {
+      const { elements } = withAlerts([{ name: 'fb', severity: 'warning', time: 1717500000, time_records: [NaN, -1] }]);
+      expect(elements[0]?.data.alerts).toEqual([{ name: 'fb', severity: 'warning', timeRecords: [1717500000] }]);
+    });
+
+    it('filters non-finite/negative entries inside time_records and sorts the rest', () => {
+      const { elements } = withAlerts([
+        { name: 'noisy', severity: 'warning', time_records: [1717500300, -5, NaN, Infinity, 1717500000, 0] },
+      ]);
+      expect(elements[0]?.data.alerts).toEqual([
+        { name: 'noisy', severity: 'warning', timeRecords: [0, 1717500000, 1717500300] },
+      ]);
+    });
+
+    it('drops alert entries with a bad/missing name or non-string/empty severity, keeping valid ones', () => {
+      const { elements } = withAlerts([
+        { name: 'ok', severity: 'warning', time_records: [1717500000] },
+        { severity: 'critical', time_records: [1717500000] }, // missing name
+        { name: 'noSev', time_records: [1717500000] }, // missing severity
+        { name: 'emptySev', severity: '', time_records: [1717500000] }, // empty severity string
+        { name: 'numSev', severity: 2, time_records: [1717500000] }, // severity not a string
         'nope', // not an object
       ]);
-      expect(elements[0]?.data.alerts).toEqual([
-        { name: 'ok', severity: 'warning', time: 1717500000 },
-        { name: 'epoch0', severity: 'warning', time: 0 },
-      ]);
+      expect(elements[0]?.data.alerts).toEqual([{ name: 'ok', severity: 'warning', timeRecords: [1717500000] }]);
     });
 
-    it('accepts info/warning/critical severities and rejects node-status "normal"', () => {
+    it('keeps any non-empty severity string, including custom labels the backend defines', () => {
       const { elements } = withAlerts([
-        { name: 'i', severity: 'info', time: 1717500000 },
-        { name: 'w', severity: 'warning', time: 1717500001 },
-        { name: 'c', severity: 'critical', time: 1717500002 },
-        { name: 'n', severity: 'normal', time: 1717500003 }, // dropped: not an alert severity
+        { name: 'i', severity: 'info', time_records: [1717500000] },
+        { name: 'n', severity: 'normal', time_records: [1717500003] }, // not a known tier, kept verbatim
+        { name: 'x', severity: 'fatal', time_records: [1717500004] }, // custom label, kept verbatim
+        { name: 'p', severity: 'P1', time_records: [1717500005] }, // custom label, kept verbatim
       ]);
       expect(elements[0]?.data.alerts).toEqual([
-        { name: 'i', severity: 'info', time: 1717500000 },
-        { name: 'w', severity: 'warning', time: 1717500001 },
-        { name: 'c', severity: 'critical', time: 1717500002 },
+        { name: 'i', severity: 'info', timeRecords: [1717500000] },
+        { name: 'n', severity: 'normal', timeRecords: [1717500003] },
+        { name: 'x', severity: 'fatal', timeRecords: [1717500004] },
+        { name: 'p', severity: 'P1', timeRecords: [1717500005] },
       ]);
     });
 
-    it('omits the alerts field when absent, empty, or all entries malformed', () => {
+    it('omits the alerts field when absent, empty, or no entry has a valid occurrence time', () => {
       expect(withAlerts(undefined).elements[0]?.data.alerts).toBeUndefined();
       expect(withAlerts([]).elements[0]?.data.alerts).toBeUndefined();
-      expect(withAlerts([{ name: 'x' }]).elements[0]?.data.alerts).toBeUndefined();
+      // no time at all
+      expect(withAlerts([{ name: 'x', severity: 'warning' }]).elements[0]?.data.alerts).toBeUndefined();
+      // empty record + no scalar
+      expect(
+        withAlerts([{ name: 'x', severity: 'warning', time_records: [] }]).elements[0]?.data.alerts
+      ).toBeUndefined();
+      // all-invalid records + invalid scalar
+      expect(
+        withAlerts([{ name: 'x', severity: 'warning', time: -1, time_records: [NaN, -5] }]).elements[0]?.data.alerts
+      ).toBeUndefined();
     });
 
     it('never carries alerts on a cluster container node', () => {
@@ -442,7 +562,12 @@ describe('normalizeGraph', () => {
         elements: {
           nodes: [
             {
-              data: { id: 'c1', type: 'cluster', name: 'demo', alerts: [{ name: 'x', severity: 'warning', time: 1 }] },
+              data: {
+                id: 'c1',
+                type: 'cluster',
+                name: 'demo',
+                alerts: [{ name: 'x', severity: 'warning', time_records: [1] }],
+              },
             },
           ],
           edges: [],
@@ -450,5 +575,257 @@ describe('normalizeGraph', () => {
       });
       expect(elements[0]?.data.alerts).toBeUndefined();
     });
+  });
+});
+
+function podWithOwner(id: string, cluster: string, ns: string, owner: { kind: string; name: string }) {
+  return {
+    data: { id, name: id, type: 'pod', parent: `${cluster}/node-a`, owner, labels: { cluster, namespace: ns } },
+  };
+}
+
+describe('normalizeGraph — controller synthesis', () => {
+  // A collapsed controller's rectangle is tinted by the worst STATUS among its child
+  // pods (see getStylesheet); normalize aggregates it onto the synthesized controller
+  // as data.worstStatus (rank critical>warning>normal). STATUS — not alerts — drives
+  // the tint: every node carries a status (default normal), so a pod that is `warning`
+  // WITHOUT an alert still propagates.
+  const ownedPodWithStatus = (id: string, owner: { kind: string; name: string }, status?: string) => ({
+    data: {
+      id,
+      name: id,
+      type: 'pod',
+      parent: 'cluster/prod',
+      owner,
+      labels: { cluster: 'prod', namespace: 'shop' },
+      ...(status !== undefined ? { status } : {}),
+    },
+  });
+  const controllerOf = (raw: unknown): cytoscape.NodeDataDefinition | undefined => {
+    const controllers = normalizeGraph(raw).elements.filter(
+      (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
+    );
+    return controllers.length > 0 ? controllers[0]!.data : undefined;
+  };
+  const withControllerPods = (...pods: Array<ReturnType<typeof ownedPodWithStatus>>): unknown => ({
+    elements: {
+      nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
+      edges: [],
+    },
+  });
+
+  it('tags the synthesized controller with the worst child-pod STATUS (warning + critical → critical)', () => {
+    const raw = withControllerPods(
+      ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'warning'),
+      ownedPodWithStatus('prod/p2', { kind: 'Deployment', name: 'api' }, 'critical')
+    );
+    expect(controllerOf(raw)?.worstStatus).toBe('critical');
+  });
+
+  it('propagates a warning STATUS even when the pod carries no alert (status, not alerts)', () => {
+    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'warning'));
+    expect(controllerOf(raw)?.worstStatus).toBe('warning');
+  });
+
+  it('treats an unknown / absent status as normal (default), so worstStatus is omitted', () => {
+    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'bogus'));
+    expect(controllerOf(raw)?.worstStatus).toBeUndefined();
+  });
+
+  it('omits worstStatus when every owned pod is normal', () => {
+    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'normal'));
+    expect(controllerOf(raw)?.worstStatus).toBeUndefined();
+  });
+
+  // The SAME collapse-status propagation applies to a k8s `node` container: a collapsed
+  // node borders by the worst of its OWN status and its child pods' statuses (worst-wins,
+  // never downgraded). normalize tags it onto the node as data.worstStatus.
+  describe('collapsed k8s node status tint (data.worstStatus)', () => {
+    const dataOf = (raw: unknown, id: string): cytoscape.NodeDataDefinition | undefined =>
+      normalizeGraph(raw).elements.find(
+        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).id === id
+      )?.data;
+    const k8sNode = (id: string, status?: string) => ({
+      data: { id, name: id, type: 'node', parent: 'cluster/prod', ...(status !== undefined ? { status } : {}) },
+    });
+    const podUnder = (id: string, parent: string, status?: string) => ({
+      data: { id, name: id, type: 'pod', parent, ...(status !== undefined ? { status } : {}) },
+    });
+    const graph = (...nodes: Array<{ data: Record<string, unknown> }>): unknown => ({
+      elements: { nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster' } }, ...nodes], edges: [] },
+    });
+
+    it('tints a collapsed node by the worst child-pod status (normal node + critical pod → critical)', () => {
+      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'critical'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+    });
+
+    it("never downgrades below the node's own status (critical node + normal pod → critical)", () => {
+      const raw = graph(k8sNode('node/w0', 'critical'), podUnder('pod/a', 'node/w0', 'normal'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+    });
+
+    it('propagates a child warning onto a normal node (worst-wins → warning)', () => {
+      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'warning'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('warning');
+    });
+
+    it('takes the worst of own status and children (warning node + critical pod → critical)', () => {
+      const raw = graph(k8sNode('node/w0', 'warning'), podUnder('pod/a', 'node/w0', 'critical'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+    });
+
+    it('omits worstStatus when the node and all its pods are normal', () => {
+      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'normal'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBeUndefined();
+    });
+  });
+
+  it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          {
+            data: {
+              id: 'prod/node-a',
+              name: 'node-a',
+              type: 'node',
+              parent: 'cluster/prod',
+              labels: { cluster: 'prod' },
+            },
+          },
+          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'StatefulSet', name: 'mongo' }),
+          podWithOwner('prod/p2', 'prod', 'shop', { kind: 'StatefulSet', name: 'mongo' }),
+        ],
+        edges: [],
+      },
+    };
+    const { elements } = normalizeGraph(raw);
+    const controllers = elements.filter(
+      (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
+    );
+    expect(controllers).toHaveLength(1);
+    const ctrl = controllers[0]!.data as cytoscape.NodeDataDefinition;
+    expect(ctrl.kind).toBe('statefulset');
+    expect(ctrl.label).toBe('mongo');
+    expect(ctrl.parent).toBe('cluster/prod');
+    const owns = elements.filter(
+      (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
+    );
+    expect(owns).toHaveLength(2);
+    expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
+    expect(owns.every((e) => (e.data as cytoscape.EdgeDataDefinition).source === ctrl.id)).toBe(true);
+  });
+
+  it('keeps same-named controllers in different namespaces separate', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          podWithOwner('prod/a1', 'prod', 'a', { kind: 'Deployment', name: 'api' }),
+          podWithOwner('prod/b1', 'prod', 'b', { kind: 'Deployment', name: 'api' }),
+        ],
+        edges: [],
+      },
+    };
+    const ctrls = normalizeGraph(raw).elements.filter(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    );
+    expect(ctrls).toHaveLength(2);
+  });
+
+  it('does not synthesize for pods without an owner', () => {
+    const raw = {
+      elements: {
+        nodes: [{ data: { id: 'prod/p1', name: 'p1', type: 'pod', labels: { cluster: 'prod', namespace: 'x' } } }],
+        edges: [],
+      },
+    };
+    expect(
+      normalizeGraph(raw).elements.some((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)
+    ).toBe(false);
+  });
+
+  it('falls back to legacy labels.owner_kind / owner_name', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          {
+            data: {
+              id: 'prod/p1',
+              name: 'p1',
+              type: 'pod',
+              parent: 'cluster/prod',
+              labels: { cluster: 'prod', namespace: 'x', owner_kind: 'DaemonSet', owner_name: 'fluentd' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl?.kind).toBe('daemonset');
+    expect(ctrl?.label).toBe('fluentd');
+  });
+
+  it('gives an owner-but-no-cluster pod a parentless (top-level) controller', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'p1',
+              name: 'p1',
+              type: 'pod',
+              labels: { namespace: 'x', owner_kind: 'Job', owner_name: 'batch' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl).toBeDefined();
+    expect(ctrl?.parent).toBeUndefined();
+  });
+
+  it('is deterministic and does not mutate input', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'Deployment', name: 'web' }),
+        ],
+        edges: [],
+      },
+    };
+    const snapshot = JSON.stringify(raw);
+    const a = JSON.stringify(normalizeGraph(raw).elements);
+    const b = JSON.stringify(normalizeGraph(raw).elements);
+    expect(a).toBe(b);
+    // Proves non-mutation: raw is byte-for-byte identical after both calls.
+    expect(JSON.stringify(raw)).toBe(snapshot);
+  });
+
+  it("synthesizes a parentless controller when the pod's cluster label has no matching cluster node", () => {
+    // The pod references cluster "orphan-cluster" which has no cluster container in the payload.
+    const raw = {
+      elements: {
+        nodes: [podWithOwner('prod/p1', 'orphan-cluster', 'shop', { kind: 'ReplicaSet', name: 'api' })],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl).toBeDefined();
+    // clusterIdByName.get('orphan-cluster') returns undefined → no parent assigned.
+    expect(ctrl?.parent).toBeUndefined();
   });
 });

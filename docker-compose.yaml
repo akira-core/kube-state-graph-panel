@@ -1,10 +1,26 @@
+# Local demo — ONE Grafana, both dashboards, two run modes (Compose profiles).
+#
+# Both dashboards are provisioned together from provisioning/dashboards/ and are
+# independent: `KSG Showcase` (/d/ksg-switch-demo) uses an Infinity INLINE target
+# (zero backend); `KSG Demo` (/d/ksg-demo) drives the real kube-state-graph backend
+# via the provisioned Infinity datasource. The backend stack (VictoriaMetrics +
+# seeder + kube-state-graph) sits behind the `backend` profile so the showcase can
+# run on its own.
+#
+#   docker compose up -d                    # grafana only → Showcase works;
+#                                           #   KSG Demo shows an (expected) datasource error
+#   docker compose --profile backend up -d  # + VM + seeder + backend → BOTH dashboards live
+#                                           #   (== `npm run server`, which also builds)
+#
+# Grafana → http://localhost:3000 (anonymous auth enabled in dev). Needs a built
+# dist/ (`npm run build`, or `npm run dev` to keep webpack watching).
 services:
   grafana:
     extends:
       file: .config/docker-compose-base.yaml
       service: grafana
-    depends_on:
-      - kube-state-graph
+    # No hard depends_on: the backend is an opt-in profile, and Grafana resolves the
+    # provisioned `kube-state-graph:8080` datasource lazily once that service is up.
     environment:
       # Auto-install Infinity datasource plugin so the provisioned ksg-default datasource
       # has a backing plugin. Without this, Grafana shows "Datasource ksg-default was not found".
@@ -20,6 +36,7 @@ services:
   # backend derives the whole graph from PromQL over a [start,end] window, it
   # does NOT read the Kubernetes API. ksg-seeder fills it with synthetic data.
   victoriametrics:
+    profiles: ['backend']
     image: victoriametrics/victoria-metrics:${VM_TAG:-v1.115.0}
     container_name: ksg-victoriametrics
     command:
@@ -32,6 +49,7 @@ services:
   # loop (see dev/victoriametrics/seed.sh + topology.prom). Replaces the need for
   # a real cluster + kube-state-metrics + Tempo service-graph pipeline.
   ksg-seeder:
+    profiles: ['backend']
     image: curlimages/curl:${CURL_TAG:-8.11.1}
     container_name: ksg-seeder
     depends_on:
@@ -44,6 +62,7 @@ services:
       - ./dev/victoriametrics:/seed:ro
 
   kube-state-graph:
+    profiles: ['backend']
     image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
     container_name: ksg-backend
     depends_on:

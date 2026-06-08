@@ -34,7 +34,7 @@ describe('useLayoutRunToken', () => {
   it('bumps when podParentMode changes', () => {
     const { result, rerender } = setup({ podParentMode: 'node' });
     const before = result.current;
-    rerender({ podParentMode: 'service' });
+    rerender({ podParentMode: 'controller' });
     expect(result.current).toBe(before + 1);
   });
 

@@ -17,12 +17,17 @@ TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archi
 
 ### Requirement: Docker Compose 編排
 
-`docker-compose.yaml` SHALL 編排一個 `grafana` service(官方 image),以及一個 `kube-state-graph` backend service(`marz32one/kube-state-graph` Docker Hub image)作為可選或預設啟用;兩 service 位於同一 docker network,Grafana 可以 `http://kube-state-graph:8080` 解析到 backend。**精簡版:不再要求 kind cluster + bootstrap 腳本;backend 連線目標 cluster 由開發者環境(本機 docker-desktop k8s / 遠端 kubeconfig)決定。**
+`docker-compose.yaml` SHALL 編排一個恆啟的 `grafana` service(官方 image),以及置於 **Compose `backend` profile** 的 backend 三件組(`kube-state-graph`(`marz32one/kube-state-graph` Docker Hub image)+ `victoriametrics` + `ksg-seeder`)作為**可選**啟用;所有 service 位於同一 docker network,Grafana 可以 `http://kube-state-graph:8080` 解析到 backend。預設 `docker compose up`(無 profile)只起 `grafana`(供 backend-free 的 inline showcase 使用);`docker compose --profile backend up` 額外起 backend 三件組(`KSG Demo` 改由真實 backend 驅動)。`grafana` MUST NOT 對 backend 設 `depends_on`(否則無 profile 啟動會因相依未啟用之 service 而報錯;datasource 為延遲解析)。**精簡版:不再要求 kind cluster + bootstrap 腳本;backend 連線目標由開發者環境決定。**
 
 #### Scenario: 啟動後 service 健康
 
 - **WHEN** 執行 `docker compose up -d` 後等待 30 秒
-- **THEN** `docker compose ps` 顯示對應 service 為 `running` 狀態,且 Grafana 健康檢查端點 `http://localhost:3000/api/health` 回傳 200
+- **THEN** `docker compose ps` 顯示 `grafana` 為 `running` 狀態,且 Grafana 健康檢查端點 `http://localhost:3000/api/health` 回傳 200
+
+#### Scenario: backend profile 為可選
+
+- **WHEN** 比對 `docker compose config --services` 與 `docker compose --profile backend config --services`
+- **THEN** 前者只列出 `grafana`;後者另列出 `kube-state-graph` / `victoriametrics` / `ksg-seeder`
 
 ### Requirement: Plugin 熱重載
 

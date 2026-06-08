@@ -127,6 +127,7 @@ describe('KsgPanel', () => {
       />
     );
     const legend = screen.getByTestId('cluster-legend');
+    fireEvent.click(within(legend).getByTestId('cluster-legend-fold-toggle'));
     expect(within(legend).getByText('demo')).toBeInTheDocument();
   });
 
@@ -184,10 +185,212 @@ describe('KsgPanel', () => {
         })}
       />
     );
+    // K8s `node` boxes are containers only in node mode; the panel now defaults to
+    // controller mode, so switch to node mode first to expose the node toggle.
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Node'));
+    });
     fireEvent.click(screen.getByTestId('node-collapse-toggle'));
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
     const lastCall = calls.at(-1)?.[0];
     expect(lastCall?.collapsedIds?.has('demo/node-a')).toBe(true);
+  });
+
+  it('shows a Layout Node|Controller control at the top of the legend', () => {
+    render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+    expect(screen.getByTestId('layout-mode-control')).toBeInTheDocument();
+    expect(screen.getByText('Layout')).toBeInTheDocument();
+    expect(screen.getByLabelText('Node')).toBeInTheDocument();
+    expect(screen.getByLabelText('Controller')).toBeInTheDocument();
+  });
+
+  it('defaults to controller mode: titles the section "Controllers" and default-collapses every controller on initial load', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: 'demo/node-a',
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    // The panel defaults to controller mode, so the container section is "Controllers"
+    // on initial load — no toggle needed.
+    const containerLegend = screen.getByTestId('node-container-legend');
+    expect(within(containerLegend).getByRole('heading', { name: /Controllers/ })).toBeInTheDocument();
+    // …and the synthesized controller is default-collapsed (pushed to GraphCanvas)
+    // by the initial-load effect once the graph data is present.
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+  });
+
+  it('re-collapses controllers after leaving and re-entering controller mode', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: 'demo/node-a',
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    // Leave controller mode (node mode drops the synthesized controller container).
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Node'));
+    });
+    // Re-enter controller mode — the effect re-collapses the controllers.
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Controller'));
+    });
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+  });
+
+  it('renders a "Storage classes" legend section and default-folds storage classes on load (toggle expands)', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          {
+            data: { id: 'demo/storageclass/fast-ssd', type: 'storageclass', name: 'fast-ssd', parent: 'cluster:demo' },
+          },
+          {
+            data: {
+              id: 'demo/pvc-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'demo/storageclass/fast-ssd',
+              labels: { cluster: 'demo' },
+            },
+          },
+          {
+            data: { id: 'demo/p0', type: 'pod', name: 'mongo-0', parent: 'cluster:demo', labels: { cluster: 'demo' } },
+          },
+        ],
+        edges: [{ data: { id: 'e0', type: 'pod-mounts-pvc', source: 'demo/p0', target: 'demo/pvc-0' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const legend = screen.getByTestId('storageclass-legend');
+    expect(within(legend).getByRole('heading', { name: /Storage Classes/ })).toBeInTheDocument();
+    fireEvent.click(within(legend).getByTestId('storageclass-legend-fold-toggle'));
+    expect(within(legend).getByText('fast-ssd')).toBeInTheDocument();
+    // Storage-class containers are DEFAULT-folded on first load (mode-independent),
+    // pushed to GraphCanvas without any user action.
+    const initial = (graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>).at(-1)?.[0];
+    expect(initial?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(true);
+    // The collapse-all toggle now EXPANDS (already collapsed) → removes the id.
+    fireEvent.click(screen.getByTestId('storageclass-collapse-toggle'));
+    const afterToggle = (graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>).at(-1)?.[0];
+    expect(afterToggle?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(false);
+  });
+
+  it('orders legend sections with the swatch sections (Clusters / Storage Classes) AFTER Status', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          {
+            data: { id: 'demo/storageclass/fast-ssd', type: 'storageclass', name: 'fast-ssd', parent: 'cluster:demo' },
+          },
+          {
+            data: {
+              id: 'demo/pvc-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'demo/storageclass/fast-ssd',
+              labels: { cluster: 'demo' },
+            },
+          },
+          {
+            data: { id: 'demo/p0', type: 'pod', name: 'mongo-0', parent: 'cluster:demo', labels: { cluster: 'demo' } },
+          },
+        ],
+        edges: [{ data: { id: 'e0', type: 'pod-mounts-pvc', source: 'demo/p0', target: 'demo/pvc-0' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
+    const idx = (re: RegExp): number => headings.findIndex((t) => re.test(t));
+    // The reference sections come first, in this order …
+    expect(idx(/node kinds/i)).toBeGreaterThanOrEqual(0);
+    expect(idx(/node kinds/i)).toBeLessThan(idx(/edge types/i));
+    expect(idx(/edge types/i)).toBeLessThan(idx(/status/i));
+    // … then the swatch sections, moved BELOW Status.
+    expect(idx(/status/i)).toBeLessThan(idx(/clusters/i));
+    expect(idx(/clusters/i)).toBeLessThan(idx(/storage classes/i));
   });
 
   it('does not render the cluster legend when there are no clusters', () => {
@@ -195,8 +398,13 @@ describe('KsgPanel', () => {
     expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();
   });
 
-  it('resolveSelectedNode carries a node\'s alerts onto the detail data', () => {
-    const alerts = [{ name: 'HighMem', severity: 'critical' as const, time: 1717500000 }];
+  it('does not render the storage-class legend when there are no storage classes', () => {
+    render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+    expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
+  });
+
+  it("resolveSelectedNode carries a node's alerts onto the detail data", () => {
+    const alerts = [{ name: 'HighMem', severity: 'critical' as const, timeRecords: [1717500000] }];
     const elements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'p1', label: 'mongo-0', kind: 'pod', alerts } },
     ];
@@ -214,7 +422,9 @@ describe('KsgPanel', () => {
               id: 'p1',
               type: 'pod',
               name: 'mongo-0',
-              alerts: [{ pod: 'mongo-0', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 }],
+              alerts: [
+                { pod: 'mongo-0', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 },
+              ],
             },
           },
           { data: { id: 'p2', type: 'pod', name: 'web' } },

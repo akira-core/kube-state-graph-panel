@@ -13,6 +13,27 @@ export interface HoveredElement {
   position?: { x: number; y: number };
   // Container size at hover time, used to clamp/flip the tooltip on-screen.
   viewport?: { width: number; height: number };
+  // Context gathered from cy for a `storageclass` compound group at hover time: its
+  // cluster and the labels of the PVCs it groups. These live on the node's PARENT /
+  // CHILDREN, not its own data (a storageclass carries no kind/labels), so the hook
+  // reads them here — otherwise the tooltip would be just the bare name. Absent for
+  // every other element.
+  storageClass?: { cluster?: string; pvcLabels: string[] };
+}
+
+// Pull a storageclass group's display context off the graph: its cluster (from the
+// parent cluster container's `cluster` field) and the labels of its child PVCs
+// (sorted for a stable, deterministic tooltip). Pure read — no mutation.
+function gatherStorageClassContext(node: cytoscape.NodeSingular): { cluster?: string; pvcLabels: string[] } {
+  const parent = node.parent();
+  const clusterRaw: unknown = parent.nonempty() ? parent.data('cluster') : undefined;
+  const cluster = typeof clusterRaw === 'string' && clusterRaw.length > 0 ? clusterRaw : undefined;
+  const pvcLabels = node
+    .children()
+    .map((child) => child.data('label') as unknown)
+    .filter((label): label is string => typeof label === 'string')
+    .sort((a, b) => a.localeCompare(b));
+  return cluster !== undefined ? { cluster, pvcLabels } : { pvcLabels };
 }
 
 export interface UseHoverElementProps {
@@ -56,6 +77,11 @@ export function useHoverElement({ cyRef, ready }: UseHoverElementProps): Hovered
         group: isNode ? 'nodes' : 'edges',
         data,
       };
+      // A storageclass group carries no kind/labels of its own, so surface its
+      // cluster + grouped PVCs (read from parent/children) for a useful tooltip.
+      if (isNode && data.isStorageClass === true) {
+        next.storageClass = gatherStorageClassContext(target);
+      }
       // Anchor: a node's rendered centre keeps the tooltip pinned beside the
       // node; an edge has no single point, so use the cursor's rendered position.
       const anchor = isNode ? target.renderedPosition() : evt.renderedPosition;

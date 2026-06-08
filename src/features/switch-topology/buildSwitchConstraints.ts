@@ -29,7 +29,9 @@ function groupByLevel(levelById: ReadonlyMap<string, number>): { levels: number[
 /**
  * Turn a per-switch level mapping into a native fcose `fixedNodeConstraint` that
  * pins each levelled switch to an absolute position:
- * - `y = level * TIER_GAP` — lower levels sit above (smaller y).
+ * - `y = level * TIER_GAP` — lower levels sit above (smaller y). Levels MAY be
+ *   negative (e.g. `-1` from `readNodeFabricTier`), placing those nodes ABOVE
+ *   level 0 — `y = level * TIER_GAP` handles negative values naturally.
  * - `x = (i - (n - 1) / 2) * COL_GAP` — the i-th of n switches in a level, spread
  *   horizontally and centred on x = 0.
  *

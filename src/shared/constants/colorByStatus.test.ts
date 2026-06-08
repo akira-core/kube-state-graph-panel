@@ -1,4 +1,4 @@
-import { FALLBACK_STATUS, STATUS_BORDER_KINDS, STATUS_COLOR } from './colorByStatus';
+import { FALLBACK_STATUS, STATUS_COLOR } from './colorByStatus';
 
 describe('colorByStatus', () => {
   it('maps each status to its hardcoded hex colour', () => {
@@ -9,11 +9,7 @@ describe('colorByStatus', () => {
     });
   });
 
-  it('defaults absent/unknown status to normal', () => {
+  it('defaults absent/unknown status to normal (worst-status aggregation default)', () => {
     expect(FALLBACK_STATUS).toBe('normal');
-  });
-
-  it('renders a status border only for pod/node/pvc', () => {
-    expect([...STATUS_BORDER_KINDS]).toEqual(['pod', 'node', 'pvc']);
   });
 });

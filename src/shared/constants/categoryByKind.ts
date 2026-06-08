@@ -18,6 +18,7 @@ export const CATEGORY_BY_KIND: Record<NodeKind, NodeCategory> = {
   service: 'Networking',
   switch: 'Networking',
   pvc: 'Storage',
+  storageclass: 'Storage',
   node: 'Cluster',
   external: 'Other',
 };

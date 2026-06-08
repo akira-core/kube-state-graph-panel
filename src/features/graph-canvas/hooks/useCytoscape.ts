@@ -21,7 +21,7 @@ export interface UseCytoscapeProps {
   // This keeps api.collapse calls in a single place (one update cycle).
   // When undefined (no-collapse path), the effect deps are effectively [elements].
   collapseKey?: number;
-  // Current pod-parent mode. Toggling it re-parents pods between node/service
+  // Current pod-parent mode. Toggling it re-parents pods between node/controller
   // containers — a compound-hierarchy change that cytoscape applies reliably only
   // at add() time (dynamic move() is unreliable under batch + expand-collapse), so
   // a mode change triggers a full element rebuild rather than a diff-patch.
@@ -105,7 +105,7 @@ export function useCytoscape({
     const existing = cy.elements();
     if (modeChanged && existing.length > 0) {
       // Pod-parent mode flip restructures the compound hierarchy (pods move
-      // between node and service containers). cytoscape only nests reliably at
+      // between node and controller containers). cytoscape only nests reliably at
       // add() time — dynamic data('parent')/move() is unreliable under batch +
       // the expand-collapse extension — so rebuild the element set wholesale. The
       // co-incident run-token bump re-runs the layout, so reset positions are fine.

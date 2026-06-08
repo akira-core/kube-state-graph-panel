@@ -10,7 +10,7 @@ export interface KsgPanelOptions {
 }
 
 export const ALL_KINDS = Object.keys(ICON_SVG_BY_KIND) as NodeKind[];
-// All wire edge types: pod-runs-on-node is drawn only in `service` pod-parent
+// All wire edge types: pod-runs-on-node is drawn only in `controller` pod-parent
 // mode, so it is a filterable type and a default-visible type (both modes' edges
 // stay visible by default; the type that has no edges in a given mode is inert).
 export const ALL_EDGE_TYPES = Object.keys(EDGE_STYLE_BY_TYPE) as EdgeType[];

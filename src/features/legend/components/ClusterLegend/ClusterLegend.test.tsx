@@ -19,6 +19,7 @@ describe('ClusterLegend', () => {
       />
     );
     const legend = screen.getByTestId('cluster-legend');
+    fireEvent.click(within(legend).getByTestId('cluster-legend-fold-toggle'));
     expect(within(legend).getAllByRole('listitem')).toHaveLength(2);
     expect(within(legend).getByText('demo')).toBeInTheDocument();
     expect(within(legend).getByText('edge')).toBeInTheDocument();

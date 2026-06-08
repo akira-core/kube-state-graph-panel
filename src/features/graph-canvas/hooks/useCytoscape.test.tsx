@@ -134,7 +134,7 @@ describe('useCytoscape compound re-parenting', () => {
   it('moves a node to its new compound parent when data.parent changes, and back again', () => {
     // cytoscape only re-nests via node.move({parent}); a bare data('parent') update
     // does not relocate the node. This mirrors the pod-parent mode toggle: switching
-    // to 'service' and back must move the pod between containers in both directions.
+    // to 'controller' and back must move the pod between containers in both directions.
     const cy = cytoscape({ headless: true, styleEnabled: true, elements: withParent('A') });
     const { result, rerender } = renderHook(
       (props: { elements: cytoscape.ElementDefinition[] }) =>
@@ -157,22 +157,23 @@ describe('useCytoscape compound re-parenting', () => {
 describe('useCytoscape pod-parent mode rebuild', () => {
   const nodeMode: cytoscape.ElementDefinition[] = [
     { group: 'nodes', data: { id: 'node-a', kind: 'node' } },
-    { group: 'nodes', data: { id: 'svc', kind: 'service' } },
+    { group: 'nodes', data: { id: 'ctrl', kind: 'deployment' } },
     { group: 'nodes', data: { id: 'p1', parent: 'node-a', kind: 'pod' } },
   ];
-  const serviceMode: cytoscape.ElementDefinition[] = [
+  const controllerMode: cytoscape.ElementDefinition[] = [
     { group: 'nodes', data: { id: 'node-a', kind: 'node' } },
-    { group: 'nodes', data: { id: 'svc', kind: 'service' } },
-    { group: 'nodes', data: { id: 'p1', parent: 'svc', kind: 'pod' } },
+    { group: 'nodes', data: { id: 'ctrl', kind: 'deployment' } },
+    { group: 'nodes', data: { id: 'p1', parent: 'ctrl', kind: 'pod' } },
     { group: 'edges', data: { id: 'ppm', source: 'p1', target: 'node-a', edgeType: 'pod-runs-on-node' } },
   ];
 
   it('re-nests pods on mode change in both directions (collapse-aware path)', () => {
-    // The live bug: toggling node→service→node left pods stuck under the service
-    // because dynamic re-parenting is unreliable under the expand-collapse
-    // extension. The fix rebuilds the element set on mode change so nesting is
-    // applied at add() time. (The real extension is not in the jest env, so this
-    // guards the rebuild branch's correctness rather than the live interference.)
+    // The live bug: toggling node→controller→node left pods stuck under the
+    // controller because dynamic re-parenting is unreliable under the
+    // expand-collapse extension. The fix rebuilds the element set on mode change so
+    // nesting is applied at add() time. (The real extension is not in the jest env,
+    // so this guards the rebuild branch's correctness rather than the live
+    // interference.)
     const cy = cytoscape({ headless: true, styleEnabled: true, elements: nodeMode });
     const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
     const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
@@ -195,8 +196,8 @@ describe('useCytoscape pod-parent mode rebuild', () => {
     result.current.cyRef.current = cy;
     expect(cy.getElementById('p1').parent().first().id()).toBe('node-a');
 
-    rerender({ elements: serviceMode, collapseKey: 1, podParentMode: 'service' });
-    expect(cy.getElementById('p1').parent().first().id()).toBe('svc');
+    rerender({ elements: controllerMode, collapseKey: 1, podParentMode: 'controller' });
+    expect(cy.getElementById('p1').parent().first().id()).toBe('ctrl');
     expect(cy.getElementById('ppm').length).toBe(1);
 
     rerender({ elements: nodeMode, collapseKey: 2, podParentMode: 'node' });

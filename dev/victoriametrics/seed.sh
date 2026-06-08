@@ -27,27 +27,21 @@ while true; do
   i=$((i + 1))
 
   # Static topology + dynamic service-graph counters (value = ${i}, monotonic).
-  # Each labelled series below is engineered to land a specific node/edge.
-  # Empty server_k8s_pod_uid triggers connection-string ("://") resolution;
-  # a populated UID resolves via the topology pod-UID index (recovers the
-  # server-side cluster, enabling cross-cluster edges).
+  # Each labelled series lands a specific edge. Empty server_k8s_pod_uid triggers
+  # connection-string ("://") resolution; a populated UID resolves via the topology
+  # pod-UID index (recovers the server cluster, enabling cross-cluster edges).
   #
-  #   1-3 gateway -> mongodb-{0,1,2} headless DNS  pod-calls-pod -> REAL pod (no svc node)
-  #   4   gateway -> stripe URL                    others node + pod-calls-pod
-  #   5   gateway -> dr/consumer (server UID)       cross-cluster pod-calls-pod
-  #   6   consumer -> nats ClusterIP DNS            service node + pod-calls-pod
-  #                                                 + service-selects-pod fan-out to nats-0/1/2
-  #   7   legacy-cron (no UID) -> gateway           external node + pod-calls-pod
+  #   1 gateway  -> mongo-svc.prod (2-label DNS)  pod-calls-service + service-selects-pod -> mongo-0/1/2
+  #   2 consumer -> nats-svc.dr   (2-label DNS)   pod-calls-service + service-selects-pod -> nats-0/1/2
+  #   3 gateway  -> dr/consumer   (server UID)    cross-cluster pod-calls-pod (prod -> dr)
+  #   4 consumer -> api.payments.io (no UID)      external node + pod-calls-pod
   {
     cat "${TOPOLOGY}"
     cat <<EOF
-traces_service_graph_request_total{cluster="prod",client="apps/gateway",server="mongodb://mongodb-0.mongodb.data.svc.cluster.local:27017",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="",client_k8s_namespace_name="apps",server_k8s_namespace_name=""} ${i}
-traces_service_graph_request_total{cluster="prod",client="apps/gateway",server="mongodb://mongodb-1.mongodb.data.svc.cluster.local:27017",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="",client_k8s_namespace_name="apps",server_k8s_namespace_name=""} ${i}
-traces_service_graph_request_total{cluster="prod",client="apps/gateway",server="mongodb://mongodb-2.mongodb.data.svc.cluster.local:27017",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="",client_k8s_namespace_name="apps",server_k8s_namespace_name=""} ${i}
-traces_service_graph_request_total{cluster="prod",client="apps/gateway",server="https://api.stripe.com/v1/charges",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="",client_k8s_namespace_name="apps",server_k8s_namespace_name=""} ${i}
-traces_service_graph_request_total{cluster="prod",client="apps/gateway",server="apps/consumer",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="u-consumer",client_k8s_namespace_name="apps",server_k8s_namespace_name="apps"} ${i}
-traces_service_graph_request_total{cluster="dr",client="apps/consumer",server="nats://nats.messaging.svc.cluster.local:4222",client_k8s_pod_uid="u-consumer",server_k8s_pod_uid="",client_k8s_namespace_name="apps",server_k8s_namespace_name=""} ${i}
-traces_service_graph_request_total{cluster="prod",client="legacy-cron",server="apps/gateway",client_k8s_pod_uid="",server_k8s_pod_uid="u-gateway",client_k8s_namespace_name="",server_k8s_namespace_name="apps"} ${i}
+traces_service_graph_request_total{cluster="prod",client="prod/gateway",server="mongodb://mongo-svc.prod.svc.cluster.local:27017",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="",client_k8s_namespace_name="prod",server_k8s_namespace_name=""} ${i}
+traces_service_graph_request_total{cluster="dr",client="dr/consumer",server="nats://nats-svc.dr.svc.cluster.local:4222",client_k8s_pod_uid="u-consumer",server_k8s_pod_uid="",client_k8s_namespace_name="dr",server_k8s_namespace_name=""} ${i}
+traces_service_graph_request_total{cluster="prod",client="prod/gateway",server="dr/consumer",client_k8s_pod_uid="u-gateway",server_k8s_pod_uid="u-consumer",client_k8s_namespace_name="prod",server_k8s_namespace_name="dr"} ${i}
+traces_service_graph_request_total{cluster="dr",client="dr/consumer",server="api.payments.io",client_k8s_pod_uid="u-consumer",server_k8s_pod_uid="",client_k8s_namespace_name="dr",server_k8s_namespace_name=""} ${i}
 EOF
   } | curl -fsS --data-binary @- "${VM}/api/v1/import/prometheus" \
     && echo "ksg-seeder: tick ${i} pushed" \

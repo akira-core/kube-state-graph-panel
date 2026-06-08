@@ -20,12 +20,8 @@ describe('EdgeGlyph', () => {
     expect(getByTestId('edge-glyph').querySelector('line')?.getAttribute('stroke-dasharray')).toBeNull();
   });
 
-  it('draws a single arrowhead by default and two when bidirectional', () => {
-    const { getByTestId, queryByTestId, rerender } = render(<EdgeGlyph color="#10b981" lineStyle="solid" />);
-    expect(queryByTestId('edge-glyph-arrow-start')).toBeNull();
+  it('draws a single arrowhead (one polygon)', () => {
+    const { getByTestId } = render(<EdgeGlyph color="#10b981" lineStyle="solid" />);
     expect(getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(1);
-    rerender(<EdgeGlyph color="#10b981" lineStyle="solid" bidirectional />);
-    expect(getByTestId('edge-glyph-arrow-start')).toBeInTheDocument();
-    expect(getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(2);
   });
 });

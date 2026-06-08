@@ -9,7 +9,7 @@ const sample: NodeDetailData = {
   label: 'mongo-0',
   kind: 'pod',
   status: 'critical',
-  alerts: [{ pod: 'mongo-1', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000 }],
+  alerts: [{ pod: 'mongo-1', service: 'mongo', name: 'HighMemory', severity: 'critical', timeRecords: [1717500000] }],
 };
 
 describe('NodeDetailPanel', () => {
@@ -53,6 +53,16 @@ describe('NodeDetailPanel', () => {
     expect(screen.getByText('web-1')).toBeInTheDocument();
     expect(screen.queryByText('HighMemory')).not.toBeInTheDocument();
     expect(screen.getByTestId('alert-table-empty')).toHaveTextContent('No alerts');
+  });
+
+  it('keeps the header (and its close button) outside the scrollable body so it stays pinned', () => {
+    render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    const scrollBody = screen.getByTestId('node-detail-scroll');
+    // The alerts live INSIDE the scroll region...
+    expect(scrollBody).toContainElement(screen.getByTestId('node-detail-section-alerts'));
+    // ...but the close button does NOT, so scrolling a long alert list never carries
+    // the header (and its ✕) out of view.
+    expect(scrollBody).not.toContainElement(screen.getByLabelText('Close detail panel'));
   });
 
   it('calls onClose when the close button is clicked', () => {

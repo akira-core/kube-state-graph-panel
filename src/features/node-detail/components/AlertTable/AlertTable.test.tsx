@@ -1,20 +1,27 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
-import { SEVERITY_COLOR } from '../../../../shared/constants/colorBySeverity';
+import { FALLBACK_SEVERITY_COLOR, SEVERITY_COLOR } from '../../../../shared/constants/colorBySeverity';
 import type { NodeAlert } from '../../../../shared/constants/types';
 
 import { AlertTable } from './AlertTable';
 
 const alerts: NodeAlert[] = [
-  { pod: 'mongo-0', service: 'mongo', name: 'HighMemory', severity: 'critical', time: 1717500000, id: 'a1' },
-  { name: 'PodRestart', severity: 'warning', time: 1717500300, id: 'a2' }, // no pod/service
+  {
+    pod: 'mongo-0',
+    service: 'mongo',
+    name: 'HighMemory',
+    severity: 'critical',
+    timeRecords: [1717500000, 1717500600, 1717501200], // 3 occurrences
+    id: 'a1',
+  },
+  { name: 'PodRestart', severity: 'warning', timeRecords: [1717500300] }, // single occurrence, no pod/service
 ];
 
 describe('AlertTable', () => {
-  it('renders a row per alert with the five columns', () => {
+  it('renders a row per alert with the six columns', () => {
     render(<AlertTable alerts={alerts} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    for (const header of ['Pod', 'Service', 'Alert', 'Severity', 'Time']) {
+    for (const header of ['Pod', 'Service', 'Alert', 'Severity', 'Count', 'Last seen']) {
       expect(screen.getByRole('columnheader', { name: header })).toBeInTheDocument();
     }
     expect(screen.getByText('HighMemory')).toBeInTheDocument();
@@ -35,25 +42,43 @@ describe('AlertTable', () => {
   });
 
   it('colours an info severity badge from SEVERITY_COLOR', () => {
-    const info: NodeAlert[] = [{ name: 'Rollout', severity: 'info', time: 1717500000 }];
+    const info: NodeAlert[] = [{ name: 'Rollout', severity: 'info', timeRecords: [1717500000] }];
     render(<AlertTable alerts={info} onAlertTimeClick={jest.fn()} timeZone="utc" />);
     expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: SEVERITY_COLOR.info });
   });
 
-  it('falls back to the info colour for an unknown severity', () => {
-    const junk = [{ name: 'X', severity: 'fatal' as NodeAlert['severity'], time: 1717500000 }];
-    render(<AlertTable alerts={junk} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    expect(screen.getByTestId('alert-severity')).toHaveStyle({ backgroundColor: SEVERITY_COLOR.info });
+  it('renders an unknown/custom severity with its literal label in the critical fallback colour', () => {
+    const custom: NodeAlert[] = [{ name: 'X', severity: 'fatal', timeRecords: [1717500000] }];
+    render(<AlertTable alerts={custom} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    const badge = screen.getByTestId('alert-severity');
+    expect(badge).toHaveStyle({ backgroundColor: FALLBACK_SEVERITY_COLOR });
+    expect(badge).toHaveTextContent('fatal');
   });
 
-  it('calls onAlertTimeClick with the alert time in SECONDS when a time cell is clicked', () => {
+  it('shows the occurrence count from timeRecords.length', () => {
+    render(<AlertTable alerts={alerts} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    const counts = screen.getAllByTestId('alert-count');
+    expect(counts[0]).toHaveTextContent('3');
+    expect(counts[1]).toHaveTextContent('1');
+  });
+
+  it('lists every occurrence time in the Count tooltip', async () => {
+    render(<AlertTable alerts={[alerts[0]!]} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+    fireEvent.mouseEnter(screen.getByTestId('alert-count'));
+    const list = await screen.findByTestId('alert-occurrences');
+    expect(list).toHaveTextContent('2024-06-04 11:20:00'); // first occurrence
+    expect(list).toHaveTextContent('2024-06-04 11:30:00'); // middle occurrence
+    expect(list).toHaveTextContent('2024-06-04 11:40:00'); // last occurrence
+  });
+
+  it('calls onAlertTimeClick with the LAST (max) occurrence time in seconds when Last seen is clicked', () => {
     const onAlertTimeClick = jest.fn();
     render(<AlertTable alerts={alerts} onAlertTimeClick={onAlertTimeClick} timeZone="utc" />);
     const times = screen.getAllByTestId('alert-time');
     fireEvent.click(times[0]!);
-    expect(onAlertTimeClick).toHaveBeenCalledWith(1717500000);
+    expect(onAlertTimeClick).toHaveBeenCalledWith(1717501200); // max of [1717500000, 1717500600, 1717501200]
     fireEvent.click(times[1]!);
-    expect(onAlertTimeClick).toHaveBeenCalledWith(1717500300);
+    expect(onAlertTimeClick).toHaveBeenCalledWith(1717500300); // single occurrence
   });
 
   it('renders "No alerts" when the list is empty', () => {
@@ -62,9 +87,9 @@ describe('AlertTable', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  it('formats the time label with the provided time zone', () => {
+  it('formats the Last seen label (max occurrence) with the provided time zone', () => {
     render(<AlertTable alerts={[alerts[0]!]} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    // 1717500000s = 2024-06-04 11:20:00 UTC
-    expect(screen.getByTestId('alert-time')).toHaveTextContent(/2024-06-04/);
+    // max = 1717501200s = 2024-06-04 11:40:00 UTC
+    expect(screen.getByTestId('alert-time')).toHaveTextContent(/2024-06-04 11:40:00/);
   });
 });
