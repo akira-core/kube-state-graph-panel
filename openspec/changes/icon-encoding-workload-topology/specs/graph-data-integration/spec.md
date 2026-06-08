@@ -39,6 +39,7 @@
 - 對每個這樣的 pod,系統 MUST 合成一條 `edgeType: 'controller-owns-pod'` 的邊,`source` = 該 controller 節點 id、`target` = pod id,邊 id 對 `(controllerId, podId)` 確定性。
 - 合成 MUST 為 immutable(產生新元素,不就地修改輸入),且對相同輸入位元組級確定(節點/邊排序穩定)。
 - 無 owner 的 pod MUST NOT 觸發任何 controller 節點或邊。
+- 系統 MUST 於每個合成的 controller 節點上彙整其**子 pod 的最差 alert severity** 為 `data.worstAlertSeverity`(值域 `info` / `warning` / `critical`;排序 critical > warning > info;未知 / 自訂 severity 視為 **critical**,與 `FALLBACK_SEVERITY_COLOR` 一致;當無任一子 pod 帶 alert 時 MUST 省略此欄)。此欄供 getStylesheet 對**收合的** controller 邊框上色(見 panel-rendering 規格);它**不**影響 owns 邊或去重。
 
 合成後,`controller-owns-pod` 為 **synthesis-internal**、**永不繪製**:在 `node` 模式下 `applyPodParentMode` **drop** 掉所有合成的 controller 節點(`data.isController === true`)與其 `controller-owns-pod` 邊,呈現乾淨的 cluster > node > pod 基礎設施視圖(**不顯示 controller**);在 `controller` 模式下 `applyPodParentMode` 以這些 owns 邊把 pod re-parent 進 controller(owns 邊轉為 nesting,亦不繪製)(見 pod-parent-mode 規格)。
 
@@ -66,6 +67,15 @@
 
 - **WHEN** 後端未發 `data.owner`,但 pod `labels` 含 `owner_kind: "DaemonSet"` 與 `owner_name: "fluentd"`
 - **THEN** normalize 以該 labels 合成 `kind: 'daemonset'` controller 節點與 owns 邊(與 `data.owner` 路徑等價)
+
+#### Scenario: 合成 controller 彙整子 pod 最差 alert severity
+
+- **WHEN** 某 controller 旗下兩個 pod 各帶 `warning` 與 `critical` alert
+- **THEN** 合成的 controller 節點 `data.worstAlertSeverity` 為 `critical`(critical > warning)
+- **WHEN** 改為某子 pod 帶未知 / 自訂 severity(如 `page`)
+- **THEN** `worstAlertSeverity` 為 `critical`(未知視為 critical)
+- **WHEN** 無任一子 pod 帶 alert
+- **THEN** 合成的 controller 節點 MUST 省略 `worstAlertSeverity` 欄
 
 #### Scenario: 合成為純函式且確定性
 

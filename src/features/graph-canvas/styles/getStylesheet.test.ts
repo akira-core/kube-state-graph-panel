@@ -2,6 +2,7 @@ import { createTheme } from '@grafana/data';
 import cytoscape from 'cytoscape';
 
 import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
+import { SEVERITY_COLOR } from '../../../shared/constants/colorBySeverity';
 import { FALLBACK_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
@@ -115,6 +116,47 @@ describe('getStylesheet', () => {
     // collapsed-boundary cue.
     expect(metaEdge?.style?.['line-color']).toBeUndefined();
     expect(metaEdge?.style?.width).toBe(2.5);
+  });
+
+  it('declares collapsed-controller worst-severity border selectors, after the base collapsed-node rule', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const baseIdx = selectors.indexOf('node.cy-expand-collapse-collapsed-node');
+    for (const [severity, color] of Object.entries(SEVERITY_COLOR)) {
+      const sel = `node[?isController][worstAlertSeverity="${severity}"].cy-expand-collapse-collapsed-node`;
+      expect(selectors).toContain(sel);
+      // After the base collapsed-node rule so it overrides border-color.
+      expect(selectors.indexOf(sel)).toBeGreaterThan(baseIdx);
+      const rule = sheet.find((s) => s.selector === sel);
+      expect(rule?.style?.['border-color']).toBe(color);
+      expect(rule?.style?.['border-width']).toBe(3);
+    }
+  });
+
+  it('tints a controller border by worst child severity ONLY when collapsed (expanded stays neutral)', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'ctrl', label: 'api', kind: 'deployment', isController: true, worstAlertSeverity: 'critical' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'ctrl', status: 'normal' } },
+        // Reference node carrying the critical colour in cytoscape's computed format.
+        { group: 'nodes', data: { id: 'crit', label: 'crit', kind: 'pod', status: 'critical' } },
+      ],
+    });
+    const ctrl = cy.getElementById('ctrl');
+    const expandedBorder = ctrl.style('border-color') as string;
+    // Expanded (:parent) → neutral container border, NOT the severity colour.
+    expect(expandedBorder).not.toBe(cy.getElementById('crit').style('border-color'));
+    // Collapsed (extension marks the node) → border tints to the worst severity colour.
+    ctrl.addClass('cy-expand-collapse-collapsed-node');
+    expect(ctrl.style('border-color')).toBe(cy.getElementById('crit').style('border-color'));
+    expect(ctrl.style('border-color')).not.toBe(expandedBorder);
+    cy.destroy();
   });
 
   it('styles compound parents as boxes, leaves as icon containers, and clusters without an icon (headless :parent)', () => {

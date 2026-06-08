@@ -294,7 +294,7 @@ describe('KsgPanel', () => {
     expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
   });
 
-  it('renders a "Storage classes" legend section and collapses storage classes via its toggle', () => {
+  it('renders a "Storage classes" legend section and default-folds storage classes on load (toggle expands)', () => {
     const payload = {
       elements: {
         nodes: [
@@ -335,11 +335,14 @@ describe('KsgPanel', () => {
     expect(within(legend).getByRole('heading', { name: /Storage Classes/ })).toBeInTheDocument();
     fireEvent.click(within(legend).getByTestId('storageclass-legend-fold-toggle'));
     expect(within(legend).getByText('fast-ssd')).toBeInTheDocument();
-    // Collapse-all pushes the storageclass container id to GraphCanvas.
+    // Storage-class containers are DEFAULT-folded on first load (mode-independent),
+    // pushed to GraphCanvas without any user action.
+    const initial = (graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>).at(-1)?.[0];
+    expect(initial?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(true);
+    // The collapse-all toggle now EXPANDS (already collapsed) → removes the id.
     fireEvent.click(screen.getByTestId('storageclass-collapse-toggle'));
-    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
-    const lastCall = calls.at(-1)?.[0];
-    expect(lastCall?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(true);
+    const afterToggle = (graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>).at(-1)?.[0];
+    expect(afterToggle?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(false);
   });
 
   it('does not render the cluster legend when there are no clusters', () => {

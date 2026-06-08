@@ -252,6 +252,19 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, theme]
   );
 
+  // Default-fold storage classes: a storageclass compound group starts collapsed on the
+  // first load it appears. Mode-INDEPENDENT (unlike the controller default-collapse
+  // above) since a storageclass boxes its PVCs in both pod-parent modes. Ref-guarded so
+  // it fires once per mount — a user-expanded storageclass survives a later data refresh.
+  const storageClassesFoldedRef = useRef(false);
+  useEffect(() => {
+    if (storageClassesFoldedRef.current || storageClassIds.length === 0) {
+      return;
+    }
+    storageClassesFoldedRef.current = true;
+    setCollapsedIds((prev) => new Set([...prev, ...storageClassIds]));
+  }, [storageClassIds]);
+
   // The kinds shown in the icon Node-kinds legend — collapse- + container-aware, so
   // the legend lists exactly what renders as a glyph: drawn leaves + collapsed
   // containers; expanded containers (Nodes / Controllers / Storage classes) and

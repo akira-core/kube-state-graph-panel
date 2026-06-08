@@ -2,7 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { AlertSeverity, EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -117,12 +117,37 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
   return alerts.length > 0 ? alerts : undefined;
 }
 
+// Alert-severity ranking for the collapsed-controller tint: higher = worse. An
+// unknown / custom label ranks as critical (fail-loud, matching FALLBACK_SEVERITY_COLOR).
+const SEVERITY_RANK: Record<string, number> = { info: 1, warning: 2, critical: 3 };
+function severityRank(severity: string): number {
+  return SEVERITY_RANK[severity] ?? 3;
+}
+function rankToSeverity(rank: number): AlertSeverity {
+  return rank >= 3 ? 'critical' : rank === 2 ? 'warning' : 'info';
+}
+// Worst alert-severity rank carried by a node's alerts (0 = none).
+function worstAlertRank(alerts: NodeAlert[] | undefined): number {
+  if (alerts === undefined) {
+    return 0;
+  }
+  let worst = 0;
+  for (const a of alerts) {
+    const r = severityRank(a.severity);
+    if (r > worst) {
+      worst = r;
+    }
+  }
+  return worst;
+}
+
 interface PendingOwned {
   podId: string;
   ownerKind: string;
   ownerName: string;
   cluster: string; // '' when absent
   namespace: string; // '' when absent
+  podWorstRank: number; // worst alert-severity rank on the pod (0 = none); aggregated onto the controller
 }
 
 // Read a pod's controller owner from typed `data.owner` (current backend) or the
@@ -232,6 +257,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           ownerName: owner.name,
           cluster: labels?.cluster ?? '',
           namespace: namespace ?? '',
+          podWorstRank: worstAlertRank(alerts),
         });
       }
     }
@@ -270,6 +296,16 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   const controllerSeen = new Set<string>();
   const ownsEdges: cytoscape.ElementDefinition[] = [];
   const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
+  // Pre-pass: worst child-pod alert severity per controller, so a COLLAPSED controller
+  // can border in that colour (getStylesheet). Computed across all owned pods before
+  // the node is materialized.
+  const controllerWorstRank = new Map<string, number>();
+  for (const o of sortedOwned) {
+    const id = `ctrl/${o.cluster}/${o.namespace}/${o.ownerKind.toLowerCase()}/${o.ownerName}`;
+    if (o.podWorstRank > (controllerWorstRank.get(id) ?? 0)) {
+      controllerWorstRank.set(id, o.podWorstRank);
+    }
+  }
   for (const o of sortedOwned) {
     const kindLower = o.ownerKind.toLowerCase();
     // OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
@@ -277,6 +313,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     if (!controllerSeen.has(controllerId)) {
       controllerSeen.add(controllerId);
       const parent = o.cluster === '' ? undefined : clusterIdByName.get(o.cluster);
+      const worstRank = controllerWorstRank.get(controllerId) ?? 0;
       elements.push({
         group: 'nodes',
         data: {
@@ -285,6 +322,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           isController: true,
           label: o.ownerName,
           ...(parent !== undefined ? { parent } : {}),
+          ...(worstRank > 0 ? { worstAlertSeverity: rankToSeverity(worstRank) } : {}),
         },
       });
     }

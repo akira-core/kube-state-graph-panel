@@ -205,6 +205,28 @@ StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeK
 - **WHEN** 滑鼠移至一個 storageclass 群組(其下有數個 PVC、巢狀於某 cluster)
 - **THEN** tooltip 顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、以及 `PVCs (N): <逗號分隔、排序的 PVC 名稱>`
 
+#### Scenario: storageclass 容器預設收合(mode-independent)
+
+- **WHEN** Panel 首次載入且圖中含 storageclass 容器
+- **THEN** 所有 storageclass 容器 MUST 預設**收合**(`node` / `controller` 兩模式皆然),其 id 於首次載入即併入 `collapsedIds` 推給 GraphCanvas;ref 守衛使後續 data refresh **不**重收(使用者展開的 storageclass 保持展開)
+- **AND** 因預設已收合,「Storage classes」collapse 切換鈕(`storageclass-collapse-toggle`)首次點擊作為「全部展開」動作
+
+### Requirement: 收合 controller 邊框依最差子 pod alert severity 上色
+
+當一個 controller 容器**收合**時,其矩形邊框 MUST 以該 controller 旗下**子 pod 的最差 alert severity** 對應的 `SEVERITY_COLOR`(`info` 藍 / `warning` 黃 / `critical` 紅)上色;**展開**的 controller 維持中性的 `:parent` 容器邊框(不依 severity 上色)。資料來源為 normalize 彙整於 controller 節點的 `data.worstAlertSeverity`(見 graph-data-integration 規格)。stylesheet MUST 以 `node[?isController][worstAlertSeverity="<sev>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 base `node.cy-expand-collapse-collapsed-node` 規則**之後**以覆寫其中性邊框;`statusSelectors`(僅 pod/node/pvc)與 controller 不交集,`node:selected` 以 outline/underlay 呈現故不影響此邊框色。無任一子 pod 帶 alert 的 controller(無 `worstAlertSeverity`)收合時 MUST 維持中性邊框。
+
+#### Scenario: 收合 controller 顯示最差子 pod 嚴重度
+
+- **WHEN** 某 controller 旗下有 pod 帶 `critical` alert,使用者**收合**該 controller
+- **THEN** 收合的 controller 矩形邊框以 `SEVERITY_COLOR.critical`(紅)上色
+- **WHEN** 同一 controller **展開**
+- **THEN** 邊框回到中性 `:parent` 容器色(不依 severity 上色)
+
+#### Scenario: 無子 alert 的 controller 收合維持中性
+
+- **WHEN** 某 controller 旗下無任何 pod 帶 alert(故無 `worstAlertSeverity`),使用者收合它
+- **THEN** 其邊框維持中性容器色(無 severity 上色)
+
 ### Requirement: Node-kinds 圖例 collapse-aware(只列實際以 glyph 呈現者)
 
 icon「Node kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(elements, collapsedIds)` 導出,只列出**目前以 glyph 呈現於畫布**的 kind——而非單純「資料中出現過」的 kind。判定規則(對每個非 cluster、帶 `kind` 的節點):被收合祖先隱藏者**不**計入;**展開的**容器(其 id 為他人 `parent` 且自身未收合)**不**計入(它在 Clusters / Nodes|Controllers / Storage classes swatch 區段呈現);其餘(drawn leaf 或**收合的**容器)計入其 kind。`cluster`(無 kind)永不計入。此規則取代舊有的 `presentKinds` + `deriveContainers.showNodeKindIcon`,使 node / controller / storageclass 三種容器一致。

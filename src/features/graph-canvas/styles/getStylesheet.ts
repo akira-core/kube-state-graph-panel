@@ -2,6 +2,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
+import { SEVERITY_COLOR } from '../../../shared/constants/colorBySeverity';
 import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
@@ -74,6 +75,17 @@ export function getStylesheet({
     selector: STATUS_BORDER_KINDS.map((kind) => `node[kind="${kind}"][status="${status}"]`).join(', '),
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
+
+  // A COLLAPSED controller borders in the WORST alert severity among its child pods
+  // (data.worstAlertSeverity, aggregated in normalize). Gated on the collapsed-node
+  // class so an EXPANDED controller stays the neutral :parent box; spread (below)
+  // after the base collapsed-node rule so it overrides that neutral border colour.
+  const collapsedControllerSeveritySelectors: CyStylesheet[] = Object.entries(SEVERITY_COLOR).map(
+    ([severity, color]) => ({
+      selector: `node[?isController][worstAlertSeverity="${severity}"].cy-expand-collapse-collapsed-node`,
+      style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
+    })
+  );
 
   const stylesheet: CyStylesheet[] = [
     {
@@ -190,6 +202,7 @@ export function getStylesheet({
         events: 'yes',
       },
     },
+    ...collapsedControllerSeveritySelectors,
     ...statusSelectors,
     {
       // Selection highlight = a crisp outline RING + a soft underlay halo, NOT a

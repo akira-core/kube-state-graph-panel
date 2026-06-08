@@ -568,6 +568,58 @@ function podWithOwner(id: string, cluster: string, ns: string, owner: { kind: st
 }
 
 describe('normalizeGraph — controller synthesis', () => {
+  // A collapsed controller's rectangle is tinted by the WORST alert severity among its
+  // child pods (see getStylesheet); normalize aggregates it onto the synthesized
+  // controller as data.worstAlertSeverity (rank crit>warn>info, unknown→crit).
+  const ownedPodWithAlerts = (id: string, owner: { kind: string; name: string }, severities: string[]) => ({
+    data: {
+      id,
+      name: id,
+      type: 'pod',
+      parent: 'cluster/prod',
+      owner,
+      labels: { cluster: 'prod', namespace: 'shop' },
+      ...(severities.length > 0
+        ? { alerts: severities.map((severity, i) => ({ name: `a${String(i)}`, severity, time_records: [i + 1] })) }
+        : {}),
+    },
+  });
+  const controllerOf = (raw: unknown): cytoscape.NodeDataDefinition | undefined => {
+    const controllers = normalizeGraph(raw).elements.filter(
+      (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
+    );
+    return controllers.length > 0 ? controllers[0]!.data : undefined;
+  };
+  const withControllerPods = (...pods: Array<ReturnType<typeof ownedPodWithAlerts>>): unknown => ({
+    elements: {
+      nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
+      edges: [],
+    },
+  });
+
+  it('tags the synthesized controller with the worst child-pod alert severity (warning + critical → critical)', () => {
+    const raw = withControllerPods(
+      ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, ['warning']),
+      ownedPodWithAlerts('prod/p2', { kind: 'Deployment', name: 'api' }, ['critical'])
+    );
+    expect(controllerOf(raw)?.worstAlertSeverity).toBe('critical');
+  });
+
+  it('picks the worst rank across a pod with multiple alerts (info + warning → warning)', () => {
+    const raw = withControllerPods(ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, ['info', 'warning']));
+    expect(controllerOf(raw)?.worstAlertSeverity).toBe('warning');
+  });
+
+  it('treats an unknown/custom alert severity as critical (fail-loud, matches FALLBACK_SEVERITY_COLOR)', () => {
+    const raw = withControllerPods(ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, ['page']));
+    expect(controllerOf(raw)?.worstAlertSeverity).toBe('critical');
+  });
+
+  it('omits worstAlertSeverity when no owned pod carries an alert', () => {
+    const raw = withControllerPods(ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, []));
+    expect(controllerOf(raw)?.worstAlertSeverity).toBeUndefined();
+  });
+
   it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {
     const raw = {
       elements: {
