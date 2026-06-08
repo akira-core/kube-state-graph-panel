@@ -2,7 +2,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
-import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
+import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
@@ -66,12 +66,14 @@ export function getStylesheet({
   const borderColor = colors.border.medium;
   const selectedColor = colors.primary.main;
 
-  // Status border for managed leaf kinds (pod/node/pvc). Spread (below) between
-  // the container selectors and node:selected so it overrides the neutral
-  // node:parent border (a K8s node is itself a compound parent) yet still yields
+  // Status border, DATA-DRIVEN: any node CARRYING a status gets it (no hardcoded kind
+  // whitelist). normalize keeps `status` only on nodes the backend gave one (pod/node/
+  // pvc in practice; service/external/cluster/storageclass carry none → neutral border).
+  // Spread (below) between the container selectors and node:selected so it overrides the
+  // neutral node:parent border (a K8s node is itself a compound parent) yet still yields
   // to the selection highlight. Colours come from STATUS_COLOR (single source).
   const statusSelectors: CyStylesheet[] = Object.entries(STATUS_COLOR).map(([status, color]) => ({
-    selector: STATUS_BORDER_KINDS.map((kind) => `node[kind="${kind}"][status="${status}"]`).join(', '),
+    selector: `node[status="${status}"]`,
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 

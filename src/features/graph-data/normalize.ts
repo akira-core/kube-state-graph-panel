@@ -45,21 +45,24 @@ function isNodeStatus(v: unknown): v is NodeStatus {
 //     detail panel). It behaves like the K8s `node` container: icon-less while an
 //     expanded box, shows its icon when collapsed. It carries NO status (a grouping
 //     box has no health).
-//   - everything else → a leaf carrying its kind + status.
+//   - everything else → a leaf carrying its kind, plus `status` ONLY when the backend
+//     actually sent one. Status is data-driven: a kind the backend gives no status to
+//     (e.g. service / external) carries no `status` field and therefore renders no
+//     status border (the stylesheet borders `node[status]`, not a hardcoded kind list).
 // One branch, one place.
 type NodeIdentity =
   | { isCluster: true; cluster: string; clusterColor: string }
   | { kind: NodeKind; isStorageClass: true }
-  | { kind: NodeKind; status: NodeStatus };
+  | { kind: NodeKind; status?: NodeStatus };
 
-function resolveNodeIdentity(type: string, label: string, status: NodeStatus): NodeIdentity {
+function resolveNodeIdentity(type: string, label: string, status: NodeStatus | undefined): NodeIdentity {
   if (type === 'cluster') {
     return { isCluster: true, cluster: label, clusterColor: colorForCluster(label) };
   }
   if (type === 'storageclass') {
     return { kind: 'storageclass', isStorageClass: true };
   }
-  return { kind: type as NodeKind, status };
+  return { kind: type as NodeKind, ...(status !== undefined ? { status } : {}) };
 }
 
 // A single Unix-seconds value is valid iff finite and non-negative: NaN/±Infinity
@@ -233,15 +236,20 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     const label = isString(d.name) ? d.name : d.id;
     const isCluster = d.type === 'cluster';
     const isStorageClass = d.type === 'storageclass';
-    const status: NodeStatus = isNodeStatus(d.status) ? d.status : FALLBACK_STATUS;
-    const identity = resolveNodeIdentity(d.type, label, status);
+    // Status is DATA-DRIVEN: keep ONLY a valid backend status on the element (absent →
+    // no `status` field → the stylesheet's `node[status]` selector renders no border).
+    // For aggregating a parent's worst child status (worstStatus), an absent status
+    // still counts as `normal` (FALLBACK_STATUS).
+    const rawStatus: NodeStatus | undefined = isNodeStatus(d.status) ? d.status : undefined;
+    const ownStatusRank = STATUS_RANK[rawStatus ?? FALLBACK_STATUS];
+    const identity = resolveNodeIdentity(d.type, label, rawStatus);
     // Alerts ride on any leaf node; grouping containers (cluster / storageclass)
     // never carry them (and are excluded from the detail panel that consumes them).
     const alerts = isCluster || isStorageClass ? undefined : parseAlerts(d.alerts);
     // A k8s `node` container surfaces the worst status it would HIDE once collapsed: the
     // worst of its OWN status and its child pods' statuses (worst-wins). Set only when
     // worse than normal — else the collapsed box keeps its own status border.
-    const nodeWorstRank = d.type === 'node' ? Math.max(STATUS_RANK[status], childWorstStatusRank.get(d.id) ?? 0) : 0;
+    const nodeWorstRank = d.type === 'node' ? Math.max(ownStatusRank, childWorstStatusRank.get(d.id) ?? 0) : 0;
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -268,7 +276,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           ownerName: owner.name,
           cluster: labels?.cluster ?? '',
           namespace: namespace ?? '',
-          podStatusRank: STATUS_RANK[status],
+          podStatusRank: ownStatusRank,
         });
       }
     }

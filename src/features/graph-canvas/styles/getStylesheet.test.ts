@@ -118,6 +118,21 @@ describe('getStylesheet', () => {
     expect(metaEdge?.style?.width).toBe(2.5);
   });
 
+  it('borders ANY node carrying a status (kind-agnostic node[status] selectors, not a kind whitelist)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    for (const [status, color] of Object.entries(STATUS_COLOR)) {
+      expect(selectors).toContain(`node[status="${status}"]`);
+      const rule = sheet.find((s) => s.selector === `node[status="${status}"]`);
+      expect(rule?.style?.['border-color']).toBe(color);
+    }
+    // No longer keyed on a pod/node/pvc whitelist — data-driven on the status attribute.
+    expect(selectors.some((s) => s.includes('node[kind="pod"][status='))).toBe(false);
+  });
+
   it('declares collapsed-container worst-status border selectors, after the per-kind status selectors', () => {
     const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
       selector: string;

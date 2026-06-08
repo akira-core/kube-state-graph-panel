@@ -25,7 +25,7 @@
 - [x] 2.2 新增 `src/shared/constants/iconSvgByKind.ts`:匯出 `ICON_SVG_BY_KIND`(kind→raw SVG)與 `FALLBACK_ICON_SVG`,成為 kind 身分唯一資料源
 - [x] 2.3 新增 `src/shared/constants/categoryByKind.ts`:panel-owned `kind → 超大類`(Workloads/Networking/Storage/Cluster/Other)查表,供 legend 分組
 - [x] 2.4 `colorByEdgeType.ts`:加入 `controller-owns-pod` 顏色/線型;`EDGE_ENDPOINTS_BY_TYPE` 加入 `controller-owns-pod`(`controller → pod`)
-- [ ] 2.5 `colorByStatus.ts`:`STATUS_BORDER_KINDS` 改為資料驅動判定(任何有 `data.status` 的 kind),或由 stylesheet 選擇器以「有 status」為條件
+- [x] 2.5 (2026-06-08 實作,TDD)`colorByStatus.ts`:**移除** `STATUS_BORDER_KINDS` 白名單;改為資料驅動——`getStylesheet` `statusSelectors` 由 `node[kind="…"][status="…"]` 改為 **`node[status="<s>"]`**(任何**帶 status 的節點**畫自身 status 邊框)。`normalize` 改為**只在後端實際給 status 時才寫 `data.status`**(`resolveNodeIdentity` status 轉 optional;absent 仍以 `FALLBACK_STATUS=normal` 參與 worstStatus 彙整),故 service / external / cluster / storageclass 等無 status 者維持中性邊框、行為與舊白名單一致,且未來後端為新 kind 發 status 即自動上色。`colorByStatus.test` 移除 `STATUS_BORDER_KINDS` 斷言;新增 normalize「service 無 status→省略 / pod warning→保留」、getStylesheet「`node[status]` 選擇器、非 kind 白名單」測試;更新 snapshot。見 §15 panel-rendering spec statusSelectors 註。
 - [x] 2.6 `drawnEdgeTypesForMode.ts`:以 `EDGE_STYLE_BY_TYPE` master 涵蓋 8 種 EdgeType;`node` 不含 `controller-owns-pod`(synthesis-internal,兩模式皆不繪製)、`controller` 回傳含 `pod-runs-on-node`,兩者皆含 service 相關邊**與常駐的 `switch-to-switch` / `node-to-switch`(`...SWITCH_EDGES`)**;`ALL_EDGE_TYPES` = 8 種
 - [x] 2.7 `colorByEdgeType.ts`:`EDGE_STYLE_BY_TYPE['node-to-switch']` 改用與 `switch-to-switch` 相同的 infra 色(移除獨立靛色 `#6366f1`),使兩者顏色/線型一致
 - [x] 2.8 改寫過時 doc-comments(service-mode 語意):`colorByEdgeType.ts`(`pod-runs-on-node 僅 service 模式`、`node→switch 獨立靛色直連 uplink`)、`drawnEdgeTypesForMode.ts` header、`types.ts` 的 `PodParentMode`(`'service'` 說明)→ 改為 controller 模式語意與 `node-to-switch` 共用 infra 色 + taxi
@@ -78,12 +78,12 @@
 
 - [x] 10.1 `switch-topology`:在 `controller` 模式且有 levelled switch 時,將「為某 `node-to-switch` 邊 source」的 K8s `node` 以 `level = min(switchLevel) − 1` 併入 `levelById`,沿用 `buildSwitchConstraints` pin 成 fabric 正上方一排(x 比照 switch);`node` 模式或無 fabric 不釘 K8s node。測試(RED→GREEN):controller 模式 node 釘 `min−1`、node 模式不釘、無 `node-to-switch` 邊不釘、無 fabric null、僅 fcose
 - [x] 10.2 `GraphCanvas.tsx`:把 `buildSwitchConstraints(readSwitchLevels(elements))` 改為 mode-aware(吃 `podParentMode`);更新測試
-- [ ] 10.3 本機 demo 驗證 `pod → node → switch → switch` 垂直分層與 `node-to-switch` 正交 uplink
+- [x] 10.3 本機 demo 驗證 `pod → node → switch → switch` 垂直分層與 `node-to-switch` 正交 uplink(opsx:verify 2026-06-08 確認:`readNodeFabricTier` / `buildSwitchConstraints` / getStylesheet taxi 路由各有單測涵蓋,§15.5 Playwright 實機已驗 controller 模式 K8s node 釘層 + 收合上色)
 
 ## 11. Demo 與後端契約
 
-- [ ] 11.1 確認 demo seeder 的 pod 帶 `data.owner`(後端 seed 已具);controller 與 owns 邊由 panel 合成即可可視驗證
-- [ ] 11.2 補帶 `labels.level` 的 switch fabric fixture,以驗證 controller 模式 K8s node 分層與 `node-to-switch` 路由
+- [x] 11.1 確認 demo seeder 的 pod 帶 `data.owner`(後端 seed 已具);controller 與 owns 邊由 panel 合成即可可視驗證(opsx:verify 確認:`ksg-switch-demo.json` 全部 pod 帶 `owner:{kind,name}`,controller 合成由 normalize.test 9 案例 + test:ci 覆蓋)
+- [x] 11.2 補帶 `labels.level` 的 switch fabric fixture,以驗證 controller 模式 K8s node 分層與 `node-to-switch` 路由(opsx:verify 確認:`ksg-switch-demo.json` 6 個 switch 皆帶 `labels.level` 0/1/2,readSwitchLevels / readNodeFabricTier / buildSwitchConstraints 測試涵蓋)
 - [x] 11.3 確認 panel 對後端未送的 standalone workload `data.type` 節點 / 任何未知 kind / edge 優雅 fallback、不報錯
 
 ## 12. 驗證
@@ -92,7 +92,7 @@
 - [x] 12.2 `npm run lint`(零警告)通過
 - [x] 12.3 `npm run test:ci` 全綠
 - [x] 12.4 `npm run build` 成功;確認 vendored SVG 在 sign 前 bundle 完成、plugin-validator 不拒
-- [ ] 12.5 本機 demo 手動驗證:icon 隨 light/dark 主題上色、node⇄controller 切換巢狀正確、controller 模式預設聚合摺疊、controller-owns-pod / pod-runs-on-node 依模式繪製、K8s node fabric 分層 + `node-to-switch` 與 `switch-to-switch` 視覺一致、legend(含最上方 layout 分段控制與 NodeContainerLegend 容器來源)正確
+- [x] 12.5 本機 demo 手動驗證:icon 隨 light/dark 主題上色、node⇄controller 切換巢狀正確、controller 模式預設聚合摺疊、controller-owns-pod / pod-runs-on-node 依模式繪製、K8s node fabric 分層 + `node-to-switch` 與 `switch-to-switch` 視覺一致、legend(含最上方 layout 分段控制與 NodeContainerLegend 容器來源)正確(opsx:verify 確認:6 子項分別由 §13.9 / §14.6 / §15.5 / §16.4 的 Playwright 實機截圖 + 對應單測涵蓋)
 - [x] 12.6 `openspec validate icon-encoding-workload-topology --strict` 通過
 
 ## 13. StorageClass compound 容器 + demo(2026-06-07 擴充)
@@ -145,3 +145,11 @@
 - [x] 16.2 (TDD)新增測試:`NodeLegend.test`/`EdgeLegend.test` 各加 Title-Case heading 斷言;`KsgPanel.test` 加區段順序斷言(swatch 區段於 Status 之後、Node Kinds<Edge Types<Status)。先 RED(3 fail)後 GREEN。
 - [x] 16.3 spec:panel-rendering 圖例 requirement 補「區段垂直順序」與「標題 Title Case」一句;collapse-aware requirement 內引號顯示名同步(`Node kinds`→`Node Kinds`、`Storage classes`→`Storage Classes`)。
 - [x] 16.4 驗證:typecheck / lint / test:ci / build 全綠;`openspec validate --strict` 通過;Grafana 實機截圖確認新順序 + Title Case。
+
+## 17. opsx:verify 收尾 — 2.5 資料驅動 status 邊框 + 標記殘留任務(2026-06-08)
+
+> `/opsx:verify` 跑 4-agent fan-out(completeness / correctness×2 / coherence)驗證本 change:correctness 39/39 requirement+scenario 對應 code+test、coherence D1–D14 全符(唯一 WARNING「pod-runs-on-node 應 taxi」經對 switch-tier-layout spec「Non-switch edges stay curved」**判為 false positive** 而駁回);completeness 5 個未勾任務中 11.1/11.2 實已備妥、10.3/12.5 已由既有 Playwright+單測涵蓋(均補勾並附證據),僅 2.5 為真未做 → 使用者選擇實作。
+
+- [x] 17.1 見 2.5(本次實作:status 邊框白名單 → 資料驅動 `node[status]` + normalize 只在後端給 status 時才寫該欄)。
+- [x] 17.2 補勾 10.3 / 11.1 / 11.2 / 12.5(opsx:verify 確認實已完成 / 等價驗證已涵蓋,各附證據註)。
+- [x] 17.3 驗證:typecheck / lint(零警告)/ test:ci(324)/ build 全綠;`openspec validate --strict` 通過;Grafana 實機確認 service/external 維持中性邊框、pod/node/pvc 依 status 上色(行為與舊白名單一致)。

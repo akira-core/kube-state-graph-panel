@@ -102,6 +102,23 @@ describe('normalizeGraph', () => {
     expect(result.elements[1]?.data.ipAddress).toBeUndefined();
   });
 
+  it('emits status only when the backend provides one (data-driven: a service without status gets none, a pod keeps its warning)', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'svc', name: 'svc', type: 'service', labels: { namespace: 'shop' } } },
+          { data: { id: 'p', name: 'p', type: 'pod', status: 'warning', labels: {} } },
+        ],
+        edges: [],
+      },
+    };
+    const byId = new Map(normalizeGraph(raw).elements.map((e) => [e.data.id, e.data]));
+    // No backend status → omitted → the stylesheet's node[status] selector won't border it.
+    expect(byId.get('svc')?.status).toBeUndefined();
+    // A valid backend status survives verbatim.
+    expect(byId.get('p')?.status).toBe('warning');
+  });
+
   it('accepts the unwrapped { nodes, edges } shape identically', () => {
     const wrapped = normalizeGraph(singleClusterGolden);
     const unwrapped = normalizeGraph(singleClusterGolden.elements);
