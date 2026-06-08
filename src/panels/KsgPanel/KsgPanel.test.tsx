@@ -345,6 +345,54 @@ describe('KsgPanel', () => {
     expect(afterToggle?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(false);
   });
 
+  it('orders legend sections with the swatch sections (Clusters / Storage Classes) AFTER Status', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          {
+            data: { id: 'demo/storageclass/fast-ssd', type: 'storageclass', name: 'fast-ssd', parent: 'cluster:demo' },
+          },
+          {
+            data: {
+              id: 'demo/pvc-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'demo/storageclass/fast-ssd',
+              labels: { cluster: 'demo' },
+            },
+          },
+          {
+            data: { id: 'demo/p0', type: 'pod', name: 'mongo-0', parent: 'cluster:demo', labels: { cluster: 'demo' } },
+          },
+        ],
+        edges: [{ data: { id: 'e0', type: 'pod-mounts-pvc', source: 'demo/p0', target: 'demo/pvc-0' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
+    const idx = (re: RegExp): number => headings.findIndex((t) => re.test(t));
+    // The reference sections come first, in this order …
+    expect(idx(/node kinds/i)).toBeGreaterThanOrEqual(0);
+    expect(idx(/node kinds/i)).toBeLessThan(idx(/edge types/i));
+    expect(idx(/edge types/i)).toBeLessThan(idx(/status/i));
+    // … then the swatch sections, moved BELOW Status.
+    expect(idx(/status/i)).toBeLessThan(idx(/clusters/i));
+    expect(idx(/clusters/i)).toBeLessThan(idx(/storage classes/i));
+  });
+
   it('does not render the cluster legend when there are no clusters', () => {
     render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
     expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();

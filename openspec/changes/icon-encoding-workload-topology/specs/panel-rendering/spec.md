@@ -34,7 +34,7 @@
 
 ### Requirement: 圖例 (Legend)
 
-Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod → pod` 列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。
+Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod → pod` 列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → `Edge Types` → `Status` → 三個 swatch 區段(`Clusters` → `Nodes`|`Controllers` → `Storage Classes`);亦即 swatch 區段置於 `Status` **之後**(legend 底部)。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Edge Types` / `Status` / `Clusters` / `Storage Classes`)。
 
 #### Scenario: Node legend 只列出以 glyph 呈現的 kind,依大類分組
 
@@ -211,25 +211,32 @@ StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeK
 - **THEN** 所有 storageclass 容器 MUST 預設**收合**(`node` / `controller` 兩模式皆然),其 id 於首次載入即併入 `collapsedIds` 推給 GraphCanvas;ref 守衛使後續 data refresh **不**重收(使用者展開的 storageclass 保持展開)
 - **AND** 因預設已收合,「Storage classes」collapse 切換鈕(`storageclass-collapse-toggle`)首次點擊作為「全部展開」動作
 
-### Requirement: 收合 controller 邊框依最差子 pod alert severity 上色
+### Requirement: 收合容器(controller / k8s node)邊框依最差子節點 status 上色
 
-當一個 controller 容器**收合**時,其矩形邊框 MUST 以該 controller 旗下**子 pod 的最差 alert severity** 對應的 `SEVERITY_COLOR`(`info` 藍 / `warning` 黃 / `critical` 紅)上色;**展開**的 controller 維持中性的 `:parent` 容器邊框(不依 severity 上色)。資料來源為 normalize 彙整於 controller 節點的 `data.worstAlertSeverity`(見 graph-data-integration 規格)。stylesheet MUST 以 `node[?isController][worstAlertSeverity="<sev>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 base `node.cy-expand-collapse-collapsed-node` 規則**之後**以覆寫其中性邊框;`statusSelectors`(僅 pod/node/pvc)與 controller 不交集,`node:selected` 以 outline/underlay 呈現故不影響此邊框色。無任一子 pod 帶 alert 的 controller(無 `worstAlertSeverity`)收合時 MUST 維持中性邊框。
+當一個**容器收合**時(controller 或 k8s `node`),其矩形邊框 MUST 以它**收合後會隱藏的最差 status** 對應的 `STATUS_COLOR`(`normal` 綠 `#73BF69` / `warning` 黃 / `critical` 紅)上色。資料來源為 normalize 彙整於該節點的 `data.worstStatus`(見 graph-data-integration:controller = 子 pod 最差 status;k8s node = 自身 status 與子 pod status 之最差,worst-wins)。stylesheet MUST 以 `node[worstStatus="<status>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 `statusSelectors`(pod/node/pvc 自身 status 邊框)**之後**,使**收合的 k8s node** 的最差子節點 status 能覆寫其自身 status 邊框;controller 無 status 邊框,故此為其唯一上色。`node:selected` 以 outline/underlay 呈現故不影響此邊框色。**展開**的容器不套此選擇器(controller 維持中性 `:parent` 容器邊框、k8s node 維持自身 status 邊框)。最差為 `normal`(無 `worstStatus`)的容器收合時 MUST 維持原邊框(controller 中性 / node 自身 `normal` 綠)。採 **status**(非 alert severity):`info` 僅存在於 alert、不在 status 量尺,故收合框永不為 info(`SEVERITY_COLOR` 仍只服務 detail panel 的 alert 表)。
 
-#### Scenario: 收合 controller 顯示最差子 pod 嚴重度
+#### Scenario: 收合 controller 顯示最差子 pod status
 
-- **WHEN** 某 controller 旗下有 pod 帶 `critical` alert,使用者**收合**該 controller
-- **THEN** 收合的 controller 矩形邊框以 `SEVERITY_COLOR.critical`(紅)上色
+- **WHEN** 某 controller 旗下有 pod `status: critical`,使用者**收合**該 controller
+- **THEN** 收合的 controller 矩形邊框以 `STATUS_COLOR.critical`(紅)上色
 - **WHEN** 同一 controller **展開**
-- **THEN** 邊框回到中性 `:parent` 容器色(不依 severity 上色)
+- **THEN** 邊框回到中性 `:parent` 容器色
 
-#### Scenario: 無子 alert 的 controller 收合維持中性
+#### Scenario: 收合 k8s node 以最差子 status 覆寫自身 status 邊框
 
-- **WHEN** 某 controller 旗下無任何 pod 帶 alert(故無 `worstAlertSeverity`),使用者收合它
-- **THEN** 其邊框維持中性容器色(無 severity 上色)
+- **WHEN** 某 k8s `node` 自身 `status: normal`、旗下有 pod `status: critical`,使用者**收合**該 node
+- **THEN** 收合的 node 矩形邊框以 `STATUS_COLOR.critical`(紅)上色(覆寫其自身 normal 綠)
+- **WHEN** 同一 node **展開**
+- **THEN** 邊框回到自身 status(`normal` 綠);其子 pod 各自顯示自身 status 邊框
+
+#### Scenario: 子節點皆 normal 的容器收合維持原邊框
+
+- **WHEN** 某容器(controller 或 node)收合後會隱藏的最差 status 為 `normal`(故無 `worstStatus`)
+- **THEN** controller 維持中性容器色、k8s node 維持自身 `normal` status 邊框(皆不額外上色)
 
 ### Requirement: Node-kinds 圖例 collapse-aware(只列實際以 glyph 呈現者)
 
-icon「Node kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(elements, collapsedIds)` 導出,只列出**目前以 glyph 呈現於畫布**的 kind——而非單純「資料中出現過」的 kind。判定規則(對每個非 cluster、帶 `kind` 的節點):被收合祖先隱藏者**不**計入;**展開的**容器(其 id 為他人 `parent` 且自身未收合)**不**計入(它在 Clusters / Nodes|Controllers / Storage classes swatch 區段呈現);其餘(drawn leaf 或**收合的**容器)計入其 kind。`cluster`(無 kind)永不計入。此規則取代舊有的 `presentKinds` + `deriveContainers.showNodeKindIcon`,使 node / controller / storageclass 三種容器一致。
+icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(elements, collapsedIds)` 導出,只列出**目前以 glyph 呈現於畫布**的 kind——而非單純「資料中出現過」的 kind。判定規則(對每個非 cluster、帶 `kind` 的節點):被收合祖先隱藏者**不**計入;**展開的**容器(其 id 為他人 `parent` 且自身未收合)**不**計入(它在 Clusters / Nodes|Controllers / Storage Classes swatch 區段呈現);其餘(drawn leaf 或**收合的**容器)計入其 kind。`cluster`(無 kind)永不計入。此規則取代舊有的 `presentKinds` + `deriveContainers.showNodeKindIcon`,使 node / controller / storageclass 三種容器一致。
 
 #### Scenario: 收合 storageclass 時 Node-kinds 以 storageclass 取代 pvc
 

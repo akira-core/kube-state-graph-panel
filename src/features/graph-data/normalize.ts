@@ -2,7 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { AlertSeverity, EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -117,28 +117,15 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
   return alerts.length > 0 ? alerts : undefined;
 }
 
-// Alert-severity ranking for the collapsed-controller tint: higher = worse. An
-// unknown / custom label ranks as critical (fail-loud, matching FALLBACK_SEVERITY_COLOR).
-const SEVERITY_RANK: Record<string, number> = { info: 1, warning: 2, critical: 3 };
-function severityRank(severity: string): number {
-  return SEVERITY_RANK[severity] ?? 3;
-}
-function rankToSeverity(rank: number): AlertSeverity {
-  return rank >= 3 ? 'critical' : rank === 2 ? 'warning' : 'info';
-}
-// Worst alert-severity rank carried by a node's alerts (0 = none).
-function worstAlertRank(alerts: NodeAlert[] | undefined): number {
-  if (alerts === undefined) {
-    return 0;
-  }
-  let worst = 0;
-  for (const a of alerts) {
-    const r = severityRank(a.severity);
-    if (r > worst) {
-      worst = r;
-    }
-  }
-  return worst;
+// Node-STATUS ranking for the collapsed-container tint: higher = worse. A COLLAPSED
+// container (controller / k8s node) borders by the worst status it HIDES, so its child
+// pods' problems still read once their boxes are folded away. STATUS — not alert
+// severity — is the signal: every node carries a status (default normal), a uniform
+// normal/warning/critical scale, whereas alerts add an 'info' tier status never has and
+// a pod can be warning/critical WITHOUT an alert.
+const STATUS_RANK: Record<NodeStatus, number> = { normal: 0, warning: 1, critical: 2 };
+function rankToStatus(rank: number): NodeStatus {
+  return rank >= 2 ? 'critical' : rank === 1 ? 'warning' : 'normal';
 }
 
 interface PendingOwned {
@@ -147,7 +134,7 @@ interface PendingOwned {
   ownerName: string;
   cluster: string; // '' when absent
   namespace: string; // '' when absent
-  podWorstRank: number; // worst alert-severity rank on the pod (0 = none); aggregated onto the controller
+  podStatusRank: number; // the pod's status rank (0 = normal); aggregated onto the controller as its worst child status
 }
 
 // Read a pod's controller owner from typed `data.owner` (current backend) or the
@@ -202,6 +189,24 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   const nodeIds = new Set<string>();
   const pendingOwned: PendingOwned[] = [];
   const clusterIdByName = new Map<string, string>();
+  // Pre-pass: worst child-pod STATUS rank per parent container id, so a COLLAPSED k8s
+  // node can border by the worst status among the pods it hides (getStylesheet). Keyed
+  // by the pod's raw `parent` (its k8s node id in cluster > node > pod nesting).
+  const childWorstStatusRank = new Map<string, number>();
+  for (const entry of rawNodes) {
+    if (!isPlainObject(entry)) {
+      continue;
+    }
+    const d = unwrapData(entry);
+    if (d.type !== 'pod' || !isString(d.parent)) {
+      continue;
+    }
+    const status: NodeStatus = isNodeStatus(d.status) ? d.status : FALLBACK_STATUS;
+    const r = STATUS_RANK[status];
+    if (r > (childWorstStatusRank.get(d.parent) ?? 0)) {
+      childWorstStatusRank.set(d.parent, r);
+    }
+  }
   // The compound (cluster/node) grouping STRUCTURE is owned by the backend: we
   // pass its `parent` field through untouched. A flat payload renders flat; a
   // nested one (cluster > node > pod, cluster > svc) renders boxes — the panel
@@ -228,10 +233,15 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     const label = isString(d.name) ? d.name : d.id;
     const isCluster = d.type === 'cluster';
     const isStorageClass = d.type === 'storageclass';
-    const identity = resolveNodeIdentity(d.type, label, isNodeStatus(d.status) ? d.status : FALLBACK_STATUS);
+    const status: NodeStatus = isNodeStatus(d.status) ? d.status : FALLBACK_STATUS;
+    const identity = resolveNodeIdentity(d.type, label, status);
     // Alerts ride on any leaf node; grouping containers (cluster / storageclass)
     // never carry them (and are excluded from the detail panel that consumes them).
     const alerts = isCluster || isStorageClass ? undefined : parseAlerts(d.alerts);
+    // A k8s `node` container surfaces the worst status it would HIDE once collapsed: the
+    // worst of its OWN status and its child pods' statuses (worst-wins). Set only when
+    // worse than normal — else the collapsed box keeps its own status border.
+    const nodeWorstRank = d.type === 'node' ? Math.max(STATUS_RANK[status], childWorstStatusRank.get(d.id) ?? 0) : 0;
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -243,6 +253,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
         ...(isString(namespace) ? { namespace } : {}),
         ...(isNonEmptyStringArray(d.ipaddress) ? { ipAddress: d.ipaddress } : {}),
         ...(alerts !== undefined ? { alerts } : {}),
+        ...(nodeWorstRank > 0 ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),
         ...(labels !== undefined ? { labels } : {}),
       },
     });
@@ -257,7 +268,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           ownerName: owner.name,
           cluster: labels?.cluster ?? '',
           namespace: namespace ?? '',
-          podWorstRank: worstAlertRank(alerts),
+          podStatusRank: STATUS_RANK[status],
         });
       }
     }
@@ -296,14 +307,14 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   const controllerSeen = new Set<string>();
   const ownsEdges: cytoscape.ElementDefinition[] = [];
   const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
-  // Pre-pass: worst child-pod alert severity per controller, so a COLLAPSED controller
-  // can border in that colour (getStylesheet). Computed across all owned pods before
-  // the node is materialized.
+  // Pre-pass: worst child-pod STATUS per controller, so a COLLAPSED controller can
+  // border in that colour (getStylesheet). Computed across all owned pods before the
+  // node is materialized. (A controller has no status of its own — purely child-driven.)
   const controllerWorstRank = new Map<string, number>();
   for (const o of sortedOwned) {
     const id = `ctrl/${o.cluster}/${o.namespace}/${o.ownerKind.toLowerCase()}/${o.ownerName}`;
-    if (o.podWorstRank > (controllerWorstRank.get(id) ?? 0)) {
-      controllerWorstRank.set(id, o.podWorstRank);
+    if (o.podStatusRank > (controllerWorstRank.get(id) ?? 0)) {
+      controllerWorstRank.set(id, o.podStatusRank);
     }
   }
   for (const o of sortedOwned) {
@@ -322,7 +333,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           isController: true,
           label: o.ownerName,
           ...(parent !== undefined ? { parent } : {}),
-          ...(worstRank > 0 ? { worstAlertSeverity: rankToSeverity(worstRank) } : {}),
+          ...(worstRank > 0 ? { worstStatus: rankToStatus(worstRank) } : {}),
         },
       });
     }

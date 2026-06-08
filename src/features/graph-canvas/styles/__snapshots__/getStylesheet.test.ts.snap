@@ -77,30 +77,6 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
-    "selector": "node[?isController][worstAlertSeverity="info"].cy-expand-collapse-collapsed-node",
-    "style": {
-      "border-color": "#5794F2",
-      "border-opacity": 1,
-      "border-width": 3,
-    },
-  },
-  {
-    "selector": "node[?isController][worstAlertSeverity="warning"].cy-expand-collapse-collapsed-node",
-    "style": {
-      "border-color": "#F2CC0C",
-      "border-opacity": 1,
-      "border-width": 3,
-    },
-  },
-  {
-    "selector": "node[?isController][worstAlertSeverity="critical"].cy-expand-collapse-collapsed-node",
-    "style": {
-      "border-color": "#E02F44",
-      "border-opacity": 1,
-      "border-width": 3,
-    },
-  },
-  {
     "selector": "node[kind="pod"][status="normal"], node[kind="node"][status="normal"], node[kind="pvc"][status="normal"]",
     "style": {
       "border-color": "#73BF69",
@@ -118,6 +94,30 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
   },
   {
     "selector": "node[kind="pod"][status="critical"], node[kind="node"][status="critical"], node[kind="pvc"][status="critical"]",
+    "style": {
+      "border-color": "#E02F44",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[worstStatus="normal"].cy-expand-collapse-collapsed-node",
+    "style": {
+      "border-color": "#73BF69",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[worstStatus="warning"].cy-expand-collapse-collapsed-node",
+    "style": {
+      "border-color": "#F2CC0C",
+      "border-opacity": 1,
+      "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[worstStatus="critical"].cy-expand-collapse-collapsed-node",
     "style": {
       "border-color": "#E02F44",
       "border-opacity": 1,

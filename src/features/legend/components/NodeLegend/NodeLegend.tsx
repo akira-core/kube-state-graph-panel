@@ -65,7 +65,7 @@ export function NodeLegend({ kinds }: Readonly<NodeLegendProps> = {}): React.JSX
   }
   return (
     <div data-testid="node-legend">
-      <h4>Node kinds</h4>
+      <h4>Node Kinds</h4>
       {CATEGORY_ORDER.filter((category) => (grouped.get(category)?.length ?? 0) > 0).map((category) => (
         <div key={category} className={styles.group} data-testid={`node-legend-group-${category}`}>
           <div className={styles.groupTitle}>{category}</div>

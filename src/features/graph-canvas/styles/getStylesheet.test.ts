@@ -2,7 +2,7 @@ import { createTheme } from '@grafana/data';
 import cytoscape from 'cytoscape';
 
 import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
-import { SEVERITY_COLOR } from '../../../shared/constants/colorBySeverity';
+import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { FALLBACK_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
@@ -118,31 +118,35 @@ describe('getStylesheet', () => {
     expect(metaEdge?.style?.width).toBe(2.5);
   });
 
-  it('declares collapsed-controller worst-severity border selectors, after the base collapsed-node rule', () => {
+  it('declares collapsed-container worst-status border selectors, after the per-kind status selectors', () => {
     const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
       selector: string;
       style?: StyleRecord;
     }>;
     const selectors = sheet.map((s) => s.selector);
-    const baseIdx = selectors.indexOf('node.cy-expand-collapse-collapsed-node');
-    for (const [severity, color] of Object.entries(SEVERITY_COLOR)) {
-      const sel = `node[?isController][worstAlertSeverity="${severity}"].cy-expand-collapse-collapsed-node`;
+    // The per-kind status borders (pod/node/pvc) a collapsed node's worst-status tint
+    // must be declared AFTER, so it overrides the node's OWN status border.
+    const lastStatusIdx = Math.max(...selectors.map((s, i) => (s.includes('[status="') ? i : -1)));
+    for (const [status, color] of Object.entries(STATUS_COLOR)) {
+      const sel = `node[worstStatus="${status}"].cy-expand-collapse-collapsed-node`;
       expect(selectors).toContain(sel);
-      // After the base collapsed-node rule so it overrides border-color.
-      expect(selectors.indexOf(sel)).toBeGreaterThan(baseIdx);
+      expect(selectors.indexOf(sel)).toBeGreaterThan(lastStatusIdx);
       const rule = sheet.find((s) => s.selector === sel);
       expect(rule?.style?.['border-color']).toBe(color);
       expect(rule?.style?.['border-width']).toBe(3);
     }
   });
 
-  it('tints a controller border by worst child severity ONLY when collapsed (expanded stays neutral)', () => {
+  it('tints a controller border by worst child status ONLY when collapsed (expanded stays neutral)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
       style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
       elements: [
-        { group: 'nodes', data: { id: 'ctrl', label: 'api', kind: 'deployment', isController: true, worstAlertSeverity: 'critical' } },
+        {
+          group: 'nodes',
+          data: { id: 'ctrl', label: 'api', kind: 'deployment', isController: true, worstStatus: 'critical' },
+        },
         { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'ctrl', status: 'normal' } },
         // Reference node carrying the critical colour in cytoscape's computed format.
         { group: 'nodes', data: { id: 'crit', label: 'crit', kind: 'pod', status: 'critical' } },
@@ -150,12 +154,39 @@ describe('getStylesheet', () => {
     });
     const ctrl = cy.getElementById('ctrl');
     const expandedBorder = ctrl.style('border-color') as string;
-    // Expanded (:parent) → neutral container border, NOT the severity colour.
-    expect(expandedBorder).not.toBe(cy.getElementById('crit').style('border-color'));
-    // Collapsed (extension marks the node) → border tints to the worst severity colour.
+    const critColor = cy.getElementById('crit').style('border-color') as string;
+    // A controller has no status border; expanded (:parent) → neutral, NOT the status colour.
+    expect(expandedBorder).not.toBe(critColor);
+    // Collapsed (extension marks the node) → border tints to the worst child status colour.
     ctrl.addClass('cy-expand-collapse-collapsed-node');
-    expect(ctrl.style('border-color')).toBe(cy.getElementById('crit').style('border-color'));
+    expect(ctrl.style('border-color')).toBe(critColor);
     expect(ctrl.style('border-color')).not.toBe(expandedBorder);
+    cy.destroy();
+  });
+
+  it('a collapsed k8s node borders by its worstStatus, overriding its OWN status; expanded keeps own status', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        // A normal-status k8s node hiding a critical child pod → normalize tags worstStatus 'critical'.
+        { group: 'nodes', data: { id: 'n', label: 'w0', kind: 'node', status: 'normal', worstStatus: 'critical' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'n', status: 'normal' } },
+        // Reference leaves carrying the normal / critical status colours.
+        { group: 'nodes', data: { id: 'norm', label: 'norm', kind: 'pod', status: 'normal' } },
+        { group: 'nodes', data: { id: 'crit', label: 'crit', kind: 'pod', status: 'critical' } },
+      ],
+    });
+    const n = cy.getElementById('n');
+    const normalColor = cy.getElementById('norm').style('border-color') as string;
+    const critColor = cy.getElementById('crit').style('border-color') as string;
+    // Expanded → its OWN status (normal), NOT the hidden child's critical colour.
+    expect(n.style('border-color')).toBe(normalColor);
+    expect(n.style('border-color')).not.toBe(critColor);
+    // Collapsed → worstStatus (critical) overrides the own-status border.
+    n.addClass('cy-expand-collapse-collapsed-node');
+    expect(n.style('border-color')).toBe(critColor);
     cy.destroy();
   });
 

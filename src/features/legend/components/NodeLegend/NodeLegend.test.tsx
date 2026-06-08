@@ -15,6 +15,12 @@ describe('NodeLegend', () => {
     expect(items).toHaveLength(kinds.length);
   });
 
+  it('renders a Title-Case "Node Kinds" heading', () => {
+    render(<NodeLegend />);
+    const legend = screen.getByTestId('node-legend');
+    expect(within(legend).getByRole('heading', { name: 'Node Kinds' })).toBeInTheDocument();
+  });
+
   it('shows a label for every kind', () => {
     render(<NodeLegend />);
     const legend = screen.getByTestId('node-legend');

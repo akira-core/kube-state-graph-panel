@@ -73,7 +73,7 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
   }
   return (
     <div data-testid="edge-legend">
-      <h4>Edge types</h4>
+      <h4>Edge Types</h4>
       <ul className={styles.list}>
         {rows.map(({ key, color, lineStyle, from, to }) => (
           <li key={key} className={styles.row} data-testid={`edge-legend-row-${key}`} style={{ color }}>

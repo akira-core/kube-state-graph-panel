@@ -1,6 +1,6 @@
 import 'cytoscape';
 
-import type { NodeKind, EdgeType, NodeStatus, NodeAlert, AlertSeverity } from '../constants/types';
+import type { NodeKind, EdgeType, NodeStatus, NodeAlert } from '../constants/types';
 
 declare module 'cytoscape' {
   interface NodeDataDefinition {
@@ -20,11 +20,12 @@ declare module 'cytoscape' {
     // distinguishes a controller container from a K8s `node` container in
     // controller mode (deriveContainers).
     isController?: boolean;
-    // Worst alert severity among a synthesized controller's child pods (info/warning/
-    // critical; unknown labels rank as critical). Aggregated in normalize; drives the
-    // COLLAPSED-controller border tint in getStylesheet. Omitted when no child pod has
-    // an alert (so the folded box stays neutral).
-    worstAlertSeverity?: AlertSeverity;
+    // Worst STATUS a COLLAPSED container would HIDE, surfaced as its border tint in
+    // getStylesheet. On a synthesized controller = worst child-pod status; on a k8s
+    // `node` container = worst of its OWN status and its child pods' statuses
+    // (worst-wins). Aggregated in normalize. Omitted when that worst is `normal` (so the
+    // folded box keeps its neutral / own-status border).
+    worstStatus?: NodeStatus;
     // true only on a backend-synthesized StorageClass compound group node
     // (data.type === 'storageclass'; cluster > storageclass > pvc nesting). UNLIKE
     // isCluster, it ALSO carries a real `kind: 'storageclass'` — it renders exactly

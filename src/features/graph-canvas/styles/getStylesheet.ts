@@ -2,7 +2,6 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
-import { SEVERITY_COLOR } from '../../../shared/constants/colorBySeverity';
 import { STATUS_BORDER_KINDS, STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
@@ -76,16 +75,17 @@ export function getStylesheet({
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
-  // A COLLAPSED controller borders in the WORST alert severity among its child pods
-  // (data.worstAlertSeverity, aggregated in normalize). Gated on the collapsed-node
-  // class so an EXPANDED controller stays the neutral :parent box; spread (below)
-  // after the base collapsed-node rule so it overrides that neutral border colour.
-  const collapsedControllerSeveritySelectors: CyStylesheet[] = Object.entries(SEVERITY_COLOR).map(
-    ([severity, color]) => ({
-      selector: `node[?isController][worstAlertSeverity="${severity}"].cy-expand-collapse-collapsed-node`,
-      style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
-    })
-  );
+  // A COLLAPSED container (controller / k8s node) borders in the worst STATUS it HIDES
+  // among its descendants (data.worstStatus, aggregated in normalize: a controller's
+  // worst child-pod status; a k8s node's worst of its own + child statuses). Gated on
+  // the collapsed-node class so an EXPANDED container keeps its neutral / own-status
+  // border; spread (below) AFTER statusSelectors so a collapsed node's worst-child
+  // status overrides its OWN status border. Scope (controller + node only) is enforced
+  // in normalize — only those nodes carry data.worstStatus.
+  const collapsedContainerStatusSelectors: CyStylesheet[] = Object.entries(STATUS_COLOR).map(([status, color]) => ({
+    selector: `node[worstStatus="${status}"].cy-expand-collapse-collapsed-node`,
+    style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
+  }));
 
   const stylesheet: CyStylesheet[] = [
     {
@@ -202,8 +202,11 @@ export function getStylesheet({
         events: 'yes',
       },
     },
-    ...collapsedControllerSeveritySelectors,
     ...statusSelectors,
+    // Declared AFTER statusSelectors: a collapsed k8s node's worst-child status must
+    // override its OWN status border; a controller has no status border so this is its
+    // only tint.
+    ...collapsedContainerStatusSelectors,
     {
       // Selection highlight = a crisp outline RING + a soft underlay halo, NOT a
       // border override. A blue selection border used to clobber the status border

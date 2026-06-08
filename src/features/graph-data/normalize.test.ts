@@ -568,10 +568,12 @@ function podWithOwner(id: string, cluster: string, ns: string, owner: { kind: st
 }
 
 describe('normalizeGraph — controller synthesis', () => {
-  // A collapsed controller's rectangle is tinted by the WORST alert severity among its
-  // child pods (see getStylesheet); normalize aggregates it onto the synthesized
-  // controller as data.worstAlertSeverity (rank crit>warn>info, unknown→crit).
-  const ownedPodWithAlerts = (id: string, owner: { kind: string; name: string }, severities: string[]) => ({
+  // A collapsed controller's rectangle is tinted by the worst STATUS among its child
+  // pods (see getStylesheet); normalize aggregates it onto the synthesized controller
+  // as data.worstStatus (rank critical>warning>normal). STATUS — not alerts — drives
+  // the tint: every node carries a status (default normal), so a pod that is `warning`
+  // WITHOUT an alert still propagates.
+  const ownedPodWithStatus = (id: string, owner: { kind: string; name: string }, status?: string) => ({
     data: {
       id,
       name: id,
@@ -579,9 +581,7 @@ describe('normalizeGraph — controller synthesis', () => {
       parent: 'cluster/prod',
       owner,
       labels: { cluster: 'prod', namespace: 'shop' },
-      ...(severities.length > 0
-        ? { alerts: severities.map((severity, i) => ({ name: `a${String(i)}`, severity, time_records: [i + 1] })) }
-        : {}),
+      ...(status !== undefined ? { status } : {}),
     },
   });
   const controllerOf = (raw: unknown): cytoscape.NodeDataDefinition | undefined => {
@@ -590,34 +590,78 @@ describe('normalizeGraph — controller synthesis', () => {
     );
     return controllers.length > 0 ? controllers[0]!.data : undefined;
   };
-  const withControllerPods = (...pods: Array<ReturnType<typeof ownedPodWithAlerts>>): unknown => ({
+  const withControllerPods = (...pods: Array<ReturnType<typeof ownedPodWithStatus>>): unknown => ({
     elements: {
       nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
       edges: [],
     },
   });
 
-  it('tags the synthesized controller with the worst child-pod alert severity (warning + critical → critical)', () => {
+  it('tags the synthesized controller with the worst child-pod STATUS (warning + critical → critical)', () => {
     const raw = withControllerPods(
-      ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, ['warning']),
-      ownedPodWithAlerts('prod/p2', { kind: 'Deployment', name: 'api' }, ['critical'])
+      ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'warning'),
+      ownedPodWithStatus('prod/p2', { kind: 'Deployment', name: 'api' }, 'critical')
     );
-    expect(controllerOf(raw)?.worstAlertSeverity).toBe('critical');
+    expect(controllerOf(raw)?.worstStatus).toBe('critical');
   });
 
-  it('picks the worst rank across a pod with multiple alerts (info + warning → warning)', () => {
-    const raw = withControllerPods(ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, ['info', 'warning']));
-    expect(controllerOf(raw)?.worstAlertSeverity).toBe('warning');
+  it('propagates a warning STATUS even when the pod carries no alert (status, not alerts)', () => {
+    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'warning'));
+    expect(controllerOf(raw)?.worstStatus).toBe('warning');
   });
 
-  it('treats an unknown/custom alert severity as critical (fail-loud, matches FALLBACK_SEVERITY_COLOR)', () => {
-    const raw = withControllerPods(ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, ['page']));
-    expect(controllerOf(raw)?.worstAlertSeverity).toBe('critical');
+  it('treats an unknown / absent status as normal (default), so worstStatus is omitted', () => {
+    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'bogus'));
+    expect(controllerOf(raw)?.worstStatus).toBeUndefined();
   });
 
-  it('omits worstAlertSeverity when no owned pod carries an alert', () => {
-    const raw = withControllerPods(ownedPodWithAlerts('prod/p1', { kind: 'Deployment', name: 'api' }, []));
-    expect(controllerOf(raw)?.worstAlertSeverity).toBeUndefined();
+  it('omits worstStatus when every owned pod is normal', () => {
+    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'normal'));
+    expect(controllerOf(raw)?.worstStatus).toBeUndefined();
+  });
+
+  // The SAME collapse-status propagation applies to a k8s `node` container: a collapsed
+  // node borders by the worst of its OWN status and its child pods' statuses (worst-wins,
+  // never downgraded). normalize tags it onto the node as data.worstStatus.
+  describe('collapsed k8s node status tint (data.worstStatus)', () => {
+    const dataOf = (raw: unknown, id: string): cytoscape.NodeDataDefinition | undefined =>
+      normalizeGraph(raw).elements.find(
+        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).id === id
+      )?.data;
+    const k8sNode = (id: string, status?: string) => ({
+      data: { id, name: id, type: 'node', parent: 'cluster/prod', ...(status !== undefined ? { status } : {}) },
+    });
+    const podUnder = (id: string, parent: string, status?: string) => ({
+      data: { id, name: id, type: 'pod', parent, ...(status !== undefined ? { status } : {}) },
+    });
+    const graph = (...nodes: Array<{ data: Record<string, unknown> }>): unknown => ({
+      elements: { nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster' } }, ...nodes], edges: [] },
+    });
+
+    it('tints a collapsed node by the worst child-pod status (normal node + critical pod → critical)', () => {
+      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'critical'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+    });
+
+    it("never downgrades below the node's own status (critical node + normal pod → critical)", () => {
+      const raw = graph(k8sNode('node/w0', 'critical'), podUnder('pod/a', 'node/w0', 'normal'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+    });
+
+    it('propagates a child warning onto a normal node (worst-wins → warning)', () => {
+      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'warning'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('warning');
+    });
+
+    it('takes the worst of own status and children (warning node + critical pod → critical)', () => {
+      const raw = graph(k8sNode('node/w0', 'warning'), podUnder('pod/a', 'node/w0', 'critical'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+    });
+
+    it('omits worstStatus when the node and all its pods are normal', () => {
+      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'normal'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBeUndefined();
+    });
   });
 
   it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {

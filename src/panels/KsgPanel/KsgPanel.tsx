@@ -50,8 +50,10 @@ function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; le
       position: 'relative',
     }),
     // Legend sits to the LEFT of the canvas (rendered before it in the DOM).
-    // A hairline divider separates each stacked section (Node kinds / Edge
-    // types / Clusters): a top border on every section after the first.
+    // Order: Layout toggle, then the reference sections (Node Kinds / Edge Types /
+    // Status), then the swatch sections (Clusters / Nodes|Controllers / Storage
+    // Classes). A hairline divider separates each stacked section: a top border on
+    // every section after the first.
     legendArea: css({
       width: 200,
       flexShrink: 0,
@@ -332,6 +334,9 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       {options.showLegend && (
         <aside className={styles.legendArea}>
           <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
+          <NodeLegend kinds={nodeLegendKinds} />
+          <EdgeLegend edgeTypes={presentEdgeTypes} />
+          <StatusLegend />
           <ClusterLegend
             clusters={clusterEntries}
             onToggleCollapseAll={toggleClusters}
@@ -349,9 +354,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleStorageClasses}
             allCollapsed={allStorageClassesCollapsed}
           />
-          <NodeLegend kinds={nodeLegendKinds} />
-          <EdgeLegend edgeTypes={presentEdgeTypes} />
-          <StatusLegend />
         </aside>
       )}
       <div className={styles.canvasArea}>

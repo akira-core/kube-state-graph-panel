@@ -3,9 +3,12 @@ import type { AlertSeverity } from './types';
 // Single source of truth for the KNOWN alert-severity badge colours. Distinct from
 // STATUS_COLOR (node health): severity adds an 'info' tier and has no 'normal'.
 // Hardcoded hex (not theme semantic) to match STATUS_COLOR's product decision;
-// the alert table derives its badge colour from this map via severityColor().
+// the alert table badge AND the collapsed-controller border tint (getStylesheet)
+// both derive from this map. info is the BENIGN tier: it deliberately reuses the
+// panel's healthy green (#73BF69, the same value as STATUS_COLOR.normal) so an
+// info-only alert reads as "nothing serious"; warning/critical stay yellow/red.
 export const SEVERITY_COLOR: Record<AlertSeverity, string> = {
-  info: '#5794F2', // blue
+  info: '#73BF69', // green (benign — same green as STATUS_COLOR.normal)
   warning: '#F2CC0C', // yellow
   critical: '#E02F44', // red
 };

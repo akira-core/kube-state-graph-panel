@@ -24,6 +24,12 @@ describe('EdgeLegend', () => {
     expect(items).toHaveLength(drawnEdgeTypesForMode('node').length - SVC_PAIR.length);
   });
 
+  it('renders a Title-Case "Edge Types" heading', () => {
+    render(<EdgeLegend />);
+    const legend = screen.getByTestId('edge-legend');
+    expect(within(legend).getByRole('heading', { name: 'Edge Types' })).toBeInTheDocument();
+  });
+
   it('renders each non-omitted edge type as `<from> → <to>` endpoint labels (svc for service)', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');

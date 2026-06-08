@@ -124,4 +124,24 @@
 - [x] 14.3 (#3 normalize 彙整,TDD)`normalize.ts`:`PendingOwned` 加 `podWorstRank`(`worstAlertRank(alerts)`,severityRank crit>warn>info、未知→crit);合成前 pre-pass 彙整每 controller 最差 rank,寫入 `data.worstAlertSeverity`(無則省略)。`cytoscape.d.ts` 加 `worstAlertSeverity?: AlertSeverity`。`normalize.test.ts` 新增 4 案例。
 - [x] 14.4 (#3 stylesheet,TDD)`getStylesheet.ts`:`collapsedControllerSeveritySelectors`(`node[?isController][worstAlertSeverity="<sev>"].cy-expand-collapse-collapsed-node` × 3),spread 於 base collapsed-node 規則後、statusSelectors 前。`getStylesheet.test.ts` 加結構 + headless 行為測試(收合才上色、展開中性);更新 snapshot。
 - [x] 14.5 驗證:typecheck / lint(零警告) / test:ci(313) / build 全綠;`openspec validate icon-encoding-workload-topology --strict` 通過;Grafana restart 後 demo 服務帶新 PVC alert。
-- [ ] 14.6 本機 demo 手動驗證:warning PVC 點開顯示 `VolumeNearFull` 列;storageclass 預設收合;收合 controller 邊框依最差子 pod severity 上色(critical 紅 / 展開回中性)。
+- [x] 14.6 本機 demo 手動驗證:warning PVC 點開顯示 `VolumeNearFull` 列;storageclass 預設收合;收合 controller 邊框依最差子 pod severity 上色(critical 紅 / 展開回中性)。
+- [x] 14.7 (#4 info 改綠,使用者「收合 controller 傳給邊框的色、以及所有 info 都應是綠色」,TDD)`colorBySeverity.ts`:`SEVERITY_COLOR.info` 由藍 `#5794F2` 改為健康綠 `#73BF69`(刻意與 `STATUS_COLOR.normal` 同值——info 為 benign tier,讀作「無大礙」)。因 `SEVERITY_COLOR` 為單一真相源,alert 表徽章與**收合 controller 邊框**(getStylesheet)同步改綠;warning 黃 / critical 紅不變。`colorBySeverity.test.ts` 加鎖定測試(info === `#73BF69` === `STATUS_COLOR.normal`,RED→GREEN);`getStylesheet` snapshot 更新(info collapsed-controller 選擇器 border `#73BF69`);panel-rendering spec「info 藍」改「info 綠」。test:ci(314)/lint/typecheck/build 全綠;Playwright 實機(node 模式 tap `pod/mongo-2`)確認 alert 表 INFO 徽章 = `rgb(115,191,105)`(綠)、WARNING 黃 / CRITICAL 紅。
+
+## 15. 收合上色改用 child **status**(非 alert)+ 延伸至 k8s node(2026-06-08)
+
+> 使用者回饋:收合的 parent 應由 **child 的 `status` 欄**取最高 severity 上色(後端給所有節點 status、預設 normal);`info` 只在 alert 內、status 量尺只有 normal/warning/critical。因此(a) controller 由 alert-based 改為 status-based(supersede 14.x 的 worstAlertSeverity),(b) 同邏輯延伸到 k8s `node`,範圍 = controller + node(cluster/storageclass 不動)。資料欄 `worstAlertSeverity`(AlertSeverity)→ `worstStatus`(NodeStatus);收合框色由 `SEVERITY_COLOR` → `STATUS_COLOR`。先前 14.7 的 `SEVERITY_COLOR.info=綠` 保留(只服務 alert 表)。
+
+- [x] 15.1 (normalize,TDD)移除 alert-rank 幫手(`SEVERITY_RANK`/`severityRank`/`rankToSeverity`/`worstAlertRank`),新增 `STATUS_RANK`(normal:0/warning:1/critical:2)+ `rankToStatus`。pre-scan raw pods → `childWorstStatusRank`(依 `parent` 彙整子 pod 最差 status rank);k8s node(`type==='node'`)寫 `worstStatus = rankToStatus(max(自身 statusRank, childRank))`,僅 `> normal` 才寫(worst-wins、含自身 status)。controller:`PendingOwned.podWorstRank(alert)`→`podStatusRank(status)`,pre-pass 改彙整子 pod 最差 status。`cytoscape.d.ts` `worstAlertSeverity?:AlertSeverity` → `worstStatus?:NodeStatus`。改寫 normalize.test 4 controller 案例為 status-based(含「warning-無-alert→worstStatus」證明看 status)+ 新增 5 個 k8s node 案例。
+- [x] 15.2 (getStylesheet,TDD)`collapsedControllerSeveritySelectors`(SEVERITY_COLOR/`?isController`)→ `collapsedContainerStatusSelectors`(STATUS_COLOR/`node[worstStatus="<s>"].cy-expand-collapse-collapsed-node`);**移到 `statusSelectors` 之後**(收合 k8s node 才能覆寫自身 status 框)。移除 `SEVERITY_COLOR` import。改寫結構斷言(選擇器在 statusSelectors 之後)+ controller/node headless 行為測試 + 更新 snapshot(worstStatus×3 = STATUS_COLOR)。
+- [x] 15.3 spec:graph-data-integration 彙整 requirement 由 alert/worstAlertSeverity 改寫為 status/worstStatus + controller&node 通用 + worst-wins;對應 scenario 改 status-based + 加 node 場景。panel-rendering「收合 controller…SEVERITY_COLOR」requirement 改寫為「收合容器(controller / k8s node)…STATUS_COLOR」+ 收合 node 覆寫自身 status 框場景。
+- [x] 15.4 驗證:typecheck / lint(零警告)/ test:ci(320)/ build 全綠;`openspec validate --strict` 通過。
+- [x] 15.5 本機 demo 手動驗證(Playwright,實機讀 cy 渲染 border-color):**controller 模式**——`mongodb` worstStatus=critical→邊框 `rgb(224,47,68)` 紅、`nats` worstStatus=warning→`rgb(242,204,12)` 黃(原本中性,破綻已修)、`gateway`/`consumer` 無 worstStatus→中性 `rgb(204,204,220)`;**node 模式**——`worker-0`(自身 normal、藏 critical mongo-2)worstStatus=critical,收合後 border 紅;截圖另見 `worker-1`(自身 warning)黃、`worker-2`(藏 warning nats-2)黃,全部收合 node 皆反映所藏最差 status。
+
+## 16. Legend 區段重排 + 標題 Title Case(2026-06-08)
+
+> 使用者回饋:(a) 把 Clusters / Nodes|Controllers / Storage Classes 三個 swatch 區段移到 **Status 之後**(legend 底部),Layout 切換鈕留在頂端;(b) 所有區段標題改 Title Case。
+
+- [x] 16.1 (TDD)`KsgPanel.tsx`:legend JSX 重排為 `LayoutModeControl → NodeLegend → EdgeLegend → StatusLegend → ClusterLegend → NodeContainerLegend → StorageClassLegend`(swatch 三段移到 Status 之後);更新 legendArea 排序註解。`NodeLegend.tsx`「Node kinds」→「Node Kinds」、`EdgeLegend.tsx`「Edge types」→「Edge Types」(其餘標題已 Title Case)。
+- [x] 16.2 (TDD)新增測試:`NodeLegend.test`/`EdgeLegend.test` 各加 Title-Case heading 斷言;`KsgPanel.test` 加區段順序斷言(swatch 區段於 Status 之後、Node Kinds<Edge Types<Status)。先 RED(3 fail)後 GREEN。
+- [x] 16.3 spec:panel-rendering 圖例 requirement 補「區段垂直順序」與「標題 Title Case」一句;collapse-aware requirement 內引號顯示名同步(`Node kinds`→`Node Kinds`、`Storage classes`→`Storage Classes`)。
+- [x] 16.4 驗證:typecheck / lint / test:ci / build 全綠;`openspec validate --strict` 通過;Grafana 實機截圖確認新順序 + Title Case。

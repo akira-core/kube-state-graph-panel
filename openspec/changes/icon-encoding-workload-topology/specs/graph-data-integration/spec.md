@@ -39,7 +39,7 @@
 - 對每個這樣的 pod,系統 MUST 合成一條 `edgeType: 'controller-owns-pod'` 的邊,`source` = 該 controller 節點 id、`target` = pod id,邊 id 對 `(controllerId, podId)` 確定性。
 - 合成 MUST 為 immutable(產生新元素,不就地修改輸入),且對相同輸入位元組級確定(節點/邊排序穩定)。
 - 無 owner 的 pod MUST NOT 觸發任何 controller 節點或邊。
-- 系統 MUST 於每個合成的 controller 節點上彙整其**子 pod 的最差 alert severity** 為 `data.worstAlertSeverity`(值域 `info` / `warning` / `critical`;排序 critical > warning > info;未知 / 自訂 severity 視為 **critical**,與 `FALLBACK_SEVERITY_COLOR` 一致;當無任一子 pod 帶 alert 時 MUST 省略此欄)。此欄供 getStylesheet 對**收合的** controller 邊框上色(見 panel-rendering 規格);它**不**影響 owns 邊或去重。
+- 系統 MUST 於每個合成的 controller 節點上彙整其**子 pod 的最差 status** 為 `data.worstStatus`(值域 `normal` / `warning` / `critical`;排序 critical > warning > normal;status 取自 pod 的 `data.status`,缺值 / 不合法預設 `normal`;當該最差為 `normal` 時 MUST 省略此欄)。**同一彙整亦施於每個 k8s `node` 容器**:其 `data.worstStatus` 取 **自身 status 與其各子 pod status 之最差**(worst-wins——絕不因子節點而降級到比自身 status 更輕);最差為 `normal` 時省略。此欄供 getStylesheet 對**收合的**容器(controller / k8s node)邊框上色(見 panel-rendering 規格);它**不**影響 owns 邊或去重。採 **status**(非 alert severity):後端為每個節點都給 status(uniform `normal/warning/critical`,預設 normal),故一個 pod 即使**不帶 alert**、只要 status 非 normal 仍會傳播(alert 另有 `info` 階且僅供 detail panel 的 alert 表)。
 
 合成後,`controller-owns-pod` 為 **synthesis-internal**、**永不繪製**:在 `node` 模式下 `applyPodParentMode` **drop** 掉所有合成的 controller 節點(`data.isController === true`)與其 `controller-owns-pod` 邊,呈現乾淨的 cluster > node > pod 基礎設施視圖(**不顯示 controller**);在 `controller` 模式下 `applyPodParentMode` 以這些 owns 邊把 pod re-parent 進 controller(owns 邊轉為 nesting,亦不繪製)(見 pod-parent-mode 規格)。
 
@@ -68,14 +68,18 @@
 - **WHEN** 後端未發 `data.owner`,但 pod `labels` 含 `owner_kind: "DaemonSet"` 與 `owner_name: "fluentd"`
 - **THEN** normalize 以該 labels 合成 `kind: 'daemonset'` controller 節點與 owns 邊(與 `data.owner` 路徑等價)
 
-#### Scenario: 合成 controller 彙整子 pod 最差 alert severity
+#### Scenario: 收合容器彙整子節點最差 status(controller 與 k8s node)
 
-- **WHEN** 某 controller 旗下兩個 pod 各帶 `warning` 與 `critical` alert
-- **THEN** 合成的 controller 節點 `data.worstAlertSeverity` 為 `critical`(critical > warning)
-- **WHEN** 改為某子 pod 帶未知 / 自訂 severity(如 `page`)
-- **THEN** `worstAlertSeverity` 為 `critical`(未知視為 critical)
-- **WHEN** 無任一子 pod 帶 alert
-- **THEN** 合成的 controller 節點 MUST 省略 `worstAlertSeverity` 欄
+- **WHEN** 某 controller 旗下兩個 pod 各帶 `status: warning` 與 `status: critical`
+- **THEN** 合成的 controller 節點 `data.worstStatus` 為 `critical`(critical > warning)
+- **WHEN** 某 controller 旗下唯一 pod `status: warning` 但**不帶任何 alert**
+- **THEN** `worstStatus` 為 `warning`(來源為 status,非 alert)
+- **WHEN** 某 controller 旗下所有 pod 皆 `normal`(或缺 / 不合法 status,預設 normal)
+- **THEN** 合成的 controller 節點 MUST 省略 `worstStatus` 欄
+- **WHEN** 某 k8s `node`(自身 `status: normal`)旗下有一 pod `status: critical`
+- **THEN** 該 node `data.worstStatus` 為 `critical`(子節點 status 傳播)
+- **WHEN** 某 k8s `node`(自身 `status: critical`)旗下 pod 皆 `normal`
+- **THEN** 該 node `data.worstStatus` 為 `critical`(worst-wins,不被子節點降級)
 
 #### Scenario: 合成為純函式且確定性
 
