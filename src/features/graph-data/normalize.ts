@@ -253,6 +253,12 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
+      // Cluster boxes are decorative grouping backplates: keep them GRABBABLE
+      // (draggable, cytoscape default) but NOT selectable, so a tap can never latch
+      // a selection ring or open the detail panel on them. This is the single source
+      // for "clusters aren't selectable" — the canvas tap handler reads node.selectable()
+      // rather than re-deriving isCluster.
+      ...(isCluster ? { selectable: false } : {}),
       data: {
         id: d.id,
         ...identity,

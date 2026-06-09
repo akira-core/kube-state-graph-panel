@@ -14,61 +14,61 @@ const setup = (initial: Props) => renderHook((props: Props) => useLayoutRunToken
 describe('useLayoutRunToken', () => {
   it('starts both tokens at 0 on mount', () => {
     const { result } = setup({});
-    expect(result.current.contentToken).toBe(0);
+    expect(result.current.collapseApplyToken).toBe(0);
     expect(result.current.layoutToken).toBe(0);
   });
 
-  it('bumps BOTH tokens when collapsed-id content changes', () => {
+  it('a fold/unfold bumps collapseApplyToken ONLY — NOT layoutToken (no relayout on toggle)', () => {
     const { result, rerender } = setup({ collapsedIds: new Set() });
-    const content = result.current.contentToken;
+    const apply = result.current.collapseApplyToken;
     const layout = result.current.layoutToken;
     rerender({ collapsedIds: new Set(['cl']) });
-    expect(result.current.contentToken).toBe(content + 1);
-    expect(result.current.layoutToken).toBe(layout + 1);
+    expect(result.current.collapseApplyToken).toBe(apply + 1); // collapse applied
+    expect(result.current.layoutToken).toBe(layout); // but graph NOT relaid out
   });
 
   it('does not bump when collapsed-id content is unchanged (new Set, same members)', () => {
     const { result, rerender } = setup({ collapsedIds: new Set(['a', 'b']) });
-    const content = result.current.contentToken;
+    const apply = result.current.collapseApplyToken;
     const layout = result.current.layoutToken;
     rerender({ collapsedIds: new Set(['b', 'a']) });
-    expect(result.current.contentToken).toBe(content);
+    expect(result.current.collapseApplyToken).toBe(apply);
     expect(result.current.layoutToken).toBe(layout);
   });
 
-  it('bumps BOTH tokens when podParentMode changes', () => {
+  it('a pod-parent-mode flip bumps layoutToken (a real structural rebuild relayouts)', () => {
     const { result, rerender } = setup({ podParentMode: 'node' });
-    const content = result.current.contentToken;
+    const apply = result.current.collapseApplyToken;
     const layout = result.current.layoutToken;
     rerender({ podParentMode: 'controller' });
-    expect(result.current.contentToken).toBe(content + 1);
     expect(result.current.layoutToken).toBe(layout + 1);
+    expect(result.current.collapseApplyToken).toBe(apply); // mode flip alone is not a collapse change
   });
 
-  it('does not bump when nothing changes', () => {
-    const { result, rerender } = setup({ collapsedIds: new Set(['a']), podParentMode: 'node' });
-    const content = result.current.contentToken;
-    const layout = result.current.layoutToken;
-    rerender({ collapsedIds: new Set(['a']), podParentMode: 'node' });
-    expect(result.current.contentToken).toBe(content);
-    expect(result.current.layoutToken).toBe(layout);
-  });
-
-  it('requestRelayout bumps ONLY layoutToken, leaving contentToken untouched', () => {
+  it('requestRelayout bumps layoutToken ONLY, leaving collapseApplyToken untouched', () => {
     const { result } = setup({ collapsedIds: new Set(['a']) });
-    const content = result.current.contentToken;
+    const apply = result.current.collapseApplyToken;
     const layout = result.current.layoutToken;
     act(() => {
       result.current.requestRelayout();
     });
     expect(result.current.layoutToken).toBe(layout + 1);
-    expect(result.current.contentToken).toBe(content); // diff-patch gate unaffected
+    expect(result.current.collapseApplyToken).toBe(apply);
+  });
+
+  it('does not bump when nothing changes', () => {
+    const { result, rerender } = setup({ collapsedIds: new Set(['a']), podParentMode: 'node' });
+    const apply = result.current.collapseApplyToken;
+    const layout = result.current.layoutToken;
+    rerender({ collapsedIds: new Set(['a']), podParentMode: 'node' });
+    expect(result.current.collapseApplyToken).toBe(apply);
+    expect(result.current.layoutToken).toBe(layout);
   });
 
   it('requestRelayout has a stable identity across renders', () => {
     const { result, rerender } = setup({ collapsedIds: new Set(['a']) });
     const first = result.current.requestRelayout;
-    rerender({ collapsedIds: new Set(['a', 'b']) }); // a content bump
+    rerender({ collapsedIds: new Set(['a', 'b']) });
     expect(result.current.requestRelayout).toBe(first);
   });
 });

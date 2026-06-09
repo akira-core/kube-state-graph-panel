@@ -96,20 +96,25 @@ describe('getStylesheet', () => {
     expect(nodeStyle.height).toBe(40);
   });
 
-  it('declares collapsed-node and meta-edge selectors with collapsed-cluster events override after node[?isCluster]', () => {
+  it('keeps cluster boxes grabbable (no events:no) so the user can drag a cluster around', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const cluster = sheet.find((s) => s.selector === 'node[?isCluster]');
+    // events:'no' would make the backplate non-interactive and so non-draggable;
+    // it must be absent (cytoscape default 'yes') for cluster drag to work.
+    expect(cluster?.style?.events).toBeUndefined();
+  });
+
+  it('declares collapsed-node and meta-edge selectors', () => {
     const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
       selector: string;
       style?: StyleRecord;
     }>;
     const selectors = sheet.map((s) => s.selector);
     expect(selectors).toContain('node.cy-expand-collapse-collapsed-node');
-    expect(selectors).toContain('node[?isCluster].cy-expand-collapse-collapsed-node');
     expect(selectors).toContain('edge.cy-expand-collapse-meta-edge');
-    expect(selectors.indexOf('node[?isCluster].cy-expand-collapse-collapsed-node')).toBeGreaterThan(
-      selectors.indexOf('node[?isCluster]')
-    );
-    const collapsedCluster = sheet.find((s) => s.selector === 'node[?isCluster].cy-expand-collapse-collapsed-node');
-    expect(collapsedCluster?.style?.events).toBe('yes');
     const metaEdge = sheet.find((s) => s.selector === 'edge.cy-expand-collapse-meta-edge');
     // The meta-edge keeps its real edge-type colour (cascades from the base `edge`
     // rule), so this rule must NOT pin a colour — it only bumps the width as the

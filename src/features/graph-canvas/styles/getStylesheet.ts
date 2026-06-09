@@ -162,7 +162,10 @@ export function getStylesheet({
     {
       // Compound (cluster) container nodes — see normalize.ts. Each carries its
       // own accent colour in data(clusterColor), so the box is a translucent,
-      // labelled backplate. events:'no' keeps it purely decorative (no hover/tap).
+      // labelled backplate. It keeps cytoscape's default interactivity so the box is
+      // GRABBABLE (drag a whole cluster by its margin/label); it is marked
+      // selectable:false in normalize and skipped by useHoverElement, so it stays
+      // decorative (no selection ring, no tooltip) while remaining draggable.
       // Declared after node:parent so its accent colour wins for cluster boxes.
       selector: 'node[?isCluster]',
       style: {
@@ -183,7 +186,6 @@ export function getStylesheet({
         'text-halign': 'center',
         'text-margin-y': -4,
         padding: '18px',
-        events: 'no',
       },
     },
     {
@@ -193,15 +195,6 @@ export function getStylesheet({
       style: {
         'border-width': 3,
         'border-opacity': 0.9,
-      },
-    },
-    {
-      // A COLLAPSED cluster becomes clickable (expand / show detail). Declared
-      // after node[?isCluster] (events:'no') so this events:'yes' wins. Expanded
-      // clusters stay decorative.
-      selector: 'node[?isCluster].cy-expand-collapse-collapsed-node',
-      style: {
-        events: 'yes',
       },
     },
     ...statusSelectors,
@@ -219,7 +212,8 @@ export function getStylesheet({
       // status colour survives while the selection reads boldly. Combined with the
       // focus dimming (FADED_CLASS) it stands out clearly. Declared AFTER the
       // container/status selectors so it applies to selected leaf nodes AND node
-      // containers (clusters are events:'no' and cannot be selected).
+      // containers. Cluster boxes are selectable:false (normalize), so this ring can
+      // never apply to them.
       selector: 'node:selected',
       style: {
         'outline-color': selectedColor,

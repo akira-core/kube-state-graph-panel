@@ -59,17 +59,16 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     collapsedIdsRef.current = collapsedIds ?? new Set();
   }, [collapsedIds]);
 
-  // contentToken bumps only when a layout-affecting input changes content (the
-  // collapsed-id set or pod-parent mode); layoutToken bumps on that OR an imperative
-  // requestRelayout(). requestRelayout covers the two cases content changes do NOT —
-  // both of which would otherwise leave collapsed parents stacked at the origin:
-  //   1. the mount-time default-collapse (controller / storageclass folding), which
-  //      useExpandCollapse applies AFTER useGraphLayout's pass; and
-  //   2. a refresh that adds a wholly-new compound family with no anchor to seed to.
-  // Calling it bumps layoutToken so useGraphLayout (the single cy.layout() source,
-  // rule 2) reruns ON the collapsed/patched graph (idempotent: an extra bump — e.g.
-  // StrictMode double-mount — only causes one more convergent pass, never stacking).
-  const { contentToken, layoutToken, requestRelayout } = useLayoutRunToken({ collapsedIds, podParentMode });
+  // collapseApplyToken bumps on a collapsed-set CONTENT change → gates the diff-patch
+  // re-collapse cycle so a fold/unfold is APPLIED. layoutToken bumps on a pod-parent
+  // mode flip OR requestRelayout() → gates the layout. A fold/unfold bumps ONLY
+  // collapseApplyToken, so the extension toggles it in place and the rest of the
+  // graph keeps its positions (no global relayout). requestRelayout covers the two
+  // cases that DO need a fresh layout but change neither the mode nor the collapsed
+  // set: the mount-time default-collapse (applied after the layout pass) and a
+  // refresh adding a wholly-new, unanchorable family (idempotent: an extra bump —
+  // e.g. StrictMode double-mount — only causes one more convergent pass).
+  const { collapseApplyToken, layoutToken, requestRelayout } = useLayoutRunToken({ collapsedIds, podParentMode });
 
   // Derive switch-fabric tier constraints from the current graph. Applied by
   // useGraphLayout only when the active layout is fcose; null (no-op) when there
@@ -86,12 +85,13 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     elements,
     stylesheet,
     podParentMode,
-    // collapseKey is contentToken (collapsed-set CONTENT), NOT layoutToken: it gates
-    // the diff-patch/re-collapse cycle, which must not re-run on a bare relayout
-    // request. onStructuralRelayout relayouts once when a new unanchorable family is
-    // added on refresh (anchored pod-under-existing-parent adds skip it → D7 kept).
+    // collapseKey is collapseApplyToken (collapsed-set CONTENT): it applies a
+    // fold/unfold via the diff-patch re-collapse cycle WITHOUT bumping layoutToken,
+    // so the extension toggles in place and no global relayout runs. onStructuralRelayout
+    // relayouts once when a new unanchorable family is added on refresh (anchored
+    // pod-under-existing-parent adds skip it → D7 kept).
     ...(collapseEnabled
-      ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: contentToken, onStructuralRelayout: requestRelayout }
+      ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: collapseApplyToken, onStructuralRelayout: requestRelayout }
       : {}),
   });
 
@@ -126,6 +126,14 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
       }
       const single = evt.target as cytoscape.NodeSingular;
       if (single.isNode()) {
+        // Non-selectable nodes (cluster backplates — selectable:false in normalize)
+        // are decorative: a tap deselects, like a background tap, so they never open
+        // the detail panel. They stay grabbable, and a drag fires no 'tap', so
+        // dragging a cluster is unaffected.
+        if (!single.selectable()) {
+          onSelect(null);
+          return;
+        }
         onSelect(single.id());
         return;
       }

@@ -52,7 +52,6 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "border-opacity": 0.5,
       "border-width": 1.5,
       "color": "data(clusterColor)",
-      "events": "no",
       "font-size": 12,
       "font-weight": 600,
       "label": "data(label)",
@@ -68,12 +67,6 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     "style": {
       "border-opacity": 0.9,
       "border-width": 3,
-    },
-  },
-  {
-    "selector": "node[?isCluster].cy-expand-collapse-collapsed-node",
-    "style": {
-      "events": "yes",
     },
   },
   {

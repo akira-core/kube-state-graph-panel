@@ -388,6 +388,13 @@ describe('normalizeGraph', () => {
     expect(byId.get('external/ext')?.isCluster).toBeUndefined();
     // Exactly the four input nodes — nothing invented.
     expect(elements.filter((e) => e.group === 'nodes')).toHaveLength(4);
+
+    // Cluster boxes are non-selectable (decorative, drag-only); other nodes are not
+    // marked, so they keep cytoscape's default selectable:true.
+    const elById = new Map(elements.map((e) => [e.data.id as string, e]));
+    expect(elById.get('cluster:demo')?.selectable).toBe(false);
+    expect(elById.get('demo/node-a')?.selectable).toBeUndefined();
+    expect(elById.get('demo/p1')?.selectable).toBeUndefined();
   });
 
   it('renders a flat payload flat — no parents, no cluster containers', () => {
