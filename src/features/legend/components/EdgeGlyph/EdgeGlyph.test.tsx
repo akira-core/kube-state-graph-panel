@@ -24,4 +24,14 @@ describe('EdgeGlyph', () => {
     const { getByTestId } = render(<EdgeGlyph color="#10b981" lineStyle="solid" />);
     expect(getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(1);
   });
+
+  it('draws a second (left-pointing) arrowhead when bidirectional, both in the edge colour', () => {
+    const { getByTestId } = render(<EdgeGlyph color="#f97316" lineStyle="solid" bidirectional />);
+    const svg = getByTestId('edge-glyph');
+    const polygons = svg.querySelectorAll('polygon');
+    expect(polygons).toHaveLength(2);
+    for (const poly of Array.from(polygons)) {
+      expect(poly.getAttribute('fill')).toBe('#f97316');
+    }
+  });
 });

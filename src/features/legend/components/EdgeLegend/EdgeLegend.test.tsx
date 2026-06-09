@@ -34,9 +34,10 @@ describe('EdgeLegend', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
-    // controller-owns-pod is covered by its own dedicated test below.
+    // controller-owns-pod and pod-calls-pod are covered by their own dedicated tests
+    // below (pod-calls-pod carries the merged `pod ↔ pod/service` label, not `pod → pod`).
     for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE).filter(
-      (t) => !SVC_PAIR.includes(t) && t !== 'controller-owns-pod'
+      (t) => !SVC_PAIR.includes(t) && t !== 'controller-owns-pod' && t !== 'pod-calls-pod'
     )) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType as keyof typeof EDGE_ENDPOINTS_BY_TYPE];
@@ -57,6 +58,18 @@ describe('EdgeLegend', () => {
     expect(within(legend).queryByTestId('edge-legend-row-pod-calls-service')).toBeNull();
     expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
     expect(within(legend).queryByTestId('edge-legend-row-pod-svc')).toBeNull();
+  });
+
+  it('labels the pod-calls-pod row `pod ↔ pod/service` with a bidirectional glyph (the folded svc edges)', () => {
+    // The single pod-calls-pod row stands in for the omitted pod↔service pair, so it
+    // reads `pod ↔ pod/service` (bidirectional) rather than a one-way `pod → pod`.
+    render(<EdgeLegend />);
+    const legend = screen.getByTestId('edge-legend');
+    const row = within(legend).getByTestId('edge-legend-row-pod-calls-pod');
+    expect(within(row).getByText('pod')).toBeInTheDocument();
+    expect(within(row).getByText('pod/service')).toBeInTheDocument();
+    // bidirectional → an arrowhead at BOTH ends.
+    expect(within(row).getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(2);
   });
 
   it('colours service edges the same as pod-calls-pod on canvas (single shared style)', () => {

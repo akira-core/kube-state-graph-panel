@@ -7,6 +7,10 @@ export interface EdgeGlyphProps {
   lineStyle: LineStyle;
   width?: number;
   height?: number;
+  // When true the line is capped by an arrowhead at BOTH ends (a ↔ glyph). Used by
+  // the merged `pod ↔ pod/service` legend row, which stands in for a relationship
+  // that runs in both directions (pod calls service, service selects pod).
+  bidirectional?: boolean;
 }
 
 // Mirrors the on-canvas edge: a line in the edge colour + line-style, capped by
@@ -22,19 +26,27 @@ function dashArray(lineStyle: LineStyle): string | undefined {
   }
 }
 
-export function EdgeGlyph({ color, lineStyle, width = 30, height = 12 }: Readonly<EdgeGlyphProps>): React.JSX.Element {
+export function EdgeGlyph({
+  color,
+  lineStyle,
+  width = 30,
+  height = 12,
+  bidirectional = false,
+}: Readonly<EdgeGlyphProps>): React.JSX.Element {
   const dash = dashArray(lineStyle);
+  // Leave room on the left for the second arrowhead when bidirectional.
+  const lineStart = bidirectional ? 8 : 1;
   return (
     <svg
       width={width}
       height={height}
       viewBox="0 0 30 12"
       role="img"
-      aria-label={`${lineStyle} arrow`}
+      aria-label={`${lineStyle} ${bidirectional ? 'double arrow' : 'arrow'}`}
       data-testid="edge-glyph"
     >
       <line
-        x1={1}
+        x1={lineStart}
         y1={6}
         x2={22}
         y2={6}
@@ -43,6 +55,7 @@ export function EdgeGlyph({ color, lineStyle, width = 30, height = 12 }: Readonl
         strokeLinecap="round"
         {...(dash !== undefined ? { strokeDasharray: dash } : {})}
       />
+      {bidirectional ? <polygon points="8,2.5 1,6 8,9.5" fill={color} /> : null}
       <polygon points="22,2.5 29,6 22,9.5" fill={color} />
     </svg>
   );

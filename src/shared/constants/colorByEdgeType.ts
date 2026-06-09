@@ -48,7 +48,7 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   // Service edges (pod→service / service→pod) share the SAME orange (#f97316) as
   // pod-calls-pod: a pod→service→pod hop is conceptually still a pod-to-pod
   // relationship, just with the Service as an extra layer. They are also OMITTED from
-  // the edge legend (the single `pod → pod` row covers them) — see EdgeLegend. (Was
+  // the edge legend (the single `pod ↔ pod/service` row covers them) — see EdgeLegend. (Was
   // green #10b981, which collided with the status-normal green border, then briefly
   // indigo; unified to the pod-calls-pod colour per the "still pod-to-pod" model.)
   'pod-calls-service': { color: '#f97316', lineStyle: 'solid' },

@@ -29,24 +29,36 @@ function kindLabel(kind: NodeKind | 'controller'): string {
 // A pod↔service relationship is conceptually still pod-to-pod: a pod calls a Service
 // which selects pods — an extra hop, not a distinct relationship. On canvas both its
 // edges (pod→service calls, service→pod selects) share the pod-calls-pod colour; in
-// the legend they are OMITTED entirely (the single `pod → pod` row covers them), so
-// the legend doesn't present Service as its own relationship colour. (Service edges
-// are still drawn on canvas in both pod-parent modes.)
+// the legend they are OMITTED entirely (the single `pod ↔ pod/service` row covers
+// them), so the legend doesn't present Service as its own relationship colour.
+// (Service edges are still drawn on canvas in both pod-parent modes.)
 const SVC_OMITTED_FROM_LEGEND: ReadonlySet<EdgeType> = new Set(['pod-calls-service', 'service-selects-pod']);
 
 interface EdgeRow {
   key: string;
   color: string;
   lineStyle: LineStyle;
-  from: NodeKind | 'controller';
-  to: NodeKind | 'controller';
+  fromLabel: string;
+  toLabel: string;
+  bidirectional: boolean;
 }
 
 function buildRows(types: readonly EdgeType[]): EdgeRow[] {
   return types.map((edgeType) => {
     const style = EDGE_STYLE_BY_TYPE[edgeType];
     const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType];
-    return { key: edgeType, color: style.color, lineStyle: style.lineStyle, from, to };
+    // The single pod-calls-pod row stands in for the omitted pod↔service pair
+    // (same colour on canvas), so it reads `pod ↔ pod/service` with a bidirectional
+    // glyph rather than a one-way `pod → pod`.
+    const merged = edgeType === 'pod-calls-pod';
+    return {
+      key: edgeType,
+      color: style.color,
+      lineStyle: style.lineStyle,
+      fromLabel: kindLabel(from),
+      toLabel: merged ? 'pod/service' : kindLabel(to),
+      bidirectional: merged,
+    };
   });
 }
 
@@ -62,7 +74,7 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
   // Only known edge types can be rendered (the endpoint/style maps key off them);
   // an unknown type present in the data is drawn on-canvas via the fallback style
   // but omitted from the legend. The pod↔service pair is also omitted (it is the
-  // pod-to-pod relationship via a Service — covered by the `pod → pod` row).
+  // pod-to-pod relationship via a Service — covered by the `pod ↔ pod/service` row).
   const types = (edgeTypes ?? drawnEdgeTypesForMode('node')).filter(
     (t) => t in EDGE_STYLE_BY_TYPE && !SVC_OMITTED_FROM_LEGEND.has(t)
   );
@@ -75,13 +87,13 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
     <div data-testid="edge-legend">
       <h4>Edge Types</h4>
       <ul className={styles.list}>
-        {rows.map(({ key, color, lineStyle, from, to }) => (
+        {rows.map(({ key, color, lineStyle, fromLabel, toLabel, bidirectional }) => (
           <li key={key} className={styles.row} data-testid={`edge-legend-row-${key}`} style={{ color }}>
-            <span>{kindLabel(from)}</span>
+            <span>{fromLabel}</span>
             <span className={styles.glyph}>
-              <EdgeGlyph color={color} lineStyle={lineStyle} />
+              <EdgeGlyph color={color} lineStyle={lineStyle} bidirectional={bidirectional} />
             </span>
-            <span>{kindLabel(to)}</span>
+            <span>{toLabel}</span>
           </li>
         ))}
       </ul>
