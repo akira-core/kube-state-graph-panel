@@ -249,6 +249,100 @@ describe('useCytoscape collapse-aware diff-patch', () => {
     cy.destroy();
   });
 
+  it('seeds a refresh-added child near its parent (not the origin) so a collapsed controller is not dragged to (0,0)', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    // Give the existing child a real position so its parent 'cl' is NOT at origin.
+    cy.getElementById('p1').position({ x: 400, y: 250 });
+    const parentPos = cy.getElementById('cl').position();
+    expect(parentPos).not.toEqual({ x: 0, y: 0 });
+
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+
+    // Data refresh adds a new pod under the (collapsed) parent.
+    rerender({ elements: [...baseElements, { group: 'nodes', data: { id: 'p2', parent: 'cl', kind: 'pod' } }] });
+
+    const added = cy.getElementById('p2').position();
+    expect(added).toEqual({ x: parentPos.x, y: parentPos.y });
+    expect(added).not.toEqual({ x: 0, y: 0 });
+    cy.destroy();
+  });
+
+  it('requests one relayout when a refresh adds a wholly-new unanchorable family', () => {
+    // A brand-new controller + pod (no existing ancestor) cannot be seeded, so they
+    // would land at (0,0) and stack — useCytoscape asks GraphCanvas to relayout once.
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const onStructuralRelayout = jest.fn();
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+          onStructuralRelayout,
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+
+    // Refresh introduces a NEW top-level controller and a pod under it.
+    rerender({
+      elements: [
+        ...baseElements,
+        { group: 'nodes', data: { id: 'newPod', parent: 'newCtrl', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'newCtrl', isController: true } },
+      ],
+    });
+    expect(onStructuralRelayout).toHaveBeenCalledTimes(1);
+    cy.destroy();
+  });
+
+  it('does NOT request a relayout when a refresh adds a pod under an existing (anchorable) parent', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const onStructuralRelayout = jest.fn();
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+          onStructuralRelayout,
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+
+    rerender({ elements: [...baseElements, { group: 'nodes', data: { id: 'p2', parent: 'cl', kind: 'pod' } }] });
+    expect(onStructuralRelayout).not.toHaveBeenCalled(); // anchored add → D7 preserved
+    cy.destroy();
+  });
+
   it('collapses exactly the reconciled parents, even when ids contain CSS-special chars', () => {
     const slashElements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'cluster/demo', isCluster: true } },

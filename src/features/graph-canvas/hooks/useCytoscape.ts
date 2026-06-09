@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'rea
 import type { PodParentMode } from '../../../shared/constants/types';
 import { diffElements } from '../sync/diffElements';
 import { reconcileCollapse } from '../sync/reconcileCollapse';
+import { seedAddedNodePositions } from '../sync/seedAddedNodePositions';
 
 export type CyStylesheet = cytoscape.StylesheetStyle | cytoscape.StylesheetCSS;
 
@@ -26,6 +27,11 @@ export interface UseCytoscapeProps {
   // at add() time (dynamic move() is unreliable under batch + expand-collapse), so
   // a mode change triggers a full element rebuild rather than a diff-patch.
   podParentMode?: PodParentMode | undefined;
+  // Called when a data refresh adds a wholly-new compound family with no existing
+  // anchor (e.g. a controller synthesized this refresh): such nodes cannot be
+  // seeded and would stack at the origin, so GraphCanvas relayouts once. Anchored
+  // adds (a pod under an existing container) do NOT call this — D7 preserved.
+  onStructuralRelayout?: () => void;
 }
 
 export interface UseCytoscapeReturn {
@@ -51,6 +57,7 @@ export function useCytoscape({
   onCollapsedChange,
   collapseKey,
   podParentMode,
+  onStructuralRelayout,
 }: UseCytoscapeProps): UseCytoscapeReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -102,6 +109,10 @@ export function useCytoscape({
     const modeChanged = prevModeRef.current !== podParentMode;
     prevModeRef.current = podParentMode;
 
+    // Set when this patch adds a wholly-new compound family with no existing
+    // anchor (seedAddedNodePositions cannot place it) — triggers one relayout.
+    let addedUnanchored = false;
+
     const existing = cy.elements();
     if (modeChanged && existing.length > 0) {
       // Pod-parent mode flip restructures the compound hierarchy (pods move
@@ -123,7 +134,16 @@ export function useCytoscape({
             cy.remove(diff.toRemove.map((id) => `#${id}`).join(', '));
           }
           if (diff.toAdd.length > 0) {
-            cy.add(diff.toAdd);
+            // Seed new nodes inside their parent's cluster (not the origin) so a
+            // refresh that adds a pod under a COLLAPSED controller does not drag
+            // that controller's collapsed-box toward (0,0). expandAll() above has
+            // already restored the parents, so their positions are valid here. A
+            // wholly-new family with no present anchor is flagged for one relayout.
+            const seeded = seedAddedNodePositions(cy, diff.toAdd);
+            cy.add(seeded.elements);
+            if (seeded.unanchored > 0) {
+              addedUnanchored = true;
+            }
           }
           for (const el of diff.toUpdate) {
             const target = cy.getElementById(el.data.id ?? '');
@@ -165,7 +185,13 @@ export function useCytoscape({
         onCollapsedChange?.(new Set(recollapse));
       }
     }
-  }, [elements, collapseKey, podParentMode]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable. collapseKey (undefined on no-collapse path) re-runs the expandAll→diff→reconcile→collapse cycle when the collapsed-set changes without a data refresh; podParentMode is a dep so a mode flip drives the rebuild branch directly rather than relying on elements/collapseKey changing in lockstep
+
+    // 5) A new unanchorable family was added — request one relayout so it does not
+    //    stay stacked at the origin (anchored adds skip this, preserving D7).
+    if (addedUnanchored) {
+      onStructuralRelayout?.();
+    }
+  }, [elements, collapseKey, podParentMode]); // eslint-disable-line react-hooks/exhaustive-deps -- refs/callbacks are stable. collapseKey (undefined on no-collapse path) re-runs the expandAll→diff→reconcile→collapse cycle when the collapsed-set changes without a data refresh; podParentMode is a dep so a mode flip drives the rebuild branch directly rather than relying on elements/collapseKey changing in lockstep
 
   // Stylesheet swap (no instance rebuild)
   useEffect(() => {

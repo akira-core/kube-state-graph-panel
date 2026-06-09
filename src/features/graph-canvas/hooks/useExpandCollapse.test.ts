@@ -105,6 +105,43 @@ describe('useExpandCollapse', () => {
     expect(apiRef.current).toBeNull();
   });
 
+  it('calls onMountCollapseApplied after applying a non-empty mount collapse (forces a collapsed-graph relayout)', () => {
+    const { cyRef } = setup();
+    const onMountCollapseApplied = jest.fn();
+    renderHook(() =>
+      useExpandCollapse({
+        cyRef,
+        enabled: true,
+        isReady: true,
+        apiRef: { current: null },
+        // 'cl' is a parent (has child p1) so it is in cy.nodes(':parent') → collapsed.
+        collapsedIdsRef: { current: new Set(['cl']) },
+        suppressRef: { current: false },
+        onCollapsedChange: jest.fn(),
+        onMountCollapseApplied,
+      })
+    );
+    expect(onMountCollapseApplied).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT call onMountCollapseApplied when nothing is collapsed on mount', () => {
+    const { cyRef } = setup();
+    const onMountCollapseApplied = jest.fn();
+    renderHook(() =>
+      useExpandCollapse({
+        cyRef,
+        enabled: true,
+        isReady: true,
+        apiRef: { current: null },
+        collapsedIdsRef: { current: new Set<string>() },
+        suppressRef: { current: false },
+        onCollapsedChange: jest.fn(),
+        onMountCollapseApplied,
+      })
+    );
+    expect(onMountCollapseApplied).not.toHaveBeenCalled();
+  });
+
   it('reports the full collapsed Set from cue events when not suppressed', () => {
     const { cy, cyRef, handlers } = setup();
     cy.getElementById('cl').addClass('cy-expand-collapse-collapsed-node');

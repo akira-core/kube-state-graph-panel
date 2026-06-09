@@ -59,10 +59,17 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     collapsedIdsRef.current = collapsedIds ?? new Set();
   }, [collapsedIds]);
 
-  // runToken bumps only when a layout-affecting input changes content — the
-  // collapsed-id set or the pod-parent mode (which re-parents pods + swaps
-  // edges) — so layout reruns once per real structural change, not per render.
-  const runToken = useLayoutRunToken({ collapsedIds, podParentMode });
+  // contentToken bumps only when a layout-affecting input changes content (the
+  // collapsed-id set or pod-parent mode); layoutToken bumps on that OR an imperative
+  // requestRelayout(). requestRelayout covers the two cases content changes do NOT —
+  // both of which would otherwise leave collapsed parents stacked at the origin:
+  //   1. the mount-time default-collapse (controller / storageclass folding), which
+  //      useExpandCollapse applies AFTER useGraphLayout's pass; and
+  //   2. a refresh that adds a wholly-new compound family with no anchor to seed to.
+  // Calling it bumps layoutToken so useGraphLayout (the single cy.layout() source,
+  // rule 2) reruns ON the collapsed/patched graph (idempotent: an extra bump — e.g.
+  // StrictMode double-mount — only causes one more convergent pass, never stacking).
+  const { contentToken, layoutToken, requestRelayout } = useLayoutRunToken({ collapsedIds, podParentMode });
 
   // Derive switch-fabric tier constraints from the current graph. Applied by
   // useGraphLayout only when the active layout is fcose; null (no-op) when there
@@ -79,10 +86,16 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     elements,
     stylesheet,
     podParentMode,
-    ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: runToken } : {}),
+    // collapseKey is contentToken (collapsed-set CONTENT), NOT layoutToken: it gates
+    // the diff-patch/re-collapse cycle, which must not re-run on a bare relayout
+    // request. onStructuralRelayout relayouts once when a new unanchorable family is
+    // added on refresh (anchored pod-under-existing-parent adds skip it → D7 kept).
+    ...(collapseEnabled
+      ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: contentToken, onStructuralRelayout: requestRelayout }
+      : {}),
   });
 
-  useGraphLayout({ cyRef, name: layout, runToken, switchConstraints });
+  useGraphLayout({ cyRef, name: layout, runToken: layoutToken, switchConstraints });
   useGraphResize({ cyRef, containerRef });
   useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes });
   useExpandCollapse({
@@ -96,6 +109,9 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     collapsedIdsRef,
     suppressRef,
     onCollapsedChange: onCollapsedChange ?? noop,
+    // Relayout once after the mount-time default-collapse lands (no-op on the
+    // no-collapse path, where the init block early-returns and never collapses).
+    onMountCollapseApplied: requestRelayout,
   });
 
   useEffect(() => {

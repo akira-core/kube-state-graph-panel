@@ -20,6 +20,13 @@ export interface UseExpandCollapseProps {
   // fired by those operations do not loop back as user actions.
   suppressRef: React.MutableRefObject<boolean>;
   onCollapsedChange: (next: Set<string>) => void;
+  // Called once after the mount-time default-collapse is applied below. The
+  // collapse here runs with layoutBy:null AFTER useGraphLayout's mount pass (this
+  // hook is declared last in GraphCanvas), so the only layout ran on the EXPANDED
+  // graph and the collapsed parents are left stacked at the origin. This callback
+  // lets GraphCanvas bump the layout token so useGraphLayout reruns ON the
+  // collapsed graph (it stays the single source of cy.layout(), rule 2).
+  onMountCollapseApplied?: () => void;
 }
 
 export function useExpandCollapse({
@@ -30,6 +37,7 @@ export function useExpandCollapse({
   collapsedIdsRef,
   suppressRef,
   onCollapsedChange,
+  onMountCollapseApplied,
 }: UseExpandCollapseProps): void {
   useEffect(() => {
     const cy = cyRef.current;
@@ -54,6 +62,9 @@ export function useExpandCollapse({
       suppressRef.current = true;
       api.collapse(toCollapse);
       suppressRef.current = false;
+      // Force one layout pass on the now-collapsed graph; otherwise the only
+      // layout ran while expanded and these parents stay coincident at origin.
+      onMountCollapseApplied?.();
     }
     const handleCue = (): void => {
       // Programmatic apply in progress (useCytoscape) — ignore the echoed event.
@@ -69,6 +80,7 @@ export function useExpandCollapse({
       apiRef.current = null;
     };
     // collapsedIdsRef/suppressRef are stable refs; re-bind only on instance swap
-    // or when the enabled gate flips.
-  }, [cyRef, enabled, isReady, apiRef, collapsedIdsRef, suppressRef, onCollapsedChange]);
+    // or when the enabled gate flips. onMountCollapseApplied is a stable useCallback
+    // (GraphCanvas), so it does not re-trigger this effect.
+  }, [cyRef, enabled, isReady, apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, onMountCollapseApplied]);
 }
