@@ -74,7 +74,7 @@ export interface NodeAlert {
   // rendered in the critical fallback colour. Never dropped for being "unknown".
   severity: string;
   // Every occurrence time of this (grouped) alert, Unix epoch SECONDS, ASCENDING.
-  // Count = timeRecords.length, last-seen = max(timeRecords) (the last element); both
+  // Count = timeRecords.length, last-occurred = max(timeRecords) (the last element); both
   // are derived at render, never stored. A legacy backend's single `time` scalar
   // normalises to a one-element list. The panel converts to milliseconds only at the
   // render / time-rewind boundary.

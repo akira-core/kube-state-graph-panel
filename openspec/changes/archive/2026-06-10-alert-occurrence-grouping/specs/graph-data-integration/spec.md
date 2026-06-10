@@ -11,12 +11,12 @@
 - `pod` / `service` / `id` 為選用字串,缺值則省略。
 - 分組容器(`cluster` / `isStorageClass`)MUST NOT 攜帶 `alerts`(即使上游帶亦丟棄)。
 
-下游(`AlertTable`)由 `timeRecords` 衍生:Count = `timeRecords.length`、Last seen = `max(timeRecords)`(因升序故為末元素),不另存欄位。
+下游(`AlertTable`)由 `timeRecords` 衍生:Count = `timeRecords.length`、Last occurred = `max(timeRecords)`(因升序故為末元素),不另存欄位。
 
 #### Scenario: time_records 解析為升序 timeRecords
 
 - **WHEN** 上游 node `alerts` 含 `{ name: 'HighMem', severity: 'critical', time_records: [1717500300, 1717500000] }`
-- **THEN** 產出 `NodeAlert.timeRecords` 為 `[1717500000, 1717500300]`(升序);其 Count 衍生為 `2`、last seen 衍生為 `1717500300`
+- **THEN** 產出 `NodeAlert.timeRecords` 為 `[1717500000, 1717500300]`(升序);其 Count 衍生為 `2`、last occurred 衍生為 `1717500300`
 
 #### Scenario: 相容 legacy scalar time
 

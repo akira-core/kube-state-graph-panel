@@ -27,4 +27,4 @@
 - [x] 5.3 `npm run test:ci` green (44 suites / 307 tests).
 - [x] 5.4 `openspec validate alert-occurrence-grouping --strict` passes.
 - [x] 5.4b `npm run build` succeeds (only pre-existing bundle-size warnings).
-- [ ] 5.5 Demo manual: a flapping alert shows as one row with the right Count + Last seen; hovering Count lists every occurrence; clicking Last seen rewinds the dashboard to the most recent occurrence.
+- [x] 5.5 Demo manual: a flapping alert shows as one row with the right Count + Last seen; hovering Count lists every occurrence; clicking Last seen rewinds the dashboard to the most recent occurrence.

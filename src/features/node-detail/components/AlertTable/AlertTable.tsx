@@ -47,7 +47,7 @@ function getStyles(theme: GrafanaTheme2): {
       border: `1px solid ${colors.text.secondary}`,
     }),
     occurrenceList: css({ display: 'flex', flexDirection: 'column', gap: 2, fontVariantNumeric: 'tabular-nums' }),
-    // Last seen renders as a link-styled button so the rewind affordance is obvious
+    // Last occurred renders as a link-styled button so the rewind affordance is obvious
     // and keyboard-accessible (not a bare clickable cell).
     timeButton: css({
       background: 'none',
@@ -137,7 +137,7 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
       },
       {
         id: 'lastSeen',
-        header: 'Last seen',
+        header: 'Last occurred',
         cell: ({ row }: CellProps<NodeAlert>) => {
           const t = lastSeen(row.original);
           return (
