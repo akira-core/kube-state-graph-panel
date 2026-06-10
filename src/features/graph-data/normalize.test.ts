@@ -688,6 +688,107 @@ describe('normalizeGraph — controller synthesis', () => {
     });
   });
 
+  // A controller's detail-panel alert table lists every owned pod's alerts: normalize
+  // concatenates them in stable podId order onto the synthesized controller. Entries
+  // missing `pod` are attributed to their source pod's label on a COPY (the pod
+  // element's own alerts stay untouched); entries carrying an `id` dedupe across pods.
+  // Colour stays STATUS-driven (worstStatus above) — alerts never tint.
+  describe('controller alert aggregation (data.alerts)', () => {
+    const alertPod = (id: string, name: string, alerts?: unknown, status?: string) => ({
+      data: {
+        id,
+        name,
+        type: 'pod',
+        parent: 'cluster/prod',
+        owner: { kind: 'StatefulSet', name: 'mongo' },
+        labels: { cluster: 'prod', namespace: 'shop' },
+        ...(alerts !== undefined ? { alerts } : {}),
+        ...(status !== undefined ? { status } : {}),
+      },
+    });
+    const graphOf = (...pods: Array<{ data: Record<string, unknown> }>): unknown => ({
+      elements: {
+        nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
+        edges: [],
+      },
+    });
+
+    it('concatenates child-pod alerts in stable podId order, attributing each to its pod', () => {
+      // raw order p2 before p1 — aggregation must still come out p1-first (podId sort).
+      const raw = graphOf(
+        alertPod('prod/p2', 'mongo-1', [{ name: 'CrashLoop', severity: 'warning', time_records: [1717500300] }]),
+        alertPod('prod/p1', 'mongo-0', [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }])
+      );
+      expect(controllerOf(raw)?.alerts).toEqual([
+        { name: 'HighMem', severity: 'critical', timeRecords: [1717500000], pod: 'mongo-0' },
+        { name: 'CrashLoop', severity: 'warning', timeRecords: [1717500300], pod: 'mongo-1' },
+      ]);
+    });
+
+    it('keeps an explicit backend pod attribution instead of backfilling', () => {
+      const raw = graphOf(
+        alertPod('prod/p1', 'mongo-0', [
+          { name: 'SvcDown', severity: 'critical', pod: 'other-pod', time_records: [1717500000] },
+        ])
+      );
+      expect(controllerOf(raw)?.alerts).toEqual([
+        { name: 'SvcDown', severity: 'critical', pod: 'other-pod', timeRecords: [1717500000] },
+      ]);
+    });
+
+    it('dedupes alerts sharing an id across pods (first in stable order wins); keeps id-less ones', () => {
+      const shared = { name: 'SvcDegraded', severity: 'warning', time_records: [1717500000], id: 'a1' };
+      const local = { name: 'Local', severity: 'info', time_records: [1717500100] };
+      const raw = graphOf(
+        alertPod('prod/p1', 'mongo-0', [shared, local]),
+        alertPod('prod/p2', 'mongo-1', [shared, local])
+      );
+      const alerts = controllerOf(raw)?.alerts;
+      expect(alerts?.filter((a) => a.id === 'a1')).toHaveLength(1);
+      expect(alerts?.[0]?.pod).toBe('mongo-0'); // first in stable podId order wins
+      expect(alerts?.filter((a) => a.name === 'Local')).toHaveLength(2); // no id → never deduped
+    });
+
+    it('omits controller alerts when no owned pod carries any', () => {
+      const raw = graphOf(alertPod('prod/p1', 'mongo-0'));
+      expect(controllerOf(raw)?.alerts).toBeUndefined();
+    });
+
+    it('keeps colour status-driven: a critical alert on a normal pod adds alerts but no worstStatus', () => {
+      const raw = graphOf(
+        alertPod(
+          'prod/p1',
+          'mongo-0',
+          [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }],
+          'normal'
+        )
+      );
+      const ctrl = controllerOf(raw);
+      expect(ctrl?.alerts).toHaveLength(1);
+      expect(ctrl?.worstStatus).toBeUndefined(); // STATUS (not alert severity) drives the tint
+    });
+
+    it('leaves owns-edge synthesis untouched by the aggregation (one edge per alerting pod)', () => {
+      const raw = graphOf(
+        alertPod('prod/p1', 'mongo-0', [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }]),
+        alertPod('prod/p2', 'mongo-1', [{ name: 'CrashLoop', severity: 'warning', time_records: [1717500300] }])
+      );
+      const owns = normalizeGraph(raw).elements.filter(
+        (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
+      );
+      expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
+    });
+
+    it('leaves the source pod element untouched by the backfill (no pod field added there)', () => {
+      const raw = graphOf(
+        alertPod('prod/p1', 'mongo-0', [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }])
+      );
+      const pod = normalizeGraph(raw).elements.find((e) => (e.data as cytoscape.NodeDataDefinition).id === 'prod/p1')
+        ?.data as cytoscape.NodeDataDefinition;
+      expect(pod.alerts).toEqual([{ name: 'HighMem', severity: 'critical', timeRecords: [1717500000] }]);
+    });
+  });
+
   it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {
     const raw = {
       elements: {

@@ -8,7 +8,10 @@ declare module 'cytoscape' {
     status?: NodeStatus; // mapped from upstream data.status; normalize defaults to 'normal'
     namespace?: string; // extracted from upstream data.labels.namespace
     ipAddress?: string[]; // mapped from upstream data.ipaddress (moved out of labels in 524057b)
-    alerts?: NodeAlert[]; // mapped from upstream data.alerts (omitted when absent/empty)
+    // Mapped from upstream data.alerts (omitted when absent/empty). A synthesized
+    // controller aggregates its child pods' alerts here (normalize.ts) so its detail
+    // panel lists them — colour still comes from status/worstStatus, never alerts.
+    alerts?: NodeAlert[];
     labels?: Record<string, string>;
     // Compound (cluster) container nodes — see normalize.ts. The grouping
     // structure (the native `parent` field) comes from the backend untouched;

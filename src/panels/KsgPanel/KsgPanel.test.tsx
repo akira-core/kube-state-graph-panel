@@ -412,6 +412,33 @@ describe('KsgPanel', () => {
     expect(node?.alerts).toEqual(alerts);
   });
 
+  it("resolveSelectedNode carries a synthesized controller's aggregated child-pod alerts (panel side needs no change)", () => {
+    // normalize aggregates owned pods' alerts onto the controller (see normalize.ts);
+    // the detail panel's AlertTable then renders them off data.alerts as for any node.
+    const alerts = [
+      { name: 'HighMem', severity: 'critical', timeRecords: [1717500000], pod: 'mongo-0' },
+      { name: 'CrashLoop', severity: 'warning', timeRecords: [1717500300], pod: 'mongo-1' },
+    ];
+    const elements: cytoscape.ElementDefinition[] = [
+      {
+        group: 'nodes',
+        data: {
+          id: 'ctrl/prod/shop/statefulset/mongo',
+          label: 'mongo',
+          kind: 'statefulset',
+          isController: true,
+          alerts,
+        },
+      },
+    ];
+    const node = resolveSelectedNode(
+      elements,
+      'ctrl/prod/shop/statefulset/mongo',
+      new Set(['ctrl/prod/shop/statefulset/mongo'])
+    );
+    expect(node?.alerts).toEqual(alerts);
+  });
+
   it('rewinds the dashboard time range to a ±5m window when an alert time is clicked', () => {
     const onChangeTimeRange = jest.fn();
     const payload = {

@@ -1,10 +1,13 @@
-## 1. 資料模型與正規化(graph-data-integration / D3 D4)
+## 1. 資料模型與正規化(graph-data-integration / D3 D4 D9)
 
 - [ ] 1.1 `src/shared/types/cytoscape.d.ts` 的 `NodeDataDefinition` 以 declaration merging 宣告 `application?: string` 與 `containers?: ContainerSpec[]`;`ContainerSpec`(`{ name: string; image: string }`)定義於 `src/shared/types/`
 - [ ] 1.2 `normalize.ts`:pod 透傳 backend `data.application`(非空字串才寫入,否則省略——`exactOptionalPropertyTypes`:不寫 `undefined`)
 - [ ] 1.3 `normalize.ts`:pod 透傳 backend `data.containers`——逐項驗證 `name` / `image` 皆非空字串,形狀不符項目丟棄;驗證後為空或缺失時省略該欄
 - [ ] 1.4 `normalize.ts` controller 合成:自子 pod 聚合 `application`(取任一帶值子 pod,穩定排序確定性選取)與 `containers`(所有子 pod 聯集、以 `(name, image)` 去重、穩定排序);無任一子 pod 帶值時省略;不影響 `worstStatus` / 去重 / `controller-owns-pod` 邊
 - [ ] 1.5 `normalize.test.ts` 增補:pod 透傳兩欄位、欄位缺失/空值省略、壞形狀 container 項丟棄、controller 聚合(application 確定性、containers 去重)、controller 無子 pod 帶值省略、純函式不就地修改、舊版 backend(無欄位)輸出與現行完全相同
+- [x] 1.6 `normalize.ts` controller 合成(D9):自子 pod 聚合 `alerts`——podId 穩定排序串接、缺 `pod` 欄以來源 pod label 回填(新物件,不改 pod 自身)、帶 `id` 跨 pod 去重(首見者勝)、無任一子 pod 帶值省略;不影響 `worstStatus`(status 仍為唯一上色來源)/ 去重 / `controller-owns-pod` 邊
+- [x] 1.7 `normalize.test.ts` 增補(D9):controller 聚合多 pod 告警(順序確定性)、缺 `pod` 欄回填且來源 pod 元素不被修改、`id` 跨 pod 去重、無子 pod 帶值省略、normal status + critical alert 仍省略 `worstStatus`(顏色不受 alerts 影響)
+- [x] 1.8 `KsgPanel.test.tsx`:`resolveSelectedNode` 對 controller id 回傳聚合 alerts(面板零修改驗證——`AlertTable` 照 `data.alerts` 渲染)
 
 ## 2. Panel 選項(D7)
 

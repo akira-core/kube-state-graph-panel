@@ -7,6 +7,7 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 - **觸發**:目前**只有左鍵 `tap`,完全沒有 `cxttap`(右鍵)**;右鍵是全新接線,且 cytoscape `cxttap` 不會自動 `preventDefault` DOM 原生右鍵選單。
 - **資料**:現行資料流**完全沒有** container/image 資料(backend 回應、`normalize.ts`、demo seeder、`cytoscape.d.ts` 皆無);`application` 欄位亦不存在。依本變更約定,**backend 新版將在 pod 節點輸出 `application` 與 `containers`**;panel 端透傳 + controller 聚合。
 - **🔴 合成 controller 無 backend 欄位**:controller(kind=`deployment`/`statefulset`/`daemonset`/`job`/`cronjob`,`isController=true`)是 panel 端從 pod 的 `data.owner` **合成**(`normalize.ts` 的 controller 合成段),backend 不送 controller 節點——兩欄位必須自子 pod 聚合。
+- **告警現況**:pod 帶 `data.alerts`(`NodeAlert[]`,經 `parseAlerts` 防腐:name/severity/timeRecords + 選用 `pod`/`service`/`id`);合成 controller 僅聚合 `worstStatus`(status 排名),**不帶 `alerts`** → controller 的 detail 面板告警表恆「No alerts」。`AlertTable` 已有 Pod 欄(`alert.pod ?? '—'`)。
 - **無 HTTP**:面板零 imperative HTTP;`@grafana/runtime`(v12.4.2)已宣告但未 import;`getBackendSrv`/`fetch`/`window.open` 皆未使用。
 - **約束**:feature-first 共置 + barrel 匯出、named export only、function component、props `Readonly<T>`、`@grafana/ui` `useStyles2`、TS strict(`noUncheckedIndexedAccess` 使 map 查值為 `string | undefined`、`exactOptionalPropertyTypes`)、ESLint `no-floating-promises` / `no-misused-promises` zero-warning。
 
@@ -19,6 +20,7 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 - 兩個查詢**共用同一組 input**(application name / controller kind / controller name / current time);application-detail 回單一 URL,image-detail 回 container→URL map(**無 image 參數**)。
 - backend 新欄位 `application` / `containers` 的透傳與 controller 子 pod 聚合,落在 `normalizeGraph`(anti-corruption boundary)。
 - 對欄位缺失(舊版 backend)、未設定 endpoint、REST 失敗的情況**優雅降級**,不影響面板其餘功能。
+- **告警 pod → controller 傳播**:controller 節點的告警表格顯示其子 pod 聚合的 alerts;**status 仍為唯一上色來源**(`worstStatus` 邏輯與 stylesheet 不動)。
 
 **Non-Goals:**
 
@@ -80,6 +82,20 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 ### D8 — 元件:ApplicationTable 與 ContainerTable 共置,同一渲染邏輯
 
 兩元件皆共置 `node-detail/components/`、比照 `AlertTable`(`.tsx` / `.types.ts` / `.test.tsx` / `index.ts`、barrel 匯出、props `Readonly<T>`、`useStyles2`)。ContainerTable 接 `{ containers, urlByContainer, loading, error }` 渲染多列;ApplicationTable 接 `{ application, url, loading, error }` 渲染單列(同一列版型:名稱 + URL 按鈕),介面預留多列成長空間。
+
+### D9 — 告警 pod → controller 傳播:normalize 聚合,面板零修改
+
+合成 controller 時自子 pod 聚合 `data.alerts`(比照 D3 的聚合位置——anti-corruption boundary,UI 不做現場聚合):
+
+- **順序**:以既有 `sortedOwned`(podId 穩定排序)串接各子 pod 的 alerts,pod 內保持 `parseAlerts` 解析後順序——對相同輸入確定性。
+- **pod 歸屬回填**:`AlertTable` 有 Pod 欄;聚合副本若缺 `pod` 欄,以來源 pod 的 label 回填,讓 controller 表格每列可歸屬到 pod;已帶 `pod` 的項目保留原值。回填作用於**新物件**(spread),來源 pod 元素自身的 alerts 不被觸碰(immutable)。
+- **去重**:帶 `id` 的項目跨 pod 以 `id` 去重(同一 backend 告警下發到多 pod 時不重複列出),穩定順序下首見者勝;無 `id` 的項目不去重(無安全身分鍵)。
+- **省略**:無任一子 pod 帶 alerts → controller MUST NOT 帶 `alerts` 欄(`exactOptionalPropertyTypes`)。
+- **顏色不變**:`worstStatus`(status-only)彙整、controller 去重、owns 邊皆不受影響;alerts 不進 stylesheet——**status 仍為唯一上色來源**(對齊基線「採 status 非 alert severity」決策)。
+- **範圍**:僅 panel 合成的 controller。k8s `node` 容器為 backend 實體節點(帶不帶 alerts 由 backend 決定),panel 不代為聚合。
+
+- **Rationale**:controller 是 panel 合成物,backend 永遠不會給它 alerts;pod 收進 controller 盒後,使用者仍需在 controller 的 detail 面板看到旗下告警——與 `worstStatus` 邊框同一動機(資料層的對應物)。面板端零修改:`resolveSelectedNode` / `AlertTable` 已照 `data.alerts` 渲染。
+- **Alternatives**:面板端(`resolveSelectedNode`)現場聚合——把聚合邏輯散進 UI,違反 anti-corruption boundary(同 D3 的否決理由);以 alerts 推導節點顏色——明確不做(status 上色為既定決策)。
 
 ## Risks / Trade-offs
 

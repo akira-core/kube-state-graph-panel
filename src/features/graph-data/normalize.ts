@@ -133,11 +133,18 @@ function rankToStatus(rank: number): NodeStatus {
 
 interface PendingOwned {
   podId: string;
+  podLabel: string;
   ownerKind: string;
   ownerName: string;
   cluster: string; // '' when absent
   namespace: string; // '' when absent
   podStatusRank: number; // the pod's status rank (0 = normal); aggregated onto the controller as its worst child status
+  podAlerts: NodeAlert[] | undefined; // the pod's parsed alerts; aggregated onto the controller for its detail-panel alert table
+}
+
+// OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
+function controllerIdFor(o: PendingOwned): string {
+  return `ctrl/${o.cluster}/${o.namespace}/${o.ownerKind.toLowerCase()}/${o.ownerName}`;
 }
 
 // Read a pod's controller owner from typed `data.owner` (current backend) or the
@@ -278,11 +285,13 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       if (owner !== undefined) {
         pendingOwned.push({
           podId: d.id,
+          podLabel: label,
           ownerKind: owner.kind,
           ownerName: owner.name,
           cluster: labels?.cluster ?? '',
           namespace: namespace ?? '',
           podStatusRank: ownStatusRank,
+          podAlerts: alerts,
         });
       }
     }
@@ -326,19 +335,46 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   // node is materialized. (A controller has no status of its own — purely child-driven.)
   const controllerWorstRank = new Map<string, number>();
   for (const o of sortedOwned) {
-    const id = `ctrl/${o.cluster}/${o.namespace}/${o.ownerKind.toLowerCase()}/${o.ownerName}`;
+    const id = controllerIdFor(o);
     if (o.podStatusRank > (controllerWorstRank.get(id) ?? 0)) {
       controllerWorstRank.set(id, o.podStatusRank);
     }
   }
+  // Pre-pass: aggregate child-pod ALERTS per controller, so the detail panel's alert
+  // table on a controller lists every owned pod's alerts. Pods concatenate in the
+  // stable podId order; an entry missing `pod` is attributed to its source pod's
+  // label on a NEW object (the pod element's own alerts stay untouched); entries
+  // carrying an `id` dedupe across pods (first in stable order wins). STATUS — not
+  // alerts — still drives the collapsed-container tint (controllerWorstRank above).
+  const controllerAlerts = new Map<string, NodeAlert[]>();
+  const controllerAlertIds = new Map<string, Set<string>>();
+  for (const o of sortedOwned) {
+    if (o.podAlerts === undefined) {
+      continue;
+    }
+    const id = controllerIdFor(o);
+    const agg = controllerAlerts.get(id) ?? [];
+    const seenIds = controllerAlertIds.get(id) ?? new Set<string>();
+    for (const alert of o.podAlerts) {
+      if (alert.id !== undefined) {
+        if (seenIds.has(alert.id)) {
+          continue;
+        }
+        seenIds.add(alert.id);
+      }
+      agg.push(alert.pod === undefined ? { ...alert, pod: o.podLabel } : alert);
+    }
+    controllerAlerts.set(id, agg);
+    controllerAlertIds.set(id, seenIds);
+  }
   for (const o of sortedOwned) {
     const kindLower = o.ownerKind.toLowerCase();
-    // OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
-    const controllerId = `ctrl/${o.cluster}/${o.namespace}/${kindLower}/${o.ownerName}`;
+    const controllerId = controllerIdFor(o);
     if (!controllerSeen.has(controllerId)) {
       controllerSeen.add(controllerId);
       const parent = o.cluster === '' ? undefined : clusterIdByName.get(o.cluster);
       const worstRank = controllerWorstRank.get(controllerId) ?? 0;
+      const aggregatedAlerts = controllerAlerts.get(controllerId);
       elements.push({
         group: 'nodes',
         data: {
@@ -348,6 +384,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           label: o.ownerName,
           ...(parent !== undefined ? { parent } : {}),
           ...(worstRank > 0 ? { worstStatus: rankToStatus(worstRank) } : {}),
+          ...(aggregatedAlerts !== undefined ? { alerts: aggregatedAlerts } : {}),
         },
       });
     }
