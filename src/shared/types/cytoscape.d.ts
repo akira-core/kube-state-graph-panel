@@ -2,12 +2,27 @@ import 'cytoscape';
 
 import type { NodeKind, EdgeType, NodeStatus, NodeAlert } from '../constants/types';
 
+import type { ContainerSpec } from './containerSpec';
+
 declare module 'cytoscape' {
   interface NodeDataDefinition {
     kind?: NodeKind; // mapped from upstream data.type
     status?: NodeStatus; // mapped from upstream data.status; normalize defaults to 'normal'
     namespace?: string; // extracted from upstream data.labels.namespace
     ipAddress?: string[]; // mapped from upstream data.ipaddress (moved out of labels in 524057b)
+    // ArgoCD application name carried on pod nodes by the backend; a synthesized
+    // controller takes it from its first valued owned pod in stable podId order
+    // (normalize.ts). Drives the detail panel's Application section and both
+    // detail-URL queries. Omitted when absent/empty.
+    application?: string;
+    // Container name/image specs carried on pod nodes (upstream `containers`); a
+    // synthesized controller carries the (name, image)-deduped union across its
+    // owned pods. Omitted when absent or nothing valid survives validation.
+    containers?: ContainerSpec[];
+    // A pod's controller owner (typed upstream `data.owner` passthrough). The
+    // detail-URL queries resolve a pod's controller kind/name from it; a pod
+    // without one queries as itself (standalone pod).
+    owner?: { kind: string; name: string };
     // Mapped from upstream data.alerts (omitted when absent/empty). A synthesized
     // controller aggregates its child pods' alerts here (normalize.ts) so its detail
     // panel lists them — colour still comes from status/worstStatus, never alerts.

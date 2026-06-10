@@ -63,5 +63,14 @@ export function buildKsgPanelOptions(
       description: 'Relationship types shown in the graph. Edges with a hidden endpoint are auto-hidden.',
       defaultValue: defaultOptions.visibleEdgeTypes,
       editor: EdgeTypesEditor,
+    })
+    .addTextInput({
+      path: 'detailEndpoint',
+      name: 'Detail URL endpoint',
+      description:
+        'Base path (Grafana proxy route) of the graph API backend used by the node-detail ' +
+        'Application/Containers URL lookups. Shared by both queries under fixed sub-paths ' +
+        '(/api/v1/config_changes and /api/v1/code_changes). Leave empty to disable the lookups.',
+      defaultValue: defaultOptions.detailEndpoint,
     });
 }

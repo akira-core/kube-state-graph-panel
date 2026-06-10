@@ -7,7 +7,7 @@ import {
   type PanelProps,
   type TimeRange,
 } from '@grafana/data';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type cytoscape from 'cytoscape';
 import React from 'react';
 
@@ -27,6 +27,13 @@ jest.mock('../../features/graph-canvas', () => {
     },
   };
 });
+
+// Backend transport stub for the right-click detail-URL flow (useNodeDetailUrls).
+// Dereferenced lazily inside getBackendSrv() calls, so hoisting order is safe.
+const detailGetMock = jest.fn();
+jest.mock('@grafana/runtime', () => ({
+  getBackendSrv: (): { get: typeof detailGetMock } => ({ get: detailGetMock }),
+}));
 
 import { KsgPanel, resolveSelectedNode } from './KsgPanel';
 import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
@@ -481,5 +488,142 @@ describe('KsgPanel', () => {
     expect(screen.getByText('HighMemory')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('alert-time'));
     expect(onChangeTimeRange).toHaveBeenCalledWith({ from: 1717499700000, to: 1717500300000 });
+  });
+
+  describe('right-click detail-URL flow', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: 'cluster:demo',
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              application: 'checkout',
+              containers: [{ name: 'app', image: 'repo/app:1.2' }],
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+          { data: { id: 'demo/svc', type: 'service', name: 'mongo-svc', parent: 'cluster:demo' } },
+        ],
+        // The edge keeps the family out of the orphan cascade (edge-less leaves
+        // hide), so the pod/controller/service stay selectable.
+        edges: [{ data: { id: 'e1', type: 'service-selects-pod', source: 'demo/svc', target: 'demo/p1' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    const controllerId = 'ctrl/demo/shop/statefulset/mongo';
+
+    type CanvasHandlers = { onSelect?: (id: string | null) => void; onContextSelect?: (id: string) => void };
+    const lastCanvasProps = (): CanvasHandlers =>
+      (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
+
+    function renderPanel(options: KsgPanelOptions): void {
+      render(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+            options,
+          })}
+        />
+      );
+    }
+    const withEndpoint: KsgPanelOptions = { ...defaultOptions, detailEndpoint: '/proxy' };
+
+    beforeEach(() => {
+      detailGetMock.mockReset();
+      detailGetMock.mockResolvedValue({});
+      jest.spyOn(Date, 'now').mockReturnValue(1717500000123);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('pod right-click opens the panel and fires both queries with owner kind/name + click time', async () => {
+      renderPanel(withEndpoint);
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      // Panel + both sections open in sync with the selection.
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledTimes(2);
+      });
+      const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
+      expect(detailGetMock).toHaveBeenCalledWith('/proxy/api/v1/config_changes', params, undefined, expect.anything());
+      expect(detailGetMock).toHaveBeenCalledWith('/proxy/api/v1/code_changes', params, undefined, expect.anything());
+    });
+
+    it('controller right-click queries with its own kind/name (aggregated application)', async () => {
+      renderPanel(withEndpoint);
+      act(() => {
+        lastCanvasProps().onContextSelect?.(controllerId);
+      });
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledTimes(2);
+      });
+      expect(detailGetMock).toHaveBeenCalledWith(
+        '/proxy/api/v1/config_changes',
+        { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 },
+        undefined,
+        expect.anything()
+      );
+    });
+
+    it('left-click opens the panel but never queries (buttons stay disabled)', () => {
+      renderPanel(withEndpoint);
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      expect(detailGetMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('application-url-button')).not.toHaveAttribute('href');
+      expect(screen.getByTestId('container-url-button')).not.toHaveAttribute('href');
+    });
+
+    it('right-click on a non pod/controller node opens the panel without sections or queries', () => {
+      renderPanel(withEndpoint);
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/svc');
+      });
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
+      expect(detailGetMock).not.toHaveBeenCalled();
+    });
+
+    it('never queries while detailEndpoint is unset (sections render, buttons disabled)', () => {
+      renderPanel(defaultOptions);
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(detailGetMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('application-url-button')).not.toHaveAttribute('href');
+    });
+
+    it('a later left-click clears the lookup intent (no extra queries for the new node)', async () => {
+      renderPanel(withEndpoint);
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledTimes(2);
+      });
+      act(() => {
+        lastCanvasProps().onSelect?.(controllerId);
+      });
+      expect(detailGetMock).toHaveBeenCalledTimes(2); // unchanged — left-click never queries
+    });
   });
 });

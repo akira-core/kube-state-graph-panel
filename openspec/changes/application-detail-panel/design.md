@@ -41,7 +41,7 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 
 ### D2 — REST 傳輸:`getBackendSrv()` 走 Grafana proxy,單一 hook 並行雙請求
 
-新增 hook `useNodeDetailUrls(input | undefined)`(共置 `node-detail/hooks/`),input 為 `{ application, kind, name, time }`;內部以 `@grafana/runtime` 的 `getBackendSrv()` 對 panel option 設定的 endpoint 發出**兩個並行請求**(application-detail、image-detail),回傳 `{ loading, applicationUrl, urlByContainer, error }`。input 為 `undefined`(未右鍵、未設 endpoint、左鍵選取)時不發請求。
+新增 hook `useNodeDetailUrls(input | undefined)`(共置 `node-detail/hooks/`),input 為 `{ application, kind, name, time }`;內部以 `@grafana/runtime` 的 `getBackendSrv()` 對 panel option 設定的 endpoint 發出**兩個並行請求**(application-detail、image-detail),回傳 `{ loading, applicationUrl, urlByContainer, applicationError, containersError }`(實作定案:錯誤**按查詢分開**而非單一 `error`——spec 要求「任一查詢失敗只影響對應區塊」,單一 error 無法表達單邊失敗另一邊保留)。input 為 `undefined`(未右鍵、未設 endpoint、左鍵選取)時不發請求。
 
 - **Rationale**:沿用 Grafana 認證、同源無 CORS、plugin-validator 認可路徑;兩查詢同 input 同生命週期,單一 hook 管理一組 loading/error/abort 較兩個 hook 簡單。
 - **REST 契約(路徑與回傳形狀已定案)**:application-detail 查詢 = `GET <endpoint>/api/v1/config_changes` 回 `{ "url": string }`;image-detail 查詢 = `GET <endpoint>/api/v1/code_changes` 回 `{ [containerName]: { "url": string } }`(巢狀物件,非扁平 map)。hook 解析層 MUST 將後者**攤平**為 `urlByContainer: Record<string, string>`,UI 端只認扁平 map。query 參數 `application` / `kind` / `name` / `time`(Unix 秒,參數名仍為假設);參數名若變僅影響 hook 內解析層。

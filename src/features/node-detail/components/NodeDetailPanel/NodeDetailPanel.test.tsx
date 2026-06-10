@@ -71,4 +71,112 @@ describe('NodeDetailPanel', () => {
     fireEvent.click(screen.getByLabelText('Close detail panel'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  describe('Application / Containers sections', () => {
+    const podWithBoth: NodeDetailData = {
+      id: 'p1',
+      label: 'mongo-0',
+      kind: 'pod',
+      application: 'checkout',
+      containers: [{ name: 'app', image: 'repo/app:1.2' }],
+    };
+
+    it('renders both sections for a pod carrying application and containers', () => {
+      render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
+      expect(screen.getByText('checkout')).toBeInTheDocument();
+      expect(screen.getByText('app')).toBeInTheDocument();
+      expect(screen.getByText('repo/app:1.2')).toBeInTheDocument();
+    });
+
+    it('renders both sections for a controller kind (statefulset)', () => {
+      render(
+        <NodeDetailPanel node={{ ...podWithBoth, kind: 'statefulset' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />
+      );
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
+    });
+
+    it('never renders the sections for a non pod/controller kind, even with stray data', () => {
+      render(
+        <NodeDetailPanel node={{ ...podWithBoth, kind: 'service' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />
+      );
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
+    });
+
+    it('hides only the Application section when application is absent (independent gating)', () => {
+      const noApp: NodeDetailData = {
+        id: 'p1',
+        label: 'mongo-0',
+        kind: 'pod',
+        containers: [{ name: 'app', image: 'repo/app:1.2' }],
+      };
+      render(<NodeDetailPanel node={noApp} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
+    });
+
+    it('hides only the Containers section when containers are absent or empty', () => {
+      const noContainers: NodeDetailData = { id: 'p1', label: 'mongo-0', kind: 'pod', application: 'checkout' };
+      const { rerender } = render(
+        <NodeDetailPanel node={noContainers} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />
+      );
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
+      rerender(
+        <NodeDetailPanel node={{ ...podWithBoth, containers: [] }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />
+      );
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
+    });
+
+    it('keeps the Alerts section and header intact alongside the new sections (failure isolation)', () => {
+      render(
+        <NodeDetailPanel
+          node={{ ...podWithBoth, alerts: sample.alerts ?? [] }}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          urls={{
+            loading: false,
+            applicationUrl: undefined,
+            urlByContainer: undefined,
+            applicationError: 'app lookup failed',
+            containersError: 'image lookup failed',
+          }}
+        />
+      );
+      // Both lookup errors show in their own sections…
+      expect(screen.getByTestId('application-table-error')).toHaveTextContent('app lookup failed');
+      expect(screen.getByTestId('container-table-error')).toHaveTextContent('image lookup failed');
+      // …while the header and the alert table stay untouched.
+      expect(screen.getByText('mongo-0')).toBeInTheDocument();
+      expect(screen.getByText('HighMemory')).toBeInTheDocument();
+    });
+
+    it('passes the lookup state down: resolved URLs land on the section buttons', () => {
+      render(
+        <NodeDetailPanel
+          node={podWithBoth}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          urls={{
+            loading: false,
+            applicationUrl: 'https://argo/app/checkout',
+            urlByContainer: { app: 'https://x/app' },
+            applicationError: undefined,
+            containersError: undefined,
+          }}
+        />
+      );
+      expect(screen.getByTestId('application-url-button')).toHaveAttribute('href', 'https://argo/app/checkout');
+      expect(screen.getByTestId('container-url-button')).toHaveAttribute('href', 'https://x/app');
+    });
+
+    it('renders disabled buttons when urls is omitted (idle: left-click / endpoint unset)', () => {
+      render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.getByTestId('application-url-button')).not.toHaveAttribute('href');
+      expect(screen.getByTestId('container-url-button')).not.toHaveAttribute('href');
+    });
+  });
 });

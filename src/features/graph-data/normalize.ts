@@ -3,6 +3,7 @@ import type cytoscape from 'cytoscape';
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
 import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { ContainerSpec } from '../../shared/types/containerSpec';
 
 export interface NormalizeResult {
   elements: cytoscape.ElementDefinition[];
@@ -120,6 +121,23 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
   return alerts.length > 0 ? alerts : undefined;
 }
 
+// Project the optional upstream pod `containers` array onto typed ContainerSpec[].
+// Anti-corruption boundary: entries whose `name` or `image` is missing, empty, or
+// not a string are dropped, not thrown. Returns undefined when nothing valid
+// survives so the node carries no `containers` field (exactOptionalPropertyTypes).
+function parseContainers(v: unknown): ContainerSpec[] | undefined {
+  if (!Array.isArray(v)) {
+    return undefined;
+  }
+  const containers: ContainerSpec[] = [];
+  for (const entry of v) {
+    if (isPlainObject(entry) && isString(entry.name) && isString(entry.image)) {
+      containers.push({ name: entry.name, image: entry.image });
+    }
+  }
+  return containers.length > 0 ? containers : undefined;
+}
+
 // Node-STATUS ranking for the collapsed-container tint: higher = worse. A COLLAPSED
 // container (controller / k8s node) borders by the worst status it HIDES, so its child
 // pods' problems still read once their boxes are folded away. STATUS — not alert
@@ -140,6 +158,8 @@ interface PendingOwned {
   namespace: string; // '' when absent
   podStatusRank: number; // the pod's status rank (0 = normal); aggregated onto the controller as its worst child status
   podAlerts: NodeAlert[] | undefined; // the pod's parsed alerts; aggregated onto the controller for its detail-panel alert table
+  podApplication: string | undefined; // the pod's ArgoCD application; the first valued pod (stable order) names the controller's
+  podContainers: ContainerSpec[] | undefined; // the pod's containers; union-aggregated onto the controller, deduped by (name, image)
 }
 
 // OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
@@ -257,6 +277,13 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     // worst of its OWN status and its child pods' statuses (worst-wins). Set only when
     // worse than normal — else the collapsed box keeps its own status border.
     const nodeWorstRank = d.type === 'node' ? Math.max(ownStatusRank, childWorstStatusRank.get(d.id) ?? 0) : 0;
+    // ArgoCD application + container specs + the typed owner ride on POD nodes only
+    // (backend contract); a synthesized controller aggregates the first two from its
+    // owned pods below, and the detail-URL queries read a pod's controller from owner.
+    const isPod = d.type === 'pod';
+    const application = isPod && isString(d.application) ? d.application : undefined;
+    const containers = isPod ? parseContainers(d.containers) : undefined;
+    const owner = isPod ? parseOwner(d, labels) : undefined;
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -274,26 +301,28 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
         ...(isString(namespace) ? { namespace } : {}),
         ...(isNonEmptyStringArray(d.ipaddress) ? { ipAddress: d.ipaddress } : {}),
         ...(alerts !== undefined ? { alerts } : {}),
+        ...(application !== undefined ? { application } : {}),
+        ...(containers !== undefined ? { containers } : {}),
+        ...(owner !== undefined ? { owner } : {}),
         ...(nodeWorstRank > 0 ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),
         ...(labels !== undefined ? { labels } : {}),
       },
     });
     if (isCluster) {
       clusterIdByName.set(label, d.id);
-    } else if (d.type === 'pod') {
-      const owner = parseOwner(d, labels);
-      if (owner !== undefined) {
-        pendingOwned.push({
-          podId: d.id,
-          podLabel: label,
-          ownerKind: owner.kind,
-          ownerName: owner.name,
-          cluster: labels?.cluster ?? '',
-          namespace: namespace ?? '',
-          podStatusRank: ownStatusRank,
-          podAlerts: alerts,
-        });
-      }
+    } else if (isPod && owner !== undefined) {
+      pendingOwned.push({
+        podId: d.id,
+        podLabel: label,
+        ownerKind: owner.kind,
+        ownerName: owner.name,
+        cluster: labels?.cluster ?? '',
+        namespace: namespace ?? '',
+        podStatusRank: ownStatusRank,
+        podAlerts: alerts,
+        podApplication: application,
+        podContainers: containers,
+      });
     }
   }
 
@@ -367,6 +396,26 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     controllerAlerts.set(id, agg);
     controllerAlertIds.set(id, seenIds);
   }
+  // Pre-pass: aggregate ArgoCD application + container specs per controller from its
+  // owned pods (the backend emits both on pods only). application = the FIRST valued
+  // pod in stable podId order (deterministic pick); containers = the union across all
+  // owned pods, deduped by (name, image) — insertion order is the stable pod order,
+  // sorted by (name, image) at materialization for a stable output.
+  const controllerApplication = new Map<string, string>();
+  const controllerContainers = new Map<string, Map<string, ContainerSpec>>();
+  for (const o of sortedOwned) {
+    const id = controllerIdFor(o);
+    if (o.podApplication !== undefined && !controllerApplication.has(id)) {
+      controllerApplication.set(id, o.podApplication);
+    }
+    if (o.podContainers !== undefined) {
+      const byKey = controllerContainers.get(id) ?? new Map<string, ContainerSpec>();
+      for (const c of o.podContainers) {
+        byKey.set(`${c.name}/${c.image}`, c);
+      }
+      controllerContainers.set(id, byKey);
+    }
+  }
   for (const o of sortedOwned) {
     const kindLower = o.ownerKind.toLowerCase();
     const controllerId = controllerIdFor(o);
@@ -375,6 +424,14 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       const parent = o.cluster === '' ? undefined : clusterIdByName.get(o.cluster);
       const worstRank = controllerWorstRank.get(controllerId) ?? 0;
       const aggregatedAlerts = controllerAlerts.get(controllerId);
+      const aggregatedApplication = controllerApplication.get(controllerId);
+      const containersByKey = controllerContainers.get(controllerId);
+      const aggregatedContainers =
+        containersByKey === undefined
+          ? undefined
+          : [...containersByKey.values()].sort(
+              (a, b) => a.name.localeCompare(b.name) || a.image.localeCompare(b.image)
+            );
       elements.push({
         group: 'nodes',
         data: {
@@ -385,6 +442,8 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           ...(parent !== undefined ? { parent } : {}),
           ...(worstRank > 0 ? { worstStatus: rankToStatus(worstRank) } : {}),
           ...(aggregatedAlerts !== undefined ? { alerts: aggregatedAlerts } : {}),
+          ...(aggregatedApplication !== undefined ? { application: aggregatedApplication } : {}),
+          ...(aggregatedContainers !== undefined ? { containers: aggregatedContainers } : {}),
         },
       });
     }

@@ -1,4 +1,6 @@
 import type { NodeAlert, NodeKind, NodeStatus } from '../../../../shared/constants/types';
+import type { ContainerSpec } from '../../../../shared/types/containerSpec';
+import type { NodeDetailUrlsState } from '../../hooks/useNodeDetailUrls';
 
 // The slice of a node's data the detail panel needs. Resolved by KsgPanel from
 // the selected node id (cluster containers excluded).
@@ -8,6 +10,12 @@ export interface NodeDetailData {
   kind?: NodeKind;
   status?: NodeStatus;
   alerts?: NodeAlert[]; // node's alerts; absent/empty → "No alerts"
+  application?: string; // ArgoCD application (pod passthrough / controller aggregate)
+  containers?: ContainerSpec[]; // pod containers / controller (name,image)-deduped union
+  // Controller identity both detail-URL queries use (design D4): a pod resolves
+  // it from data.owner, a controller from itself, a standalone pod from its own
+  // kind/name. Present only on the DETAIL_URL_KINDS the queries may fire for.
+  queryTarget?: { kind: string; name: string };
 }
 
 export interface NodeDetailPanelProps {
@@ -17,4 +25,8 @@ export interface NodeDetailPanelProps {
   // dashboard time range to a fixed ±5m window around it.
   onAlertTimeClick: (timeSec: number) => void;
   timeZone?: string; // for formatting alert times in the table
+  // REST lookup state behind the Application / Containers URL buttons. Omitted or
+  // idle (left-click selection / endpoint unset) → sections still render their
+  // data with the buttons disabled (design D5).
+  urls?: NodeDetailUrlsState;
 }

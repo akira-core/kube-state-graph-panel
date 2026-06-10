@@ -7,6 +7,12 @@ export interface KsgPanelOptions {
   showLegend: boolean;
   visibleKinds: NodeKind[];
   visibleEdgeTypes: EdgeType[];
+  // Base path (Grafana proxy route) of the graph API backend serving the
+  // node-detail URL lookups. Both queries share it under fixed sub-paths
+  // (/api/v1/config_changes + /api/v1/code_changes). Empty (default) disables
+  // the lookups: the Application/Containers URL buttons stay inert and no
+  // query is ever issued.
+  detailEndpoint: string;
 }
 
 export const ALL_KINDS = Object.keys(ICON_SVG_BY_KIND) as NodeKind[];
@@ -20,4 +26,5 @@ export const defaultOptions: KsgPanelOptions = {
   showLegend: true,
   visibleKinds: ALL_KINDS,
   visibleEdgeTypes: ALL_EDGE_TYPES,
+  detailEndpoint: '',
 };

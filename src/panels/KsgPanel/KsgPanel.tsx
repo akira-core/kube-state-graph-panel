@@ -17,7 +17,7 @@ import {
   StorageClassLegend,
   type ClusterLegendEntry,
 } from '../../features/legend';
-import { NodeDetailPanel, type NodeDetailData } from '../../features/node-detail';
+import { DETAIL_URL_KINDS, NodeDetailPanel, useNodeDetailUrls, type NodeDetailData } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
@@ -94,12 +94,31 @@ export function resolveSelectedNode(
     }
     const d = el.data as cytoscape.NodeDataDefinition;
     if (d.id === selectedNodeId && d.isCluster !== true && d.isStorageClass !== true) {
+      const label = typeof d.label === 'string' ? d.label : selectedNodeId;
+      // Controller identity the detail-URL queries use (D4), resolved only for the
+      // kinds they may fire for: a pod from its owner (kind lowercased to match the
+      // synthesized-controller convention), a controller from itself, an owner-less
+      // standalone pod from its own kind/name.
+      let queryTarget: { kind: string; name: string } | undefined;
+      if (d.kind !== undefined && DETAIL_URL_KINDS.has(d.kind)) {
+        if (d.kind === 'pod') {
+          queryTarget =
+            d.owner !== undefined
+              ? { kind: d.owner.kind.toLowerCase(), name: d.owner.name }
+              : { kind: 'pod', name: label };
+        } else {
+          queryTarget = { kind: d.kind, name: label };
+        }
+      }
       return {
         id: selectedNodeId,
-        label: typeof d.label === 'string' ? d.label : selectedNodeId,
+        label,
         ...(d.kind !== undefined ? { kind: d.kind } : {}),
         ...(d.status !== undefined ? { status: d.status } : {}),
         ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
+        ...(d.application !== undefined ? { application: d.application } : {}),
+        ...(d.containers !== undefined ? { containers: d.containers } : {}),
+        ...(queryTarget !== undefined ? { queryTarget } : {}),
       };
     }
   }
@@ -133,6 +152,22 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // selection highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
+  // Right-click intent: which node the detail-URL queries were requested for, and
+  // WHEN (Unix seconds, captured once at the click so re-renders never refetch).
+  // Left-click / background tap / close all clear it — only an explicit right-click
+  // (onContextSelect) ever queries (D1).
+  const [detailRequest, setDetailRequest] = useState<{ nodeId: string; time: number } | null>(null);
+
+  const handleSelect = useCallback((id: string | null) => {
+    setSelectedNodeId(id);
+    setDetailRequest(null);
+  }, []);
+
+  const handleContextSelect = useCallback((id: string) => {
+    setSelectedNodeId(id);
+    setDetailRequest({ nodeId: id, time: Math.floor(Date.now() / 1000) });
+  }, []);
+
   // Rewind the dashboard time range to a fixed ±5m window around the clicked
   // alert's time (seconds → ms for AbsoluteTimeRange).
   const handleAlertTimeClick = useCallback(
@@ -158,6 +193,26 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // trips react-hooks/preserve-manual-memoization). Cluster containers and hidden
   // nodes are excluded; a missing id (data refresh removed it) closes the panel.
   const selectedNode = resolveSelectedNode(elements, selectedNodeId, visibleNodeIds);
+
+  // The detail-URL query input: defined ONLY when the current selection came from a
+  // right-click on that same node AND it resolves an application + query target
+  // (pod/controller kinds only — queryTarget gates the rest). The hook itself idles
+  // on an empty endpoint, so an unconfigured panel never queries.
+  const detailEndpoint = options.detailEndpoint ?? defaultOptions.detailEndpoint;
+  const detailQueryInput =
+    detailRequest !== null &&
+    selectedNode !== null &&
+    detailRequest.nodeId === selectedNode.id &&
+    selectedNode.application !== undefined &&
+    selectedNode.queryTarget !== undefined
+      ? {
+          application: selectedNode.application,
+          kind: selectedNode.queryTarget.kind,
+          name: selectedNode.queryTarget.name,
+          time: detailRequest.time,
+        }
+      : undefined;
+  const detailUrls = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
   // Cluster swatches are derived from the backend's compound (cluster) container
   // nodes, so the legend colours always match the on-canvas backplates (single
@@ -367,7 +422,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               layout={options.layout}
               visibleKinds={visibleKinds}
               visibleEdgeTypes={visibleEdgeTypes}
-              onSelect={setSelectedNodeId}
+              onSelect={handleSelect}
+              onContextSelect={handleContextSelect}
               selectedId={selectedNodeId}
               collapsedIds={collapsedIds}
               onCollapsedChange={setCollapsedIds}
@@ -375,9 +431,10 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             />
             <NodeDetailPanel
               node={selectedNode}
-              onClose={() => setSelectedNodeId(null)}
+              onClose={() => handleSelect(null)}
               onAlertTimeClick={handleAlertTimeClick}
               timeZone={timeZone}
+              urls={detailUrls}
             />
           </>
         )}

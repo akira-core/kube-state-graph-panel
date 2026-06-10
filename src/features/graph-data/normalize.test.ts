@@ -789,6 +789,151 @@ describe('normalizeGraph — controller synthesis', () => {
     });
   });
 
+  // Pods carry the backend's ArgoCD `application` + `containers` verbatim (validated);
+  // a synthesized controller aggregates both from its owned pods — application from the
+  // first valued pod in stable podId order, containers as the (name, image)-deduped
+  // union. Both fields are OMITTED (never undefined-valued) when nothing survives.
+  describe('application / containers passthrough and aggregation', () => {
+    const specPod = (id: string, extra: Record<string, unknown>, owner?: { kind: string; name: string }) => ({
+      data: {
+        id,
+        name: id,
+        type: 'pod',
+        parent: 'cluster/prod',
+        ...(owner !== undefined ? { owner } : {}),
+        labels: { cluster: 'prod', namespace: 'shop' },
+        ...extra,
+      },
+    });
+    const graphOf = (...pods: Array<{ data: Record<string, unknown> }>): unknown => ({
+      elements: {
+        nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
+        edges: [],
+      },
+    });
+    const dataOf = (raw: unknown, id: string): cytoscape.NodeDataDefinition | undefined =>
+      normalizeGraph(raw).elements.find(
+        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).id === id
+      )?.data;
+    const mongo = { kind: 'StatefulSet', name: 'mongo' };
+
+    it('passes a pod application and containers through verbatim', () => {
+      const raw = graphOf(
+        specPod('prod/p1', { application: 'checkout', containers: [{ name: 'app', image: 'repo/app:1.2' }] })
+      );
+      const pod = dataOf(raw, 'prod/p1');
+      expect(pod?.application).toBe('checkout');
+      expect(pod?.containers).toEqual([{ name: 'app', image: 'repo/app:1.2' }]);
+    });
+
+    it('omits both fields when absent or empty (old backend output stays unchanged)', () => {
+      const raw = graphOf(specPod('prod/p1', {}), specPod('prod/p2', { application: '', containers: [] }));
+      for (const id of ['prod/p1', 'prod/p2']) {
+        const pod = dataOf(raw, id);
+        expect(pod?.application).toBeUndefined();
+        expect(pod?.containers).toBeUndefined();
+        expect(pod !== undefined && 'application' in pod).toBe(false);
+        expect(pod !== undefined && 'containers' in pod).toBe(false);
+      }
+      expect(normalizeGraph(raw).errors).toEqual([]);
+    });
+
+    it('drops malformed container entries, keeping valid ones', () => {
+      const raw = graphOf(
+        specPod('prod/p1', {
+          containers: [
+            { name: 'app', image: 'repo/app:1.2' },
+            { name: '', image: 'x' }, // empty name
+            { name: 'noimg' }, // missing image
+            { name: 'numimg', image: 7 }, // image not a string
+            'nope', // not an object
+          ],
+        })
+      );
+      expect(dataOf(raw, 'prod/p1')?.containers).toEqual([{ name: 'app', image: 'repo/app:1.2' }]);
+    });
+
+    it('omits containers when no entry survives validation', () => {
+      const raw = graphOf(specPod('prod/p1', { containers: [{ name: '', image: '' }, 'junk'] }));
+      expect(dataOf(raw, 'prod/p1')?.containers).toBeUndefined();
+    });
+
+    it('aggregates application onto the controller from the first valued pod in stable podId order', () => {
+      // Raw order p2 (beta) before p1 (alpha) — the podId sort must still pick p1's value.
+      const raw = graphOf(
+        specPod('prod/p2', { application: 'beta' }, mongo),
+        specPod('prod/p1', { application: 'alpha' }, mongo)
+      );
+      expect(controllerOf(raw)?.application).toBe('alpha');
+    });
+
+    it('skips application-less pods when picking the controller application', () => {
+      const raw = graphOf(specPod('prod/p1', {}, mongo), specPod('prod/p2', { application: 'beta' }, mongo));
+      expect(controllerOf(raw)?.application).toBe('beta');
+    });
+
+    it('aggregates the containers union onto the controller, deduped by (name, image) and sorted', () => {
+      const app = { name: 'app', image: 'repo/app:1.2' };
+      const raw = graphOf(
+        specPod('prod/p1', { containers: [app] }, mongo),
+        specPod('prod/p2', { containers: [app, { name: 'sidecar', image: 'repo/sc:0.9' }] }, mongo),
+        specPod('prod/p3', { containers: [app] }, mongo)
+      );
+      expect(controllerOf(raw)?.containers).toEqual([
+        { name: 'app', image: 'repo/app:1.2' },
+        { name: 'sidecar', image: 'repo/sc:0.9' },
+      ]);
+    });
+
+    it('keeps same-named containers with different images apart (deduped by the PAIR)', () => {
+      const raw = graphOf(
+        specPod('prod/p1', { containers: [{ name: 'app', image: 'repo/app:1.2' }] }, mongo),
+        specPod('prod/p2', { containers: [{ name: 'app', image: 'repo/app:1.3' }] }, mongo)
+      );
+      expect(controllerOf(raw)?.containers).toEqual([
+        { name: 'app', image: 'repo/app:1.2' },
+        { name: 'app', image: 'repo/app:1.3' },
+      ]);
+    });
+
+    it('omits both controller fields when no owned pod carries a value', () => {
+      const raw = graphOf(specPod('prod/p1', {}, mongo));
+      const ctrl = controllerOf(raw);
+      expect(ctrl).toBeDefined();
+      expect(ctrl !== undefined && 'application' in ctrl).toBe(false);
+      expect(ctrl !== undefined && 'containers' in ctrl).toBe(false);
+    });
+
+    it('leaves worstStatus, dedup and owns edges untouched by the aggregation', () => {
+      const raw = graphOf(
+        specPod('prod/p1', { application: 'checkout', status: 'critical' }, mongo),
+        specPod('prod/p2', { containers: [{ name: 'app', image: 'repo/app:1.2' }] }, mongo)
+      );
+      const { elements } = normalizeGraph(raw);
+      const controllers = elements.filter(
+        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
+      );
+      expect(controllers).toHaveLength(1); // dedup key unchanged
+      expect((controllers[0]!.data as cytoscape.NodeDataDefinition).worstStatus).toBe('critical');
+      const owns = elements.filter(
+        (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
+      );
+      expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
+    });
+
+    it('is deterministic and does not mutate the input across repeated calls', () => {
+      const raw = graphOf(
+        specPod('prod/p2', { application: 'beta', containers: [{ name: 'b', image: 'r/b:1' }] }, mongo),
+        specPod('prod/p1', { application: 'alpha', containers: [{ name: 'a', image: 'r/a:1' }] }, mongo)
+      );
+      const snapshot = JSON.stringify(raw);
+      const a = JSON.stringify(normalizeGraph(raw).elements);
+      const b = JSON.stringify(normalizeGraph(raw).elements);
+      expect(a).toBe(b);
+      expect(JSON.stringify(raw)).toBe(snapshot);
+    });
+  });
+
   it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {
     const raw = {
       elements: {

@@ -43,6 +43,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     visibleKinds,
     visibleEdgeTypes,
     onSelect,
+    onContextSelect,
     selectedId,
     collapsedIds,
     onCollapsedChange,
@@ -147,6 +148,40 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     };
     // isReady gates binding until the instance exists (see useCytoscape).
   }, [cyRef, onSelect, isReady]);
+
+  // Right-click (cxttap) → report the node for the detail-URL flow. KsgPanel
+  // routes it through the SAME controlled selectedId as tap, so the blue
+  // highlight and the detail panel stay in sync (D1). cytoscape's cxttap does
+  // NOT preventDefault the DOM contextmenu, so the native menu is suppressed at
+  // the container level — only while a consumer actually wires onContextSelect.
+  useEffect(() => {
+    const cy = cyRef.current;
+    const container = containerRef.current;
+    if (cy === null || container === null || onContextSelect === undefined) {
+      return;
+    }
+    const handleCxtTap = (evt: cytoscape.EventObject): void => {
+      if (evt.target === cy) {
+        return; // background right-click: keep the current selection
+      }
+      const single = evt.target as cytoscape.NodeSingular;
+      // Same selectability rule as tap: cluster backplates (selectable:false)
+      // are decorative and never open the detail panel. Edges are ignored too.
+      if (single.isNode() && single.selectable()) {
+        onContextSelect(single.id());
+      }
+    };
+    const suppressNativeMenu = (e: Event): void => {
+      e.preventDefault();
+    };
+    cy.on('cxttap', handleCxtTap);
+    container.addEventListener('contextmenu', suppressNativeMenu);
+    return (): void => {
+      cy.off('cxttap', handleCxtTap);
+      container.removeEventListener('contextmenu', suppressNativeMenu);
+    };
+    // isReady gates binding until the instance exists (see useCytoscape).
+  }, [cyRef, containerRef, onContextSelect, isReady]);
 
   // Controlled selection sync: mirror selectedId into cytoscape's single
   // selection so the blue highlight tracks the detail panel (tap / X / background).
