@@ -10,9 +10,18 @@ function elementId(el: cytoscape.ElementDefinition): string {
   return el.data.id ?? '';
 }
 
+// cytoscape's removeData() sets a field to undefined rather than deleting the key,
+// so a live element's jsons() can carry `{ alerts: undefined }` tombstones. JSON-wise
+// a tombstone IS absence: compare only DEFINED keys, or an element whose key was
+// removed would mismatch an incoming definition that omits it on every diff cycle.
+function definedKeys(o: cytoscape.ElementDataDefinition): string[] {
+  const rec = o as Record<string, unknown>;
+  return Object.keys(rec).filter((k) => rec[k] !== undefined);
+}
+
 function shallowEqualData(a: cytoscape.ElementDataDefinition, b: cytoscape.ElementDataDefinition): boolean {
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
+  const keysA = definedKeys(a);
+  const keysB = definedKeys(b);
   if (keysA.length !== keysB.length) {
     return false;
   }

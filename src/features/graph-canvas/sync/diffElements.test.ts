@@ -58,6 +58,18 @@ describe('diffElements', () => {
     expect(diffElements([], [])).toEqual({ toAdd: [], toRemove: [], toUpdate: [] });
   });
 
+  it('treats an undefined-valued key as absent (removeData tombstone ≠ change)', () => {
+    // cytoscape's removeData() leaves `{ key: undefined }` on the live element's
+    // jsons(); an incoming definition that omits the key must compare equal, or the
+    // element would be re-flagged toUpdate on every diff cycle after a removal.
+    const current = [node('a', { kind: 'deployment', alerts: undefined })];
+    const next = [node('a', { kind: 'deployment' })];
+    expect(diffElements(current, next).toUpdate).toEqual([]);
+    // The reverse still counts as a real update (a value appearing).
+    const gained = [node('a', { kind: 'deployment', alerts: [{ name: 'x' }] })];
+    expect(diffElements(current, gained).toUpdate).toHaveLength(1);
+  });
+
   it('ignores elements without an id', () => {
     const noId: cytoscape.ElementDefinition = { group: 'nodes', data: {} };
     const diff = diffElements([noId], [noId, node('a')]);

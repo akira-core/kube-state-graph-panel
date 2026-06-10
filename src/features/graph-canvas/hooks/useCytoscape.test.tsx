@@ -3,6 +3,7 @@ import cytoscape from 'cytoscape';
 import React, { type MutableRefObject } from 'react';
 
 import type { PodParentMode } from '../../../shared/constants/types';
+import { diffElements } from '../sync/diffElements';
 
 import { useCytoscape, type CyStylesheet } from './useCytoscape';
 
@@ -149,6 +150,49 @@ describe('useCytoscape compound re-parenting', () => {
 
     rerender({ elements: withParent('A') });
     expect(cy.getElementById('p1').parent().first().id()).toBe('A');
+
+    cy.destroy();
+  });
+});
+
+describe('useCytoscape stale data-key removal', () => {
+  // data(obj) is extend-only: a key the incoming definition omits (a controller whose
+  // last alerting pod recovered no longer carries `alerts`) must be REMOVED from the
+  // live element, or it lingers forever and re-flags the element as changed on every
+  // diff cycle (perpetual no-op churn).
+  const withAlerts: cytoscape.ElementDefinition[] = [
+    {
+      group: 'nodes',
+      data: {
+        id: 'c1',
+        kind: 'deployment',
+        isController: true,
+        worstStatus: 'warning',
+        alerts: [{ name: 'HighMem', severity: 'warning', timeRecords: [1717500000] }],
+      },
+    },
+  ];
+  const withoutAlerts: cytoscape.ElementDefinition[] = [
+    { group: 'nodes', data: { id: 'c1', kind: 'deployment', isController: true } },
+  ];
+
+  it('drops data keys the incoming definition omits (alerts → no-alerts) and stops re-diffing', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: withAlerts });
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({ elements: props.elements, stylesheet: [] }),
+      { initialProps: { elements: withAlerts } }
+    );
+    result.current.cyRef.current = cy;
+
+    rerender({ elements: withoutAlerts });
+    const live = cy.getElementById('c1');
+    expect(live.data('alerts')).toBeUndefined();
+    expect(live.data('worstStatus')).toBeUndefined();
+    expect(live.data('kind')).toBe('deployment');
+    // The live element now matches the incoming definition exactly — no churn.
+    const next = diffElements(cy.elements().jsons() as cytoscape.ElementDefinition[], withoutAlerts);
+    expect(next.toUpdate).toHaveLength(0);
 
     cy.destroy();
   });

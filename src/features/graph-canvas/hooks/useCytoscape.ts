@@ -48,6 +48,26 @@ export interface UseCytoscapeReturn {
 // useGraphLayout is the single source of layout execution.
 const INIT_LAYOUT: cytoscape.LayoutOptions = { name: 'preset' };
 
+// Data keys the update patch must never drop: id/parent/source/target are immutable
+// through data() (parent re-nesting goes through move(), edge rewires through the
+// remove/add path), and the rest is cytoscape-expand-collapse bookkeeping parked on
+// data — normalize never emits those, so "absent from the incoming definition" must
+// not delete them.
+const PRESERVED_DATA_KEYS = new Set([
+  'id',
+  'parent',
+  'source',
+  'target',
+  'collapsedChildren',
+  'collapsedEdges',
+  'originalEnds',
+  'position-before-collapse',
+  'size-before-collapse',
+]);
+function isPreservedDataKey(key: string): boolean {
+  return PRESERVED_DATA_KEYS.has(key) || key.startsWith('expandcollapse');
+}
+
 export function useCytoscape({
   elements,
   stylesheet,
@@ -159,6 +179,16 @@ export function useCytoscape({
             const parent = target.parent();
             const nextParent = isNode && typeof el.data.parent === 'string' ? el.data.parent : null;
             const currentParent = isNode && parent.length > 0 ? parent.first().id() : null;
+            // data(obj) is extend-only: a key the incoming definition OMITS (e.g. a
+            // controller whose last alerting pod recovered no longer carries
+            // `alerts`) would survive the patch forever — and keep re-flagging this
+            // element as changed on every diff cycle. Drop the diffed-away keys first.
+            const staleKeys = Object.keys(target.data() as Record<string, unknown>).filter(
+              (k) => !(k in el.data) && !isPreservedDataKey(k)
+            );
+            if (staleKeys.length > 0) {
+              target.removeData(staleKeys.join(' '));
+            }
             target.data(el.data);
             if (isNode && nextParent !== currentParent) {
               target.move({ parent: nextParent });
