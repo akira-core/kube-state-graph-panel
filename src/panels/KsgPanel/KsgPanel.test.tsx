@@ -580,15 +580,18 @@ describe('KsgPanel', () => {
       );
     });
 
-    it('left-click opens the panel but never queries (buttons stay disabled)', () => {
+    it('left-click opens the alerts view and never queries (no detail sections)', () => {
       renderPanel(withEndpoint);
       act(() => {
         lastCanvasProps().onSelect?.('demo/p1');
       });
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
       expect(detailGetMock).not.toHaveBeenCalled();
-      expect(screen.getByTestId('application-url-button')).not.toHaveAttribute('href');
-      expect(screen.getByTestId('container-url-button')).not.toHaveAttribute('href');
+      // Left-click renders the alerts view only — Application/Containers belong
+      // to the right-click detail view.
+      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
     });
 
     it('right-click on a non pod/controller node opens the panel without sections or queries', () => {

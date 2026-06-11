@@ -26,7 +26,11 @@ export interface NodeDetailPanelProps {
   onAlertTimeClick: (timeSec: number) => void;
   timeZone?: string; // for formatting alert times in the table
   // REST lookup state behind the Application / Containers URL buttons. Omitted or
-  // idle (left-click selection / endpoint unset) → sections still render their
-  // data with the buttons disabled (design D5).
+  // idle (endpoint unset) → sections still render their data with the buttons
+  // disabled (design D5).
   urls?: NodeDetailUrlsState;
+  // Which sections to render — the two click paths show disjoint content:
+  //   'alerts' (default; left-click selection) → Alerts table only
+  //   'detail' (right-click)                   → Application / Containers only
+  view?: 'alerts' | 'detail';
 }

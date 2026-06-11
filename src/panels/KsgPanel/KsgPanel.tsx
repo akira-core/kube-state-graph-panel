@@ -435,6 +435,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               onAlertTimeClick={handleAlertTimeClick}
               timeZone={timeZone}
               urls={detailUrls}
+              view={detailRequest !== null ? 'detail' : 'alerts'}
             />
           </>
         )}

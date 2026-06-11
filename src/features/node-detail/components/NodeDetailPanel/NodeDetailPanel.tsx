@@ -44,7 +44,9 @@ function getStyles(theme: GrafanaTheme2): {
       left: 8,
       right: 8,
       bottom: 8,
-      maxHeight: 220,
+      // Grow with content; scroll only once the panel would cover half the
+      // canvas (capped absolutely for very tall panels).
+      maxHeight: 'min(50%, 380px)',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
@@ -123,19 +125,24 @@ export function NodeDetailPanel({
   onAlertTimeClick,
   timeZone,
   urls,
+  view = 'alerts',
 }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   if (node === null) {
     return null;
   }
-  // Application/Containers gate twice, independently: kind ∈ DETAIL_URL_KINDS
-  // (pod + workload controllers — every other kind never shows them, even with
-  // stray data) AND the node actually carrying that field. urls defaults to idle:
-  // sections render their data with the URL buttons disabled (design D5).
+  // The two click paths render disjoint sections: 'alerts' (left-click) shows
+  // the Alerts table only; 'detail' (right-click) shows Application/Containers
+  // only. Within the detail view the sections gate twice, independently: kind ∈
+  // DETAIL_URL_KINDS (pod + workload controllers — every other kind never shows
+  // them, even with stray data) AND the node actually carrying that field. urls
+  // defaults to idle: sections render their data with the URL buttons disabled
+  // (design D5).
   const urlsState = urls ?? IDLE_NODE_DETAIL_URLS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
-  const showApplication = isDetailUrlKind && node.application !== undefined;
-  const showContainers = isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
+  const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
+  const showContainers =
+    view === 'detail' && isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
@@ -185,16 +192,18 @@ export function NodeDetailPanel({
             </div>
           </div>
         )}
-        <div className={styles.section} data-testid="node-detail-section-alerts">
-          <div className={styles.sectionTitle}>Alerts</div>
-          <div className={styles.sectionBody}>
-            <AlertTable
-              alerts={node.alerts ?? []}
-              onAlertTimeClick={onAlertTimeClick}
-              {...(timeZone !== undefined ? { timeZone } : {})}
-            />
+        {view === 'alerts' && (
+          <div className={styles.section} data-testid="node-detail-section-alerts">
+            <div className={styles.sectionTitle}>Alerts</div>
+            <div className={styles.sectionBody}>
+              <AlertTable
+                alerts={node.alerts ?? []}
+                onAlertTimeClick={onAlertTimeClick}
+                {...(timeZone !== undefined ? { timeZone } : {})}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

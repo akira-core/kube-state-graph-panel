@@ -2,7 +2,7 @@
 
 ### Requirement: Node Detail Application 與 Containers 區塊
 
-Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`)節點,提供 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。其餘 kind(`node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`)MUST NOT 顯示這兩個區塊。此 ADDED 區塊與既有「Node Detail 面板」需求(header + 告警表格,以 `alert-occurrence-grouping` 改寫後的 Count / Last occurred / `timeRecords[]` 行為為基準)正交,不改變其行為。
+Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`)節點,提供 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。其餘 kind(`node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`)MUST NOT 顯示這兩個區塊。面板依觸發方式分流為兩個 **view**:**右鍵**開啟 `detail` view,只渲染 Application / Containers 兩區塊、MUST NOT 渲染 Alerts 表格(即使節點帶 `data.alerts`);**左鍵**開啟 `alerts` view,只渲染 Alerts 表格(行為以 `alert-occurrence-grouping` 改寫後的 Count / Last occurred / `timeRecords[]` 為基準)、MUST NOT 渲染這兩個區塊。兩 view 共用 header 與面板框架。
 
 **資料來源**:application name 來源為節點的 `data.application`(backend 於 pod 節點輸出;controller 由 `normalizeGraph` 自子 pod 聚合);containers 來源為節點的 `data.containers`(`Array<{ name, image }>`;pod 為 backend 原樣透傳、controller 為子 pod 聚合去重——見 graph-data-integration 規格)。節點無 `data.application` 時 Application 區塊 MUST NOT 渲染;無 `data.containers`(或為空陣列)時 Containers 區塊 MUST NOT 渲染;兩者互不影響。
 
@@ -20,7 +20,7 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - 查詢進行中 MUST 顯示 loading 指示,且不阻塞面板其餘區塊。
 - **Application 區塊**(成功):顯示 application name 與**單一 URL 按鈕**,指向 application-detail 查詢回傳的 URL,以新分頁開啟(`target="_blank"` 且 `rel="noopener"`),MUST NOT 自動導頁(不 `window.open`)。
 - **Containers 區塊**(成功):每個 container 一列,顯示 **container name 與 image**,並各帶一顆 **URL 按鈕**指向 map 中以該 container name 查得的 URL,同樣以新分頁開啟(`target="_blank"` + `rel="noopener"`)、不自動導頁;map 中**查無**該 container name 時,該列 URL 按鈕 MUST 停用或隱藏,name/image 仍照常顯示。
-- 任一查詢失敗時,對應區塊 MUST 顯示錯誤 / 空狀態,且 MUST NOT 影響面板其餘區塊(header / 告警表格 / 另一區塊)。
+- 任一查詢失敗時,對應區塊 MUST 顯示錯誤 / 空狀態,且 MUST NOT 影響面板其餘區塊(header / 另一區塊)。
 - 兩區塊 MUST 以 `@grafana/ui` + emotion `useStyles2` 樣式實作,元件(ApplicationTable / ContainerTable)共置於 `node-detail` feature 並 MUST 經其 `index.ts` barrel 匯出(不跨 feature 越界 import 對方內部檔案)。Application 區塊現行為單列,介面 MUST 預留可成長為多列。
 
 #### Scenario: 右鍵 pod/controller 選取並觸發兩個查詢
@@ -83,7 +83,7 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 #### Scenario: 查詢失敗顯示錯誤狀態且不波及其餘
 
 - **WHEN** 任一查詢失敗(網路 / HTTP 錯誤)
-- **THEN** 對應區塊顯示錯誤 / 空狀態,面板 header、告警表格與另一區塊仍正常顯示
+- **THEN** 對應區塊顯示錯誤 / 空狀態,面板 header 與另一區塊仍正常顯示
 
 #### Scenario: 未設定 endpoint 時停用
 
