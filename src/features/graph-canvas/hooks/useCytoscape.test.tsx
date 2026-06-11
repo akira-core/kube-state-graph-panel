@@ -252,6 +252,99 @@ describe('useCytoscape pod-parent mode rebuild', () => {
   });
 });
 
+describe('useCytoscape patch application', () => {
+  const renderPatchHarness = (initial: cytoscape.ElementDefinition[]) => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: initial });
+    const hook = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({ elements: props.elements, stylesheet: [] }),
+      { initialProps: { elements: initial } }
+    );
+    hook.result.current.cyRef.current = cy;
+    return { cy, ...hook };
+  };
+
+  it('removes elements whose ids contain selector metacharacters ("/" and ":")', () => {
+    // Synthesized ids (ctrl/…, ppm:…, syn:…) are invalid in `#id` selector strings —
+    // one bad segment used to poison the whole comma-joined removal into a no-op.
+    const specials: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'plain' } },
+      { group: 'nodes', data: { id: 'ctrl/prod/db/x', isController: true } },
+      { group: 'nodes', data: { id: 'p1', parent: 'ctrl/prod/db/x', kind: 'pod' } },
+      { group: 'edges', data: { id: 'ppm:pod-runs-on-node:p1', source: 'p1', target: 'plain' } },
+    ];
+    const { cy, rerender } = renderPatchHarness(specials);
+
+    rerender({ elements: [{ group: 'nodes', data: { id: 'plain' } }] });
+
+    expect(cy.getElementById('ctrl/prod/db/x').length).toBe(0);
+    expect(cy.getElementById('p1').length).toBe(0);
+    expect(cy.getElementById('ppm:pod-runs-on-node:p1').length).toBe(0);
+    expect(cy.getElementById('plain').length).toBe(1);
+    cy.destroy();
+  });
+
+  it('keeps a child re-homed away from a parent removed in the same refresh', () => {
+    // K8s node A drained while its pod reschedules onto node B in one refresh: the
+    // pod must survive A's compound-cascade removal and land under B immediately.
+    const initial: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'nodeA', kind: 'node' } },
+      { group: 'nodes', data: { id: 'nodeB', kind: 'node' } },
+      { group: 'nodes', data: { id: 'p1', parent: 'nodeA', kind: 'pod' } },
+    ];
+    const { cy, rerender } = renderPatchHarness(initial);
+
+    rerender({
+      elements: [
+        { group: 'nodes', data: { id: 'nodeB', kind: 'node' } },
+        { group: 'nodes', data: { id: 'p1', parent: 'nodeB', kind: 'pod' } },
+      ],
+    });
+
+    expect(cy.getElementById('nodeA').length).toBe(0);
+    expect(cy.getElementById('p1').length).toBe(1);
+    expect(cy.getElementById('p1').parent().first().id()).toBe('nodeB');
+    cy.destroy();
+  });
+
+  it('rewires an edge whose target changed while keeping its id', () => {
+    const initial: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'a' } },
+      { group: 'nodes', data: { id: 'b' } },
+      { group: 'nodes', data: { id: 'c' } },
+      { group: 'edges', data: { id: 'e1', source: 'a', target: 'b' } },
+    ];
+    const { cy, rerender } = renderPatchHarness(initial);
+
+    rerender({
+      elements: [
+        { group: 'nodes', data: { id: 'a' } },
+        { group: 'nodes', data: { id: 'b' } },
+        { group: 'nodes', data: { id: 'c' } },
+        { group: 'edges', data: { id: 'e1', source: 'a', target: 'c' } },
+      ],
+    });
+
+    const live = cy.getElementById('e1');
+    expect(live.length).toBe(1);
+    expect(live.data('target')).toBe('c');
+    cy.destroy();
+  });
+
+  it('never lets cytoscape alias the React-side element data (clone on add)', () => {
+    const initial: cytoscape.ElementDefinition[] = [{ group: 'nodes', data: { id: 'a' } }];
+    const { cy, rerender } = renderPatchHarness(initial);
+
+    const addedDef: cytoscape.ElementDefinition = { group: 'nodes', data: { id: 'b', kind: 'pod' } };
+    rerender({ elements: [initial[0]!, addedDef] });
+
+    // Simulate an in-place mutation by the expand-collapse extension.
+    cy.getElementById('b').data('contaminated', true);
+    expect((addedDef.data as Record<string, unknown>).contaminated).toBeUndefined();
+    cy.destroy();
+  });
+});
+
 describe('useCytoscape collapse-aware diff-patch', () => {
   it('expands all, patches, then re-collapses present parents and reports prune in order', () => {
     const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });

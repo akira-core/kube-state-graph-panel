@@ -142,7 +142,7 @@ describe('useExpandCollapse', () => {
     expect(onMountCollapseApplied).not.toHaveBeenCalled();
   });
 
-  it('reports the full collapsed Set from cue events when not suppressed', () => {
+  it('adds a cue-collapsed node to the desired set (incremental merge, not a canvas rebuild)', () => {
     const { cy, cyRef, handlers } = setup();
     cy.getElementById('cl').addClass('cy-expand-collapse-collapsed-node');
     const onCollapsedChange = jest.fn();
@@ -157,8 +157,51 @@ describe('useExpandCollapse', () => {
         onCollapsedChange,
       })
     );
-    handlers['expandcollapse.aftercollapse']?.({});
+    handlers['expandcollapse.aftercollapse']?.({ target: cy.getElementById('cl') });
     expect(onCollapsedChange).toHaveBeenCalledWith(new Set(['cl']));
+  });
+
+  it('keeps already-collapsed descendants when an ancestor is cue-collapsed (they leave the graph)', () => {
+    // Collapsing an ancestor REMOVES collapsed descendants from the canvas; a
+    // rebuild-from-canvas would drop 'sc' here and the next reconcile would
+    // permanently expand it. The incremental merge must keep it.
+    const { cy, cyRef, handlers } = setup();
+    cy.getElementById('cl').addClass('cy-expand-collapse-collapsed-node');
+    const onCollapsedChange = jest.fn();
+    renderHook(() =>
+      useExpandCollapse({
+        cyRef,
+        enabled: true,
+        isReady: true,
+        apiRef: { current: null },
+        // 'sc' (a default-collapsed storage class) is already in the desired set
+        // but, post-ancestor-collapse, no longer present in the graph.
+        collapsedIdsRef: { current: new Set(['sc']) },
+        suppressRef: { current: false },
+        onCollapsedChange,
+      })
+    );
+    handlers['expandcollapse.aftercollapse']?.({ target: cy.getElementById('cl') });
+    expect(onCollapsedChange).toHaveBeenCalledWith(new Set(['sc', 'cl']));
+  });
+
+  it('removes a cue-expanded node from the desired set', () => {
+    const { cy, cyRef, handlers } = setup();
+    // 'cl' no longer carries the collapsed class after expand.
+    const onCollapsedChange = jest.fn();
+    renderHook(() =>
+      useExpandCollapse({
+        cyRef,
+        enabled: true,
+        isReady: true,
+        apiRef: { current: null },
+        collapsedIdsRef: { current: new Set(['cl', 'sc']) },
+        suppressRef: { current: false },
+        onCollapsedChange,
+      })
+    );
+    handlers['expandcollapse.afterexpand']?.({ target: cy.getElementById('cl') });
+    expect(onCollapsedChange).toHaveBeenCalledWith(new Set(['sc']));
   });
 
   it('ignores cue events while suppressRef is true (programmatic guard)', () => {
@@ -177,7 +220,37 @@ describe('useExpandCollapse', () => {
         onCollapsedChange,
       })
     );
-    handlers['expandcollapse.aftercollapse']?.({});
+    handlers['expandcollapse.aftercollapse']?.({ target: cy.getElementById('cl') });
     expect(onCollapsedChange).not.toHaveBeenCalled();
+  });
+
+  it('re-fetches the existing api via "get" instead of re-initialising on a second effect run', () => {
+    // A second cy.expandCollapse(options) on the same instance appends another cue
+    // canvas + duplicate listeners (the extension's full re-init); the scratch
+    // guard must route re-runs through the side-effect-free 'get' form.
+    const { cy, cyRef } = setup();
+    const apiRef = { current: null } as MutableRefObject<unknown>;
+    const onCollapsedChange = jest.fn();
+    const baseProps = {
+      cyRef,
+      enabled: true,
+      isReady: true,
+      apiRef: apiRef as never,
+      collapsedIdsRef: { current: new Set<string>() },
+      suppressRef: { current: false },
+    };
+    const { rerender } = renderHook(
+      (props: { onCollapsedChange: (next: Set<string>) => void }) =>
+        useExpandCollapse({ ...baseProps, onCollapsedChange: props.onCollapsedChange }),
+      { initialProps: { onCollapsedChange } }
+    );
+    const expandCollapseMock = (cy as unknown as { expandCollapse: jest.Mock }).expandCollapse;
+    expect(expandCollapseMock).toHaveBeenCalledTimes(1);
+
+    // Dep identity churn (a non-memoized callback) re-runs the effect on the SAME cy.
+    rerender({ onCollapsedChange: jest.fn() });
+    expect(expandCollapseMock).toHaveBeenCalledTimes(2);
+    expect(expandCollapseMock).toHaveBeenLastCalledWith('get');
+    expect(apiRef.current).not.toBeNull();
   });
 });

@@ -32,9 +32,10 @@ function dataParent(el: cytoscape.ElementDefinition): string | null {
  * The parent may itself be new in the same batch (normalize emits pods before their
  * synthesized controller, so a child precedes its new parent in `toAdd`). We walk
  * the parent chain through the incoming batch until we reach a node already in `cy`
- * and anchor to it. A family with no present ancestor at all (a wholly new
- * top-level container) has nothing to anchor to and is reported via `unanchored` so
- * the caller can relayout once rather than let it stack at the origin.
+ * and anchor to it. A node with nothing to anchor to — a family whose ancestor
+ * chain has no present node, OR a parentless newcomer (a top-level external/others
+ * leaf) — is reported via `unanchored` so the caller can relayout once rather than
+ * let it sit at the origin.
  *
  * Input elements are never mutated — a shallow clone carries the seeded position so
  * the upstream `elements` array (and its memoization) is preserved.
@@ -73,10 +74,10 @@ export function seedAddedNodePositions(cy: cytoscape.Core, toAdd: cytoscape.Elem
       return el;
     }
     const parentId = dataParent(el);
-    if (parentId === null) {
-      return el;
-    }
-    const anchor = anchorPosition(parentId);
+    // A parentless newcomer has no anchor either — without the unanchored count
+    // it would be cy.add-ed at (0,0) and stay there (no layout runs on a pure
+    // data refresh), stacking with any other parentless newcomer.
+    const anchor = parentId === null ? null : anchorPosition(parentId);
     if (anchor === null) {
       unanchored += 1;
       return el;

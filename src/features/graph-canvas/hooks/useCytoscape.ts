@@ -2,7 +2,9 @@ import cytoscape from 'cytoscape';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 
 import type { PodParentMode } from '../../../shared/constants/types';
+import { cloneElementDefs } from '../sync/cloneElementDefs';
 import { diffElements } from '../sync/diffElements';
+import { isExtensionDataKey } from '../sync/extensionDataKeys';
 import { reconcileCollapse } from '../sync/reconcileCollapse';
 import { seedAddedNodePositions } from '../sync/seedAddedNodePositions';
 
@@ -49,23 +51,13 @@ export interface UseCytoscapeReturn {
 const INIT_LAYOUT: cytoscape.LayoutOptions = { name: 'preset' };
 
 // Data keys the update patch must never drop: id/parent/source/target are immutable
-// through data() (parent re-nesting goes through move(), edge rewires through the
-// remove/add path), and the rest is cytoscape-expand-collapse bookkeeping parked on
-// data — normalize never emits those, so "absent from the incoming definition" must
-// not delete them.
-const PRESERVED_DATA_KEYS = new Set([
-  'id',
-  'parent',
-  'source',
-  'target',
-  'collapsedChildren',
-  'collapsedEdges',
-  'originalEnds',
-  'position-before-collapse',
-  'size-before-collapse',
-]);
+// through data() (parent re-nesting goes through move(), edge rewires through
+// diffElements' remove+add routing), and extension bookkeeping is parked on data —
+// normalize never emits those, so "absent from the incoming definition" must not
+// delete them.
+const IMMUTABLE_DATA_KEYS = new Set(['id', 'parent', 'source', 'target']);
 function isPreservedDataKey(key: string): boolean {
-  return PRESERVED_DATA_KEYS.has(key) || key.startsWith('expandcollapse');
+  return IMMUTABLE_DATA_KEYS.has(key) || isExtensionDataKey(key);
 }
 
 export function useCytoscape({
@@ -91,7 +83,10 @@ export function useCytoscape({
     }
     cyRef.current = cytoscape({
       container: containerRef.current,
-      elements,
+      // Cloned: cytoscape aliases the data objects it is given, and the
+      // expand-collapse extension mutates them in place — the React-side
+      // `elements` model must stay pristine (see cloneElementDefs).
+      elements: cloneElementDefs(elements),
       style: stylesheet,
       layout: INIT_LAYOUT,
     });
@@ -142,16 +137,37 @@ export function useCytoscape({
       // co-incident run-token bump re-runs the layout, so reset positions are fine.
       cy.batch(() => {
         existing.remove();
-        cy.add(elements);
+        cy.add(cloneElementDefs(elements));
       });
     } else {
-      // Diff real-vs-incoming and patch (remove → add → update).
+      // Diff real-vs-incoming and patch (evacuate → remove → add → update).
       const current = cy.elements().jsons() as cytoscape.ElementDefinition[];
       const diff = diffElements(current, elements);
       if (diff.toAdd.length > 0 || diff.toRemove.length > 0 || diff.toUpdate.length > 0) {
+        const removeSet = new Set(diff.toRemove);
         cy.batch(() => {
-          if (diff.toRemove.length > 0) {
-            cy.remove(diff.toRemove.map((id) => `#${id}`).join(', '));
+          if (removeSet.size > 0) {
+            // Children re-homed by this same refresh must leave their doomed
+            // parent BEFORE the parent is removed, or cytoscape's compound
+            // cascade deletes them with it (e.g. a K8s node drained while its
+            // pods reschedule in one refresh). They detach to top level here;
+            // the update pass below re-nests them once their new parent
+            // (possibly only arriving in toAdd) exists.
+            for (const el of diff.toUpdate) {
+              const target = cy.getElementById(el.data.id ?? '');
+              if (target.length === 0 || !target.isNode()) {
+                continue;
+              }
+              const parent = target.parent();
+              if (parent.length > 0 && removeSet.has(parent.first().id())) {
+                target.move({ parent: null });
+              }
+            }
+            // Removal goes through a collection, never an `#id` selector string:
+            // real ids carry selector metacharacters ('/', ':' in ctrl/…,
+            // ppm:…, syn:… ids) that make the whole selector invalid and turn
+            // the removal into a silent no-op.
+            cy.remove(cy.elements().filter((ele) => removeSet.has(ele.id())));
           }
           if (diff.toAdd.length > 0) {
             // Seed new nodes inside their parent's cluster (not the origin) so a
@@ -160,7 +176,7 @@ export function useCytoscape({
             // already restored the parents, so their positions are valid here. A
             // wholly-new family with no present anchor is flagged for one relayout.
             const seeded = seedAddedNodePositions(cy, diff.toAdd);
-            cy.add(seeded.elements);
+            cy.add(cloneElementDefs(seeded.elements));
             if (seeded.unanchored > 0) {
               addedUnanchored = true;
             }

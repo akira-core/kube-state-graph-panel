@@ -5,6 +5,17 @@ import type { SwitchConstraints } from '../../switch-topology';
 
 export type LayoutName = 'fcose' | 'dagre';
 
+// Constraints are derived from the full React-side element model, but the layout
+// runs on the live graph where expand-collapse may have removed pinned switches
+// (e.g. inside a collapsed network/cluster compound). fcose NaN-poisons EVERY node
+// position when a fixedNodeConstraint references a missing node (cose-base indexes
+// the absent id into undefined coordinates), so keep only the constraints whose
+// nodes are actually in the graph at run time.
+function presentConstraints(cy: cytoscape.Core, constraints: SwitchConstraints): SwitchConstraints {
+  const fixed = constraints.fixedNodeConstraint?.filter((c) => cy.getElementById(c.nodeId).length > 0);
+  return fixed !== undefined && fixed.length > 0 ? { fixedNodeConstraint: fixed } : {};
+}
+
 export interface UseGraphLayoutProps {
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
   name: LayoutName;
@@ -50,17 +61,25 @@ export function useGraphLayout({ cyRef, name, runToken = 0, switchConstraints = 
     constraintsRef.current = switchConstraints;
   }, [switchConstraints]);
 
+  // Handle of the previous run: cy.stop() only halts core (viewport) animations,
+  // NOT a still-animating layout pass — without layout.stop() back-to-back runs
+  // (the mount pass + the default-collapse relayout bump) fight over positions.
+  const layoutRef = useRef<cytoscape.Layouts | null>(null);
+
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {
       return;
     }
+    layoutRef.current?.stop();
     cy.stop();
     const constraints = constraintsRef.current;
     const options =
       name === 'fcose' && constraints !== null
-        ? ({ ...(baseOptions as object), ...constraints } as unknown as cytoscape.LayoutOptions)
+        ? ({ ...(baseOptions as object), ...presentConstraints(cy, constraints) } as unknown as cytoscape.LayoutOptions)
         : baseOptions;
-    cy.layout(options).run();
+    const layout = cy.layout(options);
+    layoutRef.current = layout;
+    layout.run();
   }, [cyRef, baseOptions, name, runToken]);
 }

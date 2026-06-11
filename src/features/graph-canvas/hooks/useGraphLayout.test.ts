@@ -10,15 +10,19 @@ function makeCy(): cytoscape.Core {
   return cytoscape({
     headless: true,
     styleEnabled: true,
-    elements: [{ group: 'nodes', data: { id: 'a' } }],
+    elements: [
+      { group: 'nodes', data: { id: 'a' } },
+      { group: 'nodes', data: { id: 'b' } },
+    ],
   });
 }
 
-function stubLayout(cy: cytoscape.Core): { layoutSpy: jest.SpyInstance; runMock: jest.Mock } {
+function stubLayout(cy: cytoscape.Core): { layoutSpy: jest.SpyInstance; runMock: jest.Mock; stopMock: jest.Mock } {
   const runMock = jest.fn();
-  const fakeLayout = { run: runMock } as unknown as cytoscape.Layouts;
+  const stopMock = jest.fn();
+  const fakeLayout = { run: runMock, stop: stopMock } as unknown as cytoscape.Layouts;
   const layoutSpy = jest.spyOn(cy, 'layout').mockReturnValue(fakeLayout);
-  return { layoutSpy, runMock };
+  return { layoutSpy, runMock, stopMock };
 }
 
 describe('useGraphLayout', () => {
@@ -150,6 +154,55 @@ describe('useGraphLayout', () => {
     const [arg] = layoutSpy.mock.calls[0] as [Record<string, unknown>];
     expect(arg.name).toBe('fcose');
     expect(arg.fixedNodeConstraint).toBeUndefined();
+  });
+
+  it('drops fixedNodeConstraint entries whose nodes are not in the live graph', () => {
+    // Constraints come from the full React-side model; a pinned switch collapsed
+    // away (inside the network/cluster compound) must not reach fcose — a missing
+    // constrained node NaN-poisons every position in cose-base.
+    const cy = makeCy(); // has 'a' and 'b' only
+    const { layoutSpy } = stubLayout(cy);
+    const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
+    const withMissing: SwitchConstraints = {
+      fixedNodeConstraint: [
+        { nodeId: 'a', position: { x: -90, y: 0 } },
+        { nodeId: 'collapsed-away-switch', position: { x: 90, y: 0 } },
+      ],
+    };
+
+    renderHook(() => useGraphLayout({ cyRef, name: 'fcose', switchConstraints: withMissing }));
+
+    const [arg] = layoutSpy.mock.calls[0] as [Record<string, unknown>];
+    expect(arg.fixedNodeConstraint).toEqual([{ nodeId: 'a', position: { x: -90, y: 0 } }]);
+  });
+
+  it('omits fixedNodeConstraint entirely when every constrained node is missing', () => {
+    const cy = makeCy();
+    const { layoutSpy } = stubLayout(cy);
+    const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
+    const allMissing: SwitchConstraints = {
+      fixedNodeConstraint: [{ nodeId: 'ghost', position: { x: 0, y: 0 } }],
+    };
+
+    renderHook(() => useGraphLayout({ cyRef, name: 'fcose', switchConstraints: allMissing }));
+
+    const [arg] = layoutSpy.mock.calls[0] as [Record<string, unknown>];
+    expect(arg.fixedNodeConstraint).toBeUndefined();
+  });
+
+  it('stops the previous layout run before starting the next (cy.stop() alone does not)', () => {
+    const cy = makeCy();
+    const { layoutSpy, stopMock } = stubLayout(cy);
+    const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
+    const { rerender } = renderHook(
+      ({ runToken }: { runToken: number }) => useGraphLayout({ cyRef, name: 'fcose', runToken }),
+      { initialProps: { runToken: 0 } }
+    );
+    expect(stopMock).not.toHaveBeenCalled(); // nothing to stop on the first run
+
+    rerender({ runToken: 1 });
+    expect(layoutSpy).toHaveBeenCalledTimes(2);
+    expect(stopMock).toHaveBeenCalledTimes(1); // previous run halted before the new one
   });
 
   it('does not rerun layout when only switchConstraints change (applied via ref at run time)', () => {

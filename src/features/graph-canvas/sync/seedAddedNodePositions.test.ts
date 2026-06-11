@@ -43,7 +43,7 @@ describe('seedAddedNodePositions', () => {
     cy.destroy();
   });
 
-  it('leaves parentless nodes, edges, and nodes with an existing position untouched', () => {
+  it('leaves edges and nodes with an existing position untouched; counts a parentless newcomer as unanchored', () => {
     const cy = cyWithPositionedParent();
     const input: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'orphan', kind: 'pod' } },
@@ -53,10 +53,12 @@ describe('seedAddedNodePositions', () => {
 
     const { elements, unanchored } = seedAddedNodePositions(cy, input);
 
-    expect(elements[0]?.position).toBeUndefined(); // orphan: no parent
+    expect(elements[0]?.position).toBeUndefined(); // orphan: nothing to anchor to
     expect(elements[1]?.position).toEqual({ x: 5, y: 5 }); // pinned: keeps its position
     expect(elements[2]).toBe(input[2]); // edge: returned as-is
-    expect(unanchored).toBe(0); // a parentless node is not "unanchored" (it has no parent to resolve)
+    // A parentless newcomer (top-level external/others leaf) has no anchor either —
+    // it must trigger the one-shot relayout or it sits at (0,0) forever.
+    expect(unanchored).toBe(1);
     cy.destroy();
   });
 
@@ -96,7 +98,9 @@ describe('seedAddedNodePositions', () => {
     ]);
 
     expect(elements[0]?.position).toBeUndefined(); // no anchor → left for relayout
-    expect(unanchored).toBe(1);
+    // Both family members lack an anchor: the pod's chain dangles and the new
+    // top-level controller is parentless — each counts toward the one-shot relayout.
+    expect(unanchored).toBe(2);
     cy.destroy();
   });
 

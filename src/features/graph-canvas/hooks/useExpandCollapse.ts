@@ -2,7 +2,12 @@ import type cytoscape from 'cytoscape';
 import { useEffect } from 'react';
 
 const CUE_EVENTS = 'expandcollapse.aftercollapse expandcollapse.afterexpand';
-const COLLAPSED_NODE_CLASS = '.cy-expand-collapse-collapsed-node';
+const COLLAPSED_NODE_CLASS = 'cy-expand-collapse-collapsed-node';
+// Re-init guard key (cy.scratch): a second cy.expandCollapse(options) call on the
+// SAME instance performs a full re-init — it appends another cue canvas and binds
+// a duplicate internal listener set that can never be unbound (the extension
+// overwrites its scratch event registry). Init once per instance, 'get' afterwards.
+const SCRATCH_INIT_KEY = '_ksgExpandCollapseInit';
 
 export interface UseExpandCollapseProps {
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
@@ -44,13 +49,17 @@ export function useExpandCollapse({
     if (!enabled || !isReady || cy === null) {
       return;
     }
-    const api = cy.expandCollapse({
-      layoutBy: null,
-      fisheye: false,
-      animate: false,
-      undoable: false,
-      cueEnabled: true,
-    });
+    const api =
+      cy.scratch(SCRATCH_INIT_KEY) === true
+        ? cy.expandCollapse('get')
+        : cy.expandCollapse({
+            layoutBy: null,
+            fisheye: false,
+            animate: false,
+            undoable: false,
+            cueEnabled: true,
+          });
+    cy.scratch(SCRATCH_INIT_KEY, true);
     apiRef.current = api;
     // Apply any collapse that was desired BEFORE the extension existed.
     // useCytoscape's diff-patch effect also reconciles collapse, but it is declared
@@ -66,12 +75,23 @@ export function useExpandCollapse({
       // layout ran while expanded and these parents stay coincident at origin.
       onMountCollapseApplied?.();
     }
-    const handleCue = (): void => {
+    const handleCue = (evt: cytoscape.EventObject): void => {
       // Programmatic apply in progress (useCytoscape) — ignore the echoed event.
       if (suppressRef.current) {
         return;
       }
-      const next = new Set(cy.nodes(COLLAPSED_NODE_CLASS).map((n) => n.id()));
+      // Incremental merge with the DESIRED set, never a rebuild from the canvas:
+      // collapsing an ancestor physically removes already-collapsed descendants
+      // from the graph, so a `cy.nodes('.collapsed')` rebuild would silently drop
+      // their ids and the next reconcile would permanently expand them (e.g.
+      // default-collapsed storage classes inside a cue-collapsed cluster).
+      const target = evt.target as cytoscape.NodeSingular;
+      const next = new Set(collapsedIdsRef.current);
+      if (target.hasClass(COLLAPSED_NODE_CLASS)) {
+        next.add(target.id());
+      } else {
+        next.delete(target.id());
+      }
       onCollapsedChange(next);
     };
     cy.on(CUE_EVENTS, handleCue);

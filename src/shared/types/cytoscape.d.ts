@@ -91,6 +91,8 @@ declare module 'cytoscape' {
   }
 
   interface Core {
-    expandCollapse(options: Partial<ExpandCollapseOptions>): ExpandCollapseApi;
+    // 'get' returns the already-initialised api WITHOUT re-running the extension's
+    // full init (which would stack an extra cue canvas + duplicate listeners).
+    expandCollapse(options: Partial<ExpandCollapseOptions> | 'get'): ExpandCollapseApi;
   }
 }
