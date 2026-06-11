@@ -75,9 +75,10 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   // useGraphLayout only when the active layout is fcose; null (no-op) when there
   // are no switches. useGraphLayout reads the latest value at layout-run time, so
   // a refresh-driven identity change here does not by itself rerun the layout.
-  // TEST: K8s-node fabric-tier pinning (readNodeFabricTier) disabled — only
-  // switches are pinned; nodes are pulled toward the fabric by their
-  // node-to-switch edges alone.
+  // Only levelled switches are pinned. K8s nodes stay free in both pod-parent
+  // modes — their node-to-switch uplink edges alone pull them toward the fabric
+  // (a former min-1 fabric-tier pin dragged whole cluster compounds onto the
+  // fabric and caused compound overlap; see switch-tier-layout spec).
   const switchConstraints = useMemo(() => buildSwitchConstraints(readSwitchLevels(elements)), [elements]);
 
   const collapseEnabled = onCollapsedChange !== undefined;

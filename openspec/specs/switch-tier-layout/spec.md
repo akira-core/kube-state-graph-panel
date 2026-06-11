@@ -39,9 +39,11 @@ The system SHALL read a network **level** for each `switch` node from that node'
 
 The system SHALL pin each levelled `switch` node to an absolute position derived from its level so that switches form horizontal rows, one row per level, stacked so that higher-numbered levels sit above lower-numbered levels (e.g. a core switch at the highest level renders topmost), with switches that share a level spread horizontally across a common row. This SHALL be expressed exclusively through the force-directed layout's native fixed-node constraint (`fixedNodeConstraint`), adding no new layout engine or dependency.
 
-Additionally, in the **controller** pod-parent mode, when a switch fabric is present (at least one levelled `switch`), the system SHALL also pin every K8s `node` that participates in the fabric — i.e. that is the `source` of at least one `node-to-switch` edge — onto a single derived tier **one level below the bottommost (minimum-level) switch row** (`min(switchLevel) − 1`), spread horizontally across that row exactly as switches are. **ALL fabric-connected K8s nodes share this single tier** (`min(switchLevel) − 1`, one row), regardless of which switch level each node actually connects to; a `node-to-switch` uplink to a deeper switch MAY visually cross intervening switch rows, and that is accepted (the system SHALL NOT pin each node to its own connected-switch-relative tier). This realises the `switch → switch → node → pod` top-to-bottom order: workload-bearing nodes sit directly below the physical fabric, with pods/controllers left free to float below them. The derived node tier SHALL be computed from the switch levels (NOT read from any `labels.level`) and merged into the level map by a **separate mode-aware step** — NOT by `readSwitchLevels`, which stays `switch`-kind-only and non-negative; `buildSwitchConstraints` consumes the already-merged map and supports the negative `−1` tier (`y = +180`). A K8s `node` with no `node-to-switch` edge SHALL remain free. In the **node** pod-parent mode the K8s `node` is a compound container boxing its pods and SHALL NOT be pinned. Absent a switch fabric (no levelled switch), no K8s `node` is pinned in either mode.
+The system SHALL NOT pin K8s `node` nodes in EITHER pod-parent mode: fabric-connected nodes (sources of `node-to-switch` edges) are drawn toward the fabric by their uplink edges alone, leaving the force-directed layout free to place them (and the cluster compounds containing them) without overlapping the fabric. (History: an earlier revision pinned controller-mode fabric-connected nodes onto a derived `min(switchLevel) − 1` tier below the fabric; that pin was removed — dragging whole cluster compounds onto the pinned fabric caused compound overlap.)
 
-The constraint SHALL reference only (a) levelled `switch` nodes and (b) in controller mode, fabric-connected K8s `node` nodes; every other node (pods, controllers, services, pvcs, clusters, unlevelled switches, fabric-disconnected nodes) SHALL remain free to be placed by the force-directed layout. The constraint SHALL apply only when the active layout is the force-directed (`fcose`) layout. When no `switch` node carries a valid level, the system SHALL produce no constraint and the layout SHALL behave exactly as without this feature.
+Switches MAY additionally be nested (via `data.parent`) under a single virtual `network` compound group (kind `network`, e.g. labelled `physical network`) that boxes the whole fabric; the fixed-node constraint targets the simple `switch` nodes themselves and SHALL apply identically whether or not such a wrapper compound is present — the wrapper's bounding box simply follows its pinned children, and being a compound it keeps cluster compounds at a distance and is collapsible like any other container (legend behaviour: see panel-rendering).
+
+The constraint SHALL reference only levelled `switch` nodes; every other node (pods, controllers, services, pvcs, clusters, K8s nodes, the virtual `network` wrapper, unlevelled switches) SHALL remain free to be placed by the force-directed layout. The constraint SHALL apply only when the active layout is the force-directed (`fcose`) layout. When no `switch` node carries a valid level, the system SHALL produce no constraint and the layout SHALL behave exactly as without this feature.
 
 #### Scenario: Switches in the same level share a row
 
@@ -53,30 +55,20 @@ The constraint SHALL reference only (a) levelled `switch` nodes and (b) in contr
 - **WHEN** level `k` and level `k+1` both contain switches under the `fcose` layout
 - **THEN** the level `k+1` row is pinned above the level `k` row
 
-#### Scenario: Controller-mode K8s nodes pin one tier below the fabric
+#### Scenario: K8s nodes are never pinned
 
-- **WHEN** the pod-parent mode is `controller`, the graph has levelled switches whose minimum level is `m`, and a K8s `node` is the source of a `node-to-switch` edge
-- **THEN** that K8s `node` is pinned to the derived tier `m − 1` (one row below the bottommost switch row), spread horizontally like switches; the pods/controllers below it remain free
+- **WHEN** a K8s `node` is the source of a `node-to-switch` edge, in either pod-parent mode
+- **THEN** it is not pinned; only its uplink edge pulls it toward the fabric
 
-#### Scenario: Node-mode K8s nodes are not pinned
-
-- **WHEN** the pod-parent mode is `node` (each K8s node boxes its pods) even with a switch fabric present
-- **THEN** no K8s `node` is pinned; only levelled switches are pinned
-
-#### Scenario: Fabric-disconnected node stays free in controller mode
-
-- **WHEN** in `controller` mode a K8s `node` has no `node-to-switch` edge
-- **THEN** it is not pinned to the fabric tier (it is left to the force-directed layout)
-
-#### Scenario: Pinning references only fabric members
+#### Scenario: Pinning references only levelled switches
 
 - **WHEN** the layout constraint is produced
-- **THEN** it references only levelled `switch` ids and (controller mode only) fabric-connected K8s `node` ids; no pod / controller / service / pvc / cluster node and no unlevelled switch is pinned
+- **THEN** it references only levelled `switch` ids; no pod / controller / service / pvc / cluster / K8s node and no unlevelled switch is pinned
 
 #### Scenario: No constraint when no switch has a level
 
 - **WHEN** no `switch` node carries a valid level (including the no-switch case)
-- **THEN** no layout constraint is produced (null result), and no K8s `node` is pinned regardless of mode
+- **THEN** no layout constraint is produced (null result)
 
 #### Scenario: Pinning only in fcose mode
 
