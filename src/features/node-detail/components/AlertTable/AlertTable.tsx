@@ -90,18 +90,30 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
   // columns + data must be memoized (InteractiveTable / react-table requirement).
   const data = useMemo(() => alerts, [alerts]);
 
+  // Column growth mirrors the detail tables' alignment rhythm (D8): identifier
+  // columns hug their content, the main text column (Alert) soaks up the
+  // remaining width, and the trailing status/action columns disableGrow so they
+  // sit flush right — vertically aligned with the detail view's Change Report
+  // column.
   const columns = useMemo<Array<Column<NodeAlert>>>(
     () => [
-      { id: 'pod', header: 'Pod', cell: ({ row }: CellProps<NodeAlert>) => row.original.pod ?? PLACEHOLDER },
+      {
+        id: 'pod',
+        header: 'Pod',
+        disableGrow: true,
+        cell: ({ row }: CellProps<NodeAlert>) => row.original.pod ?? PLACEHOLDER,
+      },
       {
         id: 'service',
         header: 'Service',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => row.original.service ?? PLACEHOLDER,
       },
       { id: 'name', header: 'Alert', cell: ({ row }: CellProps<NodeAlert>) => row.original.name },
       {
         id: 'severity',
         header: 'Severity',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => {
           const { severity } = row.original;
           // Known tier → its colour; any custom label → critical fallback (never blank).
@@ -116,6 +128,7 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
       {
         id: 'count',
         header: 'Count',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => {
           const { timeRecords } = row.original;
           // The badge shows the occurrence count; its tooltip enumerates every
@@ -140,6 +153,7 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
       {
         id: 'lastSeen',
         header: 'Last occurred',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => {
           const t = lastSeen(row.original);
           return (

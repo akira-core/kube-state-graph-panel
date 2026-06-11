@@ -8,7 +8,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 export interface ThemeColors {
   text: { primary: string; secondary: string };
   background: { secondary: string };
-  border: { weak: string; medium: string };
+  border: { weak: string; medium: string; strong: string };
   primary: { main: string };
 }
 

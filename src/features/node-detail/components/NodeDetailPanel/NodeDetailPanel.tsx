@@ -59,7 +59,19 @@ function getStyles(theme: GrafanaTheme2): {
       pointerEvents: 'auto',
       zIndex: 1000,
     }),
-    header: css({ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }),
+    // The title row (the node / controller name) closes with its own divider —
+    // SAME style as the between-sections bar so all major boundaries read alike,
+    // with a symmetric 10px above and below the line (matching the section
+    // divider's line-to-title gap; both views share this header).
+    header: css({
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      paddingBottom: 10,
+      marginBottom: 10,
+      borderBottom: `2px solid ${colors.border.strong}`,
+      flexShrink: 0,
+    }),
     // The only scrolling region: takes the remaining height under the pinned header
     // (flex:1 + minHeight:0 lets it shrink below content size so overflow kicks in).
     scroll: css({ flex: 1, minHeight: 0, overflowY: 'auto' }),
@@ -91,31 +103,37 @@ function getStyles(theme: GrafanaTheme2): {
       textTransform: 'uppercase',
       letterSpacing: 0.4,
     }),
-    // Adjacent sections get a hairline divider above (matches the legend/tooltip).
+    // Adjacent sections separate with a divider DISTINCT from the header's thin
+    // rule: a thicker strong-colour bar plus breathing room on both sides, so
+    // the boundary between two tables cannot be mistaken for a table row line.
     section: css({
       '& + &': {
-        marginTop: 6,
-        paddingTop: 6,
-        borderTop: `1px solid ${colors.border.weak}`,
+        marginTop: 12,
+        paddingTop: 10,
+        borderTop: `2px solid ${colors.border.strong}`,
       },
     }),
     // Section titles stick to the top of the scroll body, so the "Alerts" label
     // stays visible while its rows scroll under it (the opaque background hides the
     // rows passing behind). With multiple sections each title pins in turn.
+    // Titles outrank the table text below them: 13px uppercase vs the body's
+    // bodySmall (set on sectionBody) — the old 10px label read SMALLER than the
+    // table content, inverting the visual hierarchy.
     sectionTitle: css({
       position: 'sticky',
       top: 0,
       zIndex: 1,
       background: colors.background.secondary,
-      fontSize: 10,
+      fontSize: 13,
       fontWeight: 600,
       letterSpacing: 0.6,
       textTransform: 'uppercase',
       color: colors.text.secondary,
-      paddingBottom: 2,
+      paddingBottom: 6,
     }),
-    // Empty for now — content is filled in later.
-    sectionBody: css({ minHeight: 24 }),
+    // Table content renders one step below the section titles (bodySmall —
+    // InteractiveTable cells inherit), keeping the title > body size hierarchy.
+    sectionBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
   };
 }
 
