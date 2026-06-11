@@ -217,6 +217,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   }
 
   const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
   const pendingOwned: PendingOwned[] = [];
   const clusterIdByName = new Map<string, string>();
   // Pre-pass: worst child-pod STATUS rank per parent container id, so a COLLAPSED k8s
@@ -256,6 +257,13 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     }
     if (!isString(d.type)) {
       errors.push(`nodes[${String(index)}] missing type`);
+      continue;
+    }
+    // Duplicate ids are rejected into the partial-parse channel: cytoscape would
+    // silently first-wins-dedupe the second copy, and when the copies differ in
+    // data the differ would flip-flop them into toUpdate on every refresh.
+    if (nodeIds.has(d.id)) {
+      errors.push(`nodes[${String(index)}] duplicate id "${d.id}"`);
       continue;
     }
     const labels = isStringRecord(d.labels) ? d.labels : undefined;
@@ -340,6 +348,11 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       errors.push(`edges[${String(index)}] references unknown node id`);
       continue;
     }
+    if (edgeIds.has(d.id)) {
+      errors.push(`edges[${String(index)}] duplicate id "${d.id}"`);
+      continue;
+    }
+    edgeIds.add(d.id);
     const labels = isStringRecord(d.labels) ? d.labels : undefined;
     elements.push({
       group: 'edges',

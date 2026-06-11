@@ -167,6 +167,38 @@ describe('normalizeGraph', () => {
     expect(result.errors).toContain('edges[0] references unknown node id');
   });
 
+  it('rejects a duplicate node id into errors and keeps the first copy', () => {
+    // cytoscape would silently first-wins-dedupe the second copy; the boundary must
+    // surface the inconsistency instead of letting the differ flip-flop on it.
+    const raw = {
+      elements: {
+        nodes: [{ data: { id: 'x', type: 'pod', name: 'first' } }, { data: { id: 'x', type: 'pod', name: 'second' } }],
+        edges: [],
+      },
+    };
+    const result = normalizeGraph(raw);
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0]?.data.label).toBe('first');
+    expect(result.errors).toContain('nodes[1] duplicate id "x"');
+  });
+
+  it('rejects a duplicate edge id into errors and keeps the first copy', () => {
+    const raw = {
+      elements: {
+        nodes: [{ data: { id: 'a', type: 'pod' } }, { data: { id: 'b', type: 'pod' } }],
+        edges: [
+          { data: { id: 'e', source: 'a', target: 'b', type: 'pod-calls-pod' } },
+          { data: { id: 'e', source: 'b', target: 'a', type: 'pod-calls-pod' } },
+        ],
+      },
+    };
+    const result = normalizeGraph(raw);
+    const edges = result.elements.filter((el) => el.group === 'edges');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.data.source).toBe('a');
+    expect(result.errors).toContain('edges[1] duplicate id "e"');
+  });
+
   it('preserves unknown kind / edgeType strings (forward-compat)', () => {
     const raw = {
       elements: {

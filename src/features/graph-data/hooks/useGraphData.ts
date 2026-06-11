@@ -60,16 +60,28 @@ function extractJsonFromFrames(series: DataFrame[]): unknown {
 }
 
 export function useGraphData(data: PanelData): UseGraphDataResult {
-  return useMemo<UseGraphDataResult>(() => {
+  // Grafana builds a NEW series array for every query response, so a memo keyed
+  // on data.series re-runs each refresh even when the payload bytes are identical
+  // — and a fresh result object would invalidate EVERY downstream memo (mode
+  // transform clone, visibility passes, legend derivations, the cy diff effect).
+  // Two-stage memo: first reduce the series to a payload FINGERPRINT string
+  // (covering both the string-field and meta.custom.data shapes); the second memo
+  // depends on that string, so a byte-identical refresh compares equal and the
+  // previous result object is reused without re-normalizing.
+  const fingerprint = useMemo<string | null>(() => {
     const payload = extractJsonFromFrames(data.series);
-    if (payload === undefined) {
+    return payload === undefined ? null : JSON.stringify(payload);
+  }, [data.series]);
+
+  return useMemo<UseGraphDataResult>(() => {
+    if (fingerprint === null) {
       return { elements: [] };
     }
+    // Re-parse from the fingerprint (one parse per ACTUAL data change) so this
+    // memo's input is the plain string — no object identity in the dep array.
+    const payload = JSON.parse(fingerprint) as unknown;
     const { elements, errors } = normalizeGraph(payload);
     const firstError = errors[0];
-    if (firstError !== undefined) {
-      return { elements, error: firstError };
-    }
-    return { elements };
-  }, [data.series]);
+    return firstError !== undefined ? { elements, error: firstError } : { elements };
+  }, [fingerprint]);
 }

@@ -154,4 +154,51 @@ describe('useGraphData', () => {
     rerender({ d: data });
     expect(result.current).toBe(first);
   });
+
+  it('returns the SAME result object for a byte-identical payload in a NEW series array (no-op refresh)', () => {
+    // Grafana rebuilds PanelData.series each refresh; an unchanged payload must not
+    // produce a fresh elements array, or every downstream memo and the cy diff
+    // effect re-fires for nothing on each dashboard tick.
+    const payload = JSON.stringify({ nodes: [{ id: 'a', type: 'pod' }], edges: [] });
+    const { result, rerender } = renderHook(({ d }: { d: PanelData }) => useGraphData(d), {
+      initialProps: { d: panelData([frameWithFieldValue(payload)]) },
+    });
+    const first = result.current;
+    rerender({ d: panelData([frameWithFieldValue(payload)]) }); // fresh frame, same bytes
+    expect(result.current).toBe(first);
+  });
+
+  it('returns a NEW result when the payload content actually changes', () => {
+    const { result, rerender } = renderHook(({ d }: { d: PanelData }) => useGraphData(d), {
+      initialProps: {
+        d: panelData([frameWithFieldValue(JSON.stringify({ nodes: [{ id: 'a', type: 'pod' }], edges: [] }))]),
+      },
+    });
+    const first = result.current;
+    rerender({
+      d: panelData([
+        frameWithFieldValue(
+          JSON.stringify({
+            nodes: [
+              { id: 'a', type: 'pod' },
+              { id: 'b', type: 'pod' },
+            ],
+            edges: [],
+          })
+        ),
+      ]),
+    });
+    expect(result.current).not.toBe(first);
+    expect(result.current.elements).toHaveLength(2);
+  });
+
+  it('short-circuits the meta.custom.data shape too (object payload, not string)', () => {
+    const make = (): PanelData => panelData([frameWithMetaData({ nodes: [{ id: 'a', type: 'pod' }], edges: [] })]);
+    const { result, rerender } = renderHook(({ d }: { d: PanelData }) => useGraphData(d), {
+      initialProps: { d: make() },
+    });
+    const first = result.current;
+    rerender({ d: make() }); // fresh frame AND fresh payload object, same content
+    expect(result.current).toBe(first);
+  });
 });
