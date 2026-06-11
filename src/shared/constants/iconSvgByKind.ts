@@ -90,7 +90,10 @@ export const FALLBACK_ICON_SVG = icon(
 );
 
 export function iconSvgForKind(kind: string | undefined): string {
-  if (kind !== undefined && kind in ICON_SVG_BY_KIND) {
+  // Object.hasOwn, NOT `in`: `in` walks the prototype chain, so a backend kind
+  // named after an Object.prototype member ('toString', 'constructor', …) would
+  // return an inherited Function instead of an SVG string and crash the tinter.
+  if (kind !== undefined && Object.hasOwn(ICON_SVG_BY_KIND, kind)) {
     const svg = ICON_SVG_BY_KIND[kind as NodeKind];
     if (svg !== undefined) {
       return svg;
