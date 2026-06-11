@@ -43,6 +43,18 @@ The system SHALL NOT pin K8s `node` nodes in EITHER pod-parent mode: fabric-conn
 
 Switches MAY additionally be nested (via `data.parent`) under a single virtual `network` compound group (kind `network`, e.g. labelled `physical network`) that boxes the whole fabric; the fixed-node constraint targets the simple `switch` nodes themselves and SHALL apply identically whether or not such a wrapper compound is present — the wrapper's bounding box simply follows its pinned children, and being a compound it keeps cluster compounds at a distance and is collapsible like any other container (legend behaviour: see panel-rendering).
 
+When the data ships at least one **parent-less** `switch` and NO `network`-kind node, the panel SHALL synthesize this wrapper itself (`wrapSwitchFabric`, a pure graph-data step applied after normalize): inject a single `network` node (id `network/fabric`, label `physical network`) and re-parent every parent-less `switch` under it. The synthesis SHALL back off entirely — leaving the elements unchanged — when a `network`-kind node already exists (the data owns the grouping) or when every `switch` already carries a `parent` (a backend-assigned parent is never overridden). The step SHALL be pure (no input mutation).
+
+#### Scenario: Wrapper synthesized for parent-less switches
+
+- **WHEN** the data contains `switch` nodes without `data.parent` and no `network`-kind node
+- **THEN** a single `network/fabric` wrapper (label `physical network`) is injected and those switches are re-parented under it
+
+#### Scenario: Data-provided network group wins
+
+- **WHEN** the data already contains a `network`-kind node
+- **THEN** no wrapper is synthesized and no switch is re-parented (elements pass through unchanged)
+
 The constraint SHALL reference only levelled `switch` nodes; every other node (pods, controllers, services, pvcs, clusters, K8s nodes, the virtual `network` wrapper, unlevelled switches) SHALL remain free to be placed by the force-directed layout. The constraint SHALL apply only when the active layout is the force-directed (`fcose`) layout. When no `switch` node carries a valid level, the system SHALL produce no constraint and the layout SHALL behave exactly as without this feature.
 
 #### Scenario: Switches in the same level share a row

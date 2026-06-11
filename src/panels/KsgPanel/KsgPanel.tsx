@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { computeVisibility } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
-import { useGraphData } from '../../features/graph-data';
+import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
 import {
   ClusterLegend,
   EdgeLegend,
@@ -146,7 +146,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // 'controller' aggregates pods under their owning controller; 'node' is the
   // infrastructure view (clean cluster > node > pod backend topology).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
-  const elements = useMemo(() => applyPodParentMode(baseElements, podParentMode), [baseElements, podParentMode]);
+  // wrapSwitchFabric synthesizes the virtual `network > switch` compound when
+  // the data ships parent-less switches without its own network group, so any
+  // backend version gets the boxed fabric (see switch-tier-layout spec).
+  const elements = useMemo(
+    () => wrapSwitchFabric(applyPodParentMode(baseElements, podParentMode)),
+    [baseElements, podParentMode]
+  );
 
   // Selected node id drives both the detail panel and (controlled) the cy
   // selection highlight. GraphCanvas reports taps via onSelect.
