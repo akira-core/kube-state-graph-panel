@@ -1,6 +1,7 @@
 import type cytoscape from 'cytoscape';
 
-import type { EdgeType, NodeKind, PodParentMode } from '../../../../shared/constants/types';
+import type { PodParentMode } from '../../../../shared/constants/types';
+import type { VisibilitySets } from '../../../element-filter';
 import type { CyStylesheet } from '../../hooks/useCytoscape';
 import type { LayoutName } from '../../hooks/useGraphLayout';
 
@@ -8,8 +9,9 @@ export interface GraphCanvasProps {
   elements: cytoscape.ElementDefinition[];
   stylesheet: CyStylesheet[];
   layout: LayoutName;
-  visibleKinds: NodeKind[];
-  visibleEdgeTypes: EdgeType[];
+  // Precomputed visibility (kind/edge filter + orphan cascade). Computed ONCE by
+  // the panel — shared with its detail-panel gating — and applied here verbatim.
+  visibility: VisibilitySets;
   onSelect?: (nodeId: string | null) => void;
   // Right-click (cxttap) on a selectable node. Shares the same controlled
   // selection as onSelect (the consumer sets selectedId from it) and additionally

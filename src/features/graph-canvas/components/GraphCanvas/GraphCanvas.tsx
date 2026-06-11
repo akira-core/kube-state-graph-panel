@@ -40,8 +40,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     elements,
     stylesheet,
     layout,
-    visibleKinds,
-    visibleEdgeTypes,
+    visibility,
     onSelect,
     onContextSelect,
     selectedId,
@@ -93,13 +92,20 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     // relayouts once when a new unanchorable family is added on refresh (anchored
     // pod-under-existing-parent adds skip it → D7 kept).
     ...(collapseEnabled
-      ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: collapseApplyToken, onStructuralRelayout: requestRelayout }
+      ? {
+          apiRef,
+          collapsedIdsRef,
+          suppressRef,
+          onCollapsedChange,
+          collapseKey: collapseApplyToken,
+          onStructuralRelayout: requestRelayout,
+        }
       : {}),
   });
 
   useGraphLayout({ cyRef, name: layout, runToken: layoutToken, switchConstraints });
   useGraphResize({ cyRef, containerRef });
-  useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes });
+  useElementFilter({ cyRef, sets: visibility });
   useExpandCollapse({
     cyRef,
     // Gate: only init the extension when collapse is wired. On the no-collapse
@@ -186,6 +192,9 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
 
   // Controlled selection sync: mirror selectedId into cytoscape's single
   // selection so the blue highlight tracks the detail panel (tap / X / background).
+  // `elements` is a dep on purpose: a mode-flip rebuild (or a diff remove/re-add of
+  // the selected node) re-adds the element UNSELECTED in cy without firing any
+  // event, so the mirror must re-apply whenever the element set changes.
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {
@@ -193,7 +202,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     }
     selectSingle(cy, selectedId ?? null);
     // isReady re-runs this once the instance exists (cyRef is a stable ref).
-  }, [cyRef, selectedId, isReady]);
+  }, [cyRef, selectedId, isReady, elements]);
 
   // Dim everything outside the selected node's focus set so the selection reads
   // clearly (colour alone is too subtle on a dense graph). Re-applies after a

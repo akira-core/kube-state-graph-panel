@@ -75,6 +75,16 @@ describe('computeVisibility', () => {
     expect([...visibleNodeIds]).toEqual(['cr', 'b']);
   });
 
+  it('keeps unknown edge TYPES visible by default (forward-compat, mirrors unknown kinds)', () => {
+    // A backend-added edge type is outside the filter universe (the MultiSelect
+    // only lists known types) — it must render in fallback style, not vanish, and
+    // its endpoints must not be orphan-cascaded away.
+    const elements = [node('a', 'pod'), node('b', 'pod'), edge('e', 'a', 'b', 'pod-uses-configmap')];
+    const { visibleNodeIds, visibleEdgeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
+    expect([...visibleEdgeIds]).toEqual(['e']);
+    expect([...visibleNodeIds]).toEqual(['a', 'b']);
+  });
+
   describe('orphan cascade-hide', () => {
     it('hides a node that loses its only edge to edge-type filtering', () => {
       const elements = [

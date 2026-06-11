@@ -1,22 +1,16 @@
 import type cytoscape from 'cytoscape';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 
-import type { EdgeType, NodeKind } from '../../../shared/constants/types';
-import { computeVisibility } from '../computeVisibility';
+import type { VisibilitySets } from '../computeVisibility';
 
 export interface UseElementFilterProps {
   cyRef: React.MutableRefObject<cytoscape.Core | null>;
-  elements: cytoscape.ElementDefinition[];
-  visibleKinds: NodeKind[];
-  visibleEdgeTypes: EdgeType[];
+  // Precomputed by the panel (single computeVisibility call shared with the
+  // detail-panel gating) — this hook only applies the sets to the live graph.
+  sets: VisibilitySets;
 }
 
-export function useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes }: UseElementFilterProps): void {
-  const sets = useMemo(
-    () => computeVisibility(elements, visibleKinds, visibleEdgeTypes),
-    [elements, visibleKinds, visibleEdgeTypes]
-  );
-
+export function useElementFilter({ cyRef, sets }: UseElementFilterProps): void {
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {

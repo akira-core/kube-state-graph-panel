@@ -14,8 +14,6 @@ jest.mock('../../hooks/useCytoscape', () => ({
 // fcose/dagre are not registered in the jest env — layout is not under test here.
 jest.mock('../../hooks/useGraphLayout', () => ({ useGraphLayout: (): void => undefined }));
 
-import type { NodeKind } from '../../../../shared/constants/types';
-
 import { GraphCanvas } from './GraphCanvas';
 
 const elements: cytoscape.ElementDefinition[] = [
@@ -33,8 +31,7 @@ function renderCanvas(handlers: {
       elements={elements}
       stylesheet={[]}
       layout="fcose"
-      visibleKinds={['pod'] as NodeKind[]}
-      visibleEdgeTypes={[]}
+      visibility={{ visibleNodeIds: new Set(['p1', 'cl']), visibleEdgeIds: new Set() }}
       selectedId={null}
       {...handlers}
     />

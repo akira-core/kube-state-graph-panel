@@ -21,7 +21,7 @@ import { DETAIL_URL_KINDS, NodeDetailPanel, useNodeDetailUrls, type NodeDetailDa
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
-import type { EdgeType, PodParentMode } from '../../shared/constants/types';
+import type { EdgeType, NodeKind, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
 
 import { deriveLegendKinds } from './deriveLegendKinds';
@@ -36,7 +36,13 @@ export type KsgPanelProps = PanelProps<KsgPanelOptions>;
 // centred on that alert (alert time is Unix seconds; AbsoluteTimeRange is ms).
 const ALERT_REWIND_HALF_WINDOW_SEC = 300;
 
-function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; legendArea: string } {
+function getStyles(theme: GrafanaTheme2): {
+  root: string;
+  canvasArea: string;
+  legendArea: string;
+  emptyOverlay: string;
+  partialWarning: string;
+} {
   const borderWeak = themeColors(theme).border.weak;
   return {
     root: css({
@@ -48,6 +54,28 @@ function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; le
       flex: 1,
       minWidth: 0,
       position: 'relative',
+    }),
+    // EmptyState floats ABOVE the canvas instead of replacing it: the cytoscape
+    // instance (positions, zoom/pan, collapse geometry) must survive a transient
+    // all-kinds-filtered state (panel-rendering spec: canvas 本身保留，不重建 instance).
+    emptyOverlay: css({
+      position: 'absolute',
+      inset: 0,
+      zIndex: 2,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      pointerEvents: 'none',
+    }),
+    // Non-blocking partial-parse warning: invalid entries were skipped but the
+    // remaining graph renders normally (graph-data-integration spec).
+    partialWarning: css({
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      right: 8,
+      zIndex: 3,
+      pointerEvents: 'none',
     }),
     // Legend sits to the LEFT of the canvas (rendered before it in the DOM).
     // Order: Layout toggle, then the reference sections (Node Kinds / Edge Types /
@@ -75,17 +103,50 @@ function getStyles(theme: GrafanaTheme2): { root: string; canvasArea: string; le
   };
 }
 
+// True when any ancestor (via data.parent) of `id` is a collapsed container —
+// such a node is folded off the canvas even though it stays in `elements`.
+function hasCollapsedAncestor(
+  elements: cytoscape.ElementDefinition[],
+  id: string,
+  collapsedIds: ReadonlySet<string>
+): boolean {
+  const parentById = new Map<string, string>();
+  for (const el of elements) {
+    if (el.group !== 'nodes') {
+      continue;
+    }
+    const d = el.data as cytoscape.NodeDataDefinition;
+    if (typeof d.id === 'string' && typeof d.parent === 'string') {
+      parentById.set(d.id, d.parent);
+    }
+  }
+  let ancestor = parentById.get(id);
+  let hops = 0;
+  while (ancestor !== undefined && hops < parentById.size + 1) {
+    if (collapsedIds.has(ancestor)) {
+      return true;
+    }
+    ancestor = parentById.get(ancestor);
+    hops += 1;
+  }
+  return false;
+}
+
 // Pure resolution of the selected node's detail data from the element list.
-// Module-level so the panel can call it inline (React Compiler memoizes).
 // Exported for unit testing. A node that is not in `visibleNodeIds` (hidden by
-// kind/edge filtering or orphan cascade) resolves to null so the detail panel
-// never describes a node that is not on the canvas.
+// kind/edge filtering or orphan cascade) or folded inside a collapsed container
+// resolves to null so the detail panel never describes a node that is not on
+// the canvas. (A collapsed container ITSELF is still on canvas as a box.)
 export function resolveSelectedNode(
   elements: cytoscape.ElementDefinition[],
   selectedNodeId: string | null,
-  visibleNodeIds: ReadonlySet<string>
+  visibleNodeIds: ReadonlySet<string>,
+  collapsedIds: ReadonlySet<string> = new Set()
 ): NodeDetailData | null {
   if (selectedNodeId === null || !visibleNodeIds.has(selectedNodeId)) {
+    return null;
+  }
+  if (collapsedIds.size > 0 && hasCollapsedAncestor(elements, selectedNodeId, collapsedIds)) {
     return null;
   }
   for (const el of elements) {
@@ -102,9 +163,14 @@ export function resolveSelectedNode(
       let queryTarget: { kind: string; name: string } | undefined;
       if (d.kind !== undefined && DETAIL_URL_KINDS.has(d.kind)) {
         if (d.kind === 'pod') {
+          // The owner kind is validated against the detail-URL contract too: a pod
+          // owned by anything else (a static pod's Node, an operator CRD like
+          // Rollout) falls back to the standalone-pod identity instead of firing
+          // queries with an out-of-contract kind.
+          const ownerKind = d.owner !== undefined ? d.owner.kind.toLowerCase() : undefined;
           queryTarget =
-            d.owner !== undefined
-              ? { kind: d.owner.kind.toLowerCase(), name: d.owner.name }
+            d.owner !== undefined && ownerKind !== undefined && DETAIL_URL_KINDS.has(ownerKind as NodeKind)
+              ? { kind: ownerKind, name: d.owner.name }
               : { kind: 'pod', name: label };
         } else {
           queryTarget = { kind: d.kind, name: label };
@@ -136,7 +202,16 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const visibleEdgeTypes = options.visibleEdgeTypes ?? defaultOptions.visibleEdgeTypes;
 
   const isLoading = data.state === LoadingState.Loading;
-  const seriesError = data.errors?.[0]?.message;
+  // DataQueryError.message is optional — fall back through statusText/status, and
+  // treat state === Error with no errors[] entry as a failure too, so a
+  // message-less failure is never rendered as an empty-but-successful graph.
+  const firstQueryError = data.errors?.[0] ?? (data.state === LoadingState.Error ? {} : undefined);
+  const seriesError =
+    firstQueryError !== undefined
+      ? (firstQueryError.message ??
+        firstQueryError.statusText ??
+        `Query failed (status ${String(firstQueryError.status ?? 'unknown')})`)
+      : undefined;
   const { elements: baseElements, error: normalizeError } = useGraphData(data);
 
   // Pod-parent view mode — local state, toggled from the legend (Grafana panel
@@ -186,19 +261,28 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [onChangeTimeRange]
   );
 
-  // Same visibility set the canvas applies (kind/edge filter + orphan cascade),
-  // computed from the mode-transformed elements. Used to keep the detail panel in
-  // step with the canvas: a selected node that gets hidden closes the panel.
-  const { visibleNodeIds } = useMemo(
+  // Collapsed parent-container ids. Lives here so the legend toggles (siblings of
+  // GraphCanvas) and the canvas share one source. GraphCanvas reports the full
+  // next Set via onCollapsedChange (cue events / data-refresh prune).
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  // The ONE visibility computation (kind/edge filter + orphan cascade) over the
+  // mode-transformed elements. GraphCanvas applies it to the live graph verbatim
+  // (useElementFilter) and the detail panel gates on it below — computing it once
+  // keeps the two in lockstep and halves the most expensive pure pass.
+  const visibility = useMemo(
     () => computeVisibility(elements, visibleKinds, visibleEdgeTypes),
     [elements, visibleKinds, visibleEdgeTypes]
   );
+  const { visibleNodeIds } = visibility;
 
-  // Resolve the selected node's display data from elements via a pure helper, so
-  // the React Compiler memoizes it (a manual useMemo with a loop + early returns
-  // trips react-hooks/preserve-manual-memoization). Cluster containers and hidden
-  // nodes are excluded; a missing id (data refresh removed it) closes the panel.
-  const selectedNode = resolveSelectedNode(elements, selectedNodeId, visibleNodeIds);
+  // Resolve the selected node's display data from elements. Cluster containers,
+  // hidden nodes and nodes folded inside a collapsed container are excluded; a
+  // missing id (data refresh removed it) closes the panel.
+  const selectedNode = useMemo(
+    () => resolveSelectedNode(elements, selectedNodeId, visibleNodeIds, collapsedIds),
+    [elements, selectedNodeId, visibleNodeIds, collapsedIds]
+  );
 
   // The detail-URL query input: defined ONLY when the current selection came from a
   // right-click on that same node AND it resolves an application + query target
@@ -255,11 +339,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     }
     return (Object.keys(EDGE_STYLE_BY_TYPE) as EdgeType[]).filter((t) => present.has(t));
   }, [elements]);
-
-  // Collapsed parent-container ids. Lives here so the legend toggles (siblings of
-  // GraphCanvas) and the canvas share one source. GraphCanvas reports the full
-  // next Set via onCollapsedChange (cue events / data-refresh prune).
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
   // Default-aggregate: the first render where controllers are present while in
   // controller mode (initial load OR re-entry) collapses them all so pods start
@@ -376,10 +455,18 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       </Alert>
     );
   }
-  if (isLoading) {
+  // Full-screen overlay ONLY while there is nothing to show yet (first load).
+  // During a routine refresh Grafana re-emits state=Loading with the previous
+  // series attached — unmounting GraphCanvas then would destroy the cytoscape
+  // instance (positions, zoom/pan, collapse geometry) on every tick and defeat
+  // the diff-and-patch design; the canvas keeps rendering the previous data.
+  if (isLoading && baseElements.length === 0) {
     return <LoadingOverlay />;
   }
-  if (normalizeError !== undefined) {
+  // A whole-payload failure (nothing parsed) is fatal; per the partial-parse
+  // contract, anything less renders the surviving elements with a non-blocking
+  // warning (below) instead of blanking the panel for one bad entry.
+  if (normalizeError !== undefined && baseElements.length === 0) {
     return (
       <Alert severity="error" title="Graph data malformed">
         {normalizeError}
@@ -418,33 +505,38 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
         </aside>
       )}
       <div className={styles.canvasArea}>
-        {emptyMessage !== null ? (
-          <EmptyState message={emptyMessage} />
-        ) : (
-          <>
-            <GraphCanvas
-              elements={elements}
-              stylesheet={stylesheet}
-              layout={options.layout}
-              visibleKinds={visibleKinds}
-              visibleEdgeTypes={visibleEdgeTypes}
-              onSelect={handleSelect}
-              onContextSelect={handleContextSelect}
-              selectedId={selectedNodeId}
-              collapsedIds={collapsedIds}
-              onCollapsedChange={setCollapsedIds}
-              podParentMode={podParentMode}
-            />
-            <NodeDetailPanel
-              node={selectedNode}
-              onClose={() => handleSelect(null)}
-              onAlertTimeClick={handleAlertTimeClick}
-              timeZone={timeZone}
-              urls={detailUrls}
-              view={detailRequest !== null ? 'detail' : 'alerts'}
-            />
-          </>
+        {normalizeError !== undefined && (
+          <div className={styles.partialWarning}>
+            <Alert severity="warning" title="Some graph entries were skipped">
+              {normalizeError}
+            </Alert>
+          </div>
         )}
+        {emptyMessage !== null && (
+          <div className={styles.emptyOverlay}>
+            <EmptyState message={emptyMessage} />
+          </div>
+        )}
+        <GraphCanvas
+          elements={elements}
+          stylesheet={stylesheet}
+          layout={options.layout}
+          visibility={visibility}
+          onSelect={handleSelect}
+          onContextSelect={handleContextSelect}
+          selectedId={selectedNodeId}
+          collapsedIds={collapsedIds}
+          onCollapsedChange={setCollapsedIds}
+          podParentMode={podParentMode}
+        />
+        <NodeDetailPanel
+          node={selectedNode}
+          onClose={() => handleSelect(null)}
+          onAlertTimeClick={handleAlertTimeClick}
+          timeZone={timeZone}
+          urls={detailUrls}
+          view={detailRequest !== null ? 'detail' : 'alerts'}
+        />
       </div>
     </div>
   );

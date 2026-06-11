@@ -1,5 +1,6 @@
 import type cytoscape from 'cytoscape';
 
+import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { ICON_SVG_BY_KIND } from '../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
 
@@ -9,6 +10,7 @@ export interface VisibilitySets {
 }
 
 const KNOWN_KINDS = new Set<string>(Object.keys(ICON_SVG_BY_KIND));
+const KNOWN_EDGE_TYPES = new Set<string>(Object.keys(EDGE_STYLE_BY_TYPE));
 
 function nodeIsVisible(kind: unknown, visibleKinds: Set<NodeKind>): boolean {
   if (typeof kind !== 'string') {
@@ -67,7 +69,11 @@ export function computeVisibility(
       continue;
     }
     const edgeType = data.edgeType;
-    if (typeof edgeType !== 'string' || edgeTypeSet.has(edgeType as EdgeType)) {
+    // Unknown edge types default VISIBLE (they render in the fallback gray style),
+    // mirroring the unknown-kind rule above: the filter universe only covers known
+    // types, so a backend addition must not silently disappear — nor drag its
+    // endpoint nodes down with it through the orphan cascade.
+    if (typeof edgeType !== 'string' || !KNOWN_EDGE_TYPES.has(edgeType) || edgeTypeSet.has(edgeType as EdgeType)) {
       visibleEdgeIds.add(id);
     }
   }

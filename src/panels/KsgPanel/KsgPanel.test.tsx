@@ -521,9 +521,21 @@ describe('KsgPanel', () => {
     };
     const controllerId = 'ctrl/demo/shop/statefulset/mongo';
 
-    type CanvasHandlers = { onSelect?: (id: string | null) => void; onContextSelect?: (id: string) => void };
-    const lastCanvasProps = (): CanvasHandlers =>
-      (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
+    type CanvasHandlers = {
+      onSelect?: (id: string | null) => void;
+      onContextSelect?: (id: string) => void;
+      onCollapsedChange?: (next: Set<string>) => void;
+    };
+    const lastCanvasProps = (): CanvasHandlers => (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
+
+    // Controller mode default-collapses the synthesized controller, folding the pod
+    // off the canvas — where it cannot be clicked, and where resolveSelectedNode
+    // (correctly) refuses to open the panel for it. Expand first, as a user would.
+    const expandAll = (): void => {
+      act(() => {
+        lastCanvasProps().onCollapsedChange?.(new Set());
+      });
+    };
 
     function renderPanel(options: KsgPanelOptions): void {
       render(
@@ -549,6 +561,7 @@ describe('KsgPanel', () => {
 
     it('pod right-click opens the panel and fires both queries with owner kind/name + click time', async () => {
       renderPanel(withEndpoint);
+      expandAll();
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
@@ -582,6 +595,7 @@ describe('KsgPanel', () => {
 
     it('left-click opens the alerts view and never queries (no detail sections)', () => {
       renderPanel(withEndpoint);
+      expandAll();
       act(() => {
         lastCanvasProps().onSelect?.('demo/p1');
       });
@@ -607,6 +621,7 @@ describe('KsgPanel', () => {
 
     it('never queries while detailEndpoint is unset (sections render, buttons disabled)', () => {
       renderPanel(defaultOptions);
+      expandAll();
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
@@ -617,6 +632,7 @@ describe('KsgPanel', () => {
 
     it('a later left-click clears the lookup intent (no extra queries for the new node)', async () => {
       renderPanel(withEndpoint);
+      expandAll();
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
@@ -627,6 +643,21 @@ describe('KsgPanel', () => {
         lastCanvasProps().onSelect?.(controllerId);
       });
       expect(detailGetMock).toHaveBeenCalledTimes(2); // unchanged — left-click never queries
+    });
+
+    it('collapsing the selected pod away closes the detail panel (off-canvas node never described)', () => {
+      renderPanel(withEndpoint);
+      expandAll();
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      // Re-collapse the pod's controller (legend toggle / cue): the pod folds off
+      // the canvas, so the panel must close rather than describe a hidden node.
+      act(() => {
+        lastCanvasProps().onCollapsedChange?.(new Set([controllerId]));
+      });
+      expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
     });
   });
 });
