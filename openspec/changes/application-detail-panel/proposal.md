@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 新增**右鍵(cytoscape `cxttap`)互動**:在 pod/controller 節點上右鍵 → 開啟既有 node-detail 面板(與左鍵 tap 同一受控選取狀態、同位置同版型)並觸發本變更的 REST lookup。這是面板第一個 `cxttap` handler,需抑制瀏覽器原生右鍵選單,且右鍵選取需與既有 `tap`(左鍵)受控選取保持同步。
+- 新增**右鍵(cytoscape `cxttap`)互動**:在 pod/controller 節點上右鍵 → 開啟既有 node-detail 面板(與左鍵 tap 同一受控選取狀態、同位置同版型)並觸發本變更的 REST lookup。面板依觸發方式分流:右鍵開 `detail` view(只渲染 Application / Containers 兩區塊),左鍵維持 `alerts` view(只渲染告警表格)。這是面板第一個 `cxttap` handler,需抑制瀏覽器原生右鍵選單,且右鍵選取需與既有 `tap`(左鍵)受控選取保持同步。
 - node-detail 面板新增兩個區塊,**僅對 pod 與 workload controller**(`pod` / `deployment` / `statefulset` / `daemonset` / `job` / `cronjob`)節點顯示;其餘 kind 不顯示:
   - **Application section**(沿用原設計,**並存**;邏輯比照 Containers section):顯示該節點的 ArgoCD application name 與**單一 URL 按鈕**——以**同一組 input** 呼叫 backend、但回傳**單一** Argo app detail URL,按鈕以**新分頁**(`target="_blank"` + `rel="noopener"`)開啟。
   - **Containers section**(本次新增):**pod** 列出自身 containers(container name + image);**controller** 聚合其子 pod 的 containers(以 name+image 去重)。每列一顆 **URL 按鈕**,開新分頁到該 container image 的外部詳情 URL。
@@ -15,9 +15,9 @@
   - **input**(兩個查詢共用):ArgoCD application name / pod-controller kind / pod-controller name / current time(pod 節點的 controller kind/name 取自其 owner;controller 節點取自身)。
   - **output**:**image-detail 查詢**(`/api/v1/code_changes`)回 **map(container name → URL)**——面板以 container name 查 map,為每列 URL 按鈕綁定對應 URL,**不含 image 參數**;**application-detail 查詢**(`/api/v1/config_changes`)回**單一 URL**(Argo app detail)。一次右鍵觸發兩個查詢,涵蓋該節點所有 containers 與 app 連結。
   - 需處理 loading / error 狀態,並在元件卸載 / StrictMode 雙重掛載下可中止、避免 unmount 後 setState。
-- 新增**面板選項**供部署環境配置 REST endpoint(proxy route / 路徑)。
+- **detail endpoint 預設自 panel datasource 自動推導**:未設定面板選項時,自面板查詢 target 的 datasource ref 推導 Grafana proxy base path(`access: proxy` 的 instance settings `url` 即 `/api/datasources/proxy/uid/<uid>`),demo 零設定即可用;**面板選項保留作覆寫**(datasource 無 `url` 或 detail endpoint 在另一個 backend 時),option 與推導皆無時兩區塊停用、不發查詢。
 - **demo**:seeder 新增 container/image 假資料(視 backend 版本支援,如 `kube_pod_container_info` 型 series),讓 showcase/demo 可見新區塊。
-- 元件:**ApplicationTable**(原規劃)與 **ContainerTable**(新)皆 co-located 於 `node-detail` feature、經 barrel 匯出,含單元測試;更新受影響的既有測試 fixture(`NodeDetailPanel.test.tsx` / `KsgPanel.test.tsx`)。
+- 元件:**ApplicationTable**(原規劃)與 **ContainerTable**(新)皆 co-located 於 `node-detail` feature、經 barrel 匯出,含單元測試;更新受影響的既有測試 fixture(`NodeDetailPanel.test.tsx` / `KsgPanel.test.tsx`)。兩元件比照 Alerts 表格以**帶 column header 的表格版型**(`@grafana/ui` `InteractiveTable`)渲染——Application 區塊欄位 Application / URL,Containers 區塊欄位 Name / Image / URL,各列沿欄整齊對齊。
 
 ## Capabilities
 
@@ -37,10 +37,11 @@
   - `src/features/node-detail/components/NodeDetailPanel/NodeDetailPanel.types.ts`:擴充 `NodeDetailData`(`application`、`containers`)與 `NodeDetailPanelProps`(REST 狀態 / callback)。
   - `src/features/node-detail/components/ApplicationTable/*`:**新元件資料夾**(ArgoCD 連結),比照 `AlertTable` 共置慣例。
   - `src/features/node-detail/components/ContainerTable/*`:**新元件資料夾**(container/image 列 + URL 按鈕)。
-  - `src/features/node-detail/hooks/*`:**新 hook**(以 `getBackendSrv()` 呼叫 image-detail 與 application-detail 查詢,共用同一組 input,回傳 `{ loading, urlByContainer, applicationUrl, error }`,支援中止;單一 hook 或兩個 hook 於 design 釘)。
+  - `src/features/node-detail/hooks/*`:**新 hook**(以 `getBackendSrv()` 呼叫 image-detail 與 application-detail 查詢,共用同一組 input,回傳 `{ loading, applicationUrl, urlByContainer, applicationError, containersError }`(錯誤按查詢分開),支援中止;單一 hook,D2 已釘)。
   - `src/features/node-detail/index.ts`:barrel 匯出新元件(必要時含 hook)。
   - `src/panels/KsgPanel/KsgPanel.tsx`:`resolveSelectedNode()` 傳遞 `application` / `containers`;右鍵選取與 REST 觸發接線。
-  - `src/panels/KsgPanel/KsgPanel.types.ts`:新增面板選項(REST endpoint / proxy route)。
+  - `src/panels/KsgPanel/KsgPanel.types.ts`:新增面板選項(REST endpoint / proxy route,語意為覆寫自動推導)。
+  - `src/features/node-detail/resolveDetailEndpoint.ts`:**新 helper**——option 覆寫 → 自 `data.request.targets` 的 datasource ref 經 `getDataSourceSrv().getInstanceSettings()` 推導 proxy base path → 皆無回 `''`。
   - `src/features/graph-canvas/components/GraphCanvas/GraphCanvas.tsx`:新增 `cy.on('cxttap', ...)` handler 與 `onContextSelect` prop,抑制原生 contextmenu、與 `selectSingle()` 受控選取同步。
   - `src/features/graph-data/normalize.ts`:透傳 pod `application` / `containers`;合成 controller 時自子 pod 聚合兩欄位,並聚合子 pod `alerts`(pod 回填 / `id` 去重)。
   - `src/shared/types/cytoscape.d.ts`:宣告 `application?: string` 與 `containers?: Array<{ name: string; image: string }>`。

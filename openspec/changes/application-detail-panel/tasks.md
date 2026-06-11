@@ -12,12 +12,12 @@
 ## 2. Panel 選項(D7)
 
 - [x] 2.1 `KsgPanel.types.ts`:新增 `detailEndpoint`(graph API backend proxy route / base path)選項欄位,預設空字串
-- [x] 2.2 `module.ts` options builder:加入 `detailEndpoint` 編輯器欄位與說明文字(註明兩查詢共用、子路徑固定)
-- [x] 2.3 未設定 `detailEndpoint` 時的停用語意:兩區塊不顯示/停用且不發查詢(對應 spec「未設定 endpoint 時停用」)
+- [x] 2.2 `KsgPanel.editor.tsx` options builder(經 `module.ts` 掛載):加入 `detailEndpoint` 編輯器欄位與說明文字(註明兩查詢共用、子路徑固定)
+- [x] 2.3 endpoint 為空時的停用語意:URL 按鈕停用且不發查詢(當時語意為「option 空即停用」;§9 改版為「option 空先自 datasource 推導、皆不可得才停用」——對應 spec「未設定 endpoint 且無法推導時停用」)
 
 ## 3. REST 查詢 hook(D2 / async 正確性)
 
-- [x] 3.1 新增 `src/features/node-detail/hooks/useNodeDetailUrls.ts`:輸入 `{ application, kind, name, time } | undefined` + `endpoint`,以 `@grafana/runtime` `getBackendSrv()` **並行**發出 application-detail(`GET <endpoint>/api/v1/config_changes`,回 `{ "url": string }`)與 image-detail(`GET <endpoint>/api/v1/code_changes`,回 `{ [container]: { "url": string } }`)兩請求,query 參數 `application` / `kind` / `name` / `time`(Unix 秒);解析層將 code_changes 巢狀回應**攤平**為 `urlByContainer: Record<string, string>`;回傳 `{ loading, applicationUrl, urlByContainer, error }`
+- [x] 3.1 新增 `src/features/node-detail/hooks/useNodeDetailUrls.ts`:輸入 `{ application, kind, name, time } | undefined` + `endpoint`,以 `@grafana/runtime` `getBackendSrv()` **並行**發出 application-detail(`GET <endpoint>/api/v1/config_changes`,回 `{ "url": string }`)與 image-detail(`GET <endpoint>/api/v1/code_changes`,回 `{ [container]: { "url": string } }`)兩請求,query 參數 `application` / `kind` / `name` / `time`(Unix 秒);解析層將 code_changes 巢狀回應**攤平**為 `urlByContainer: Record<string, string>`;回傳 `{ loading, applicationUrl, urlByContainer, applicationError, containersError }`(錯誤按查詢分開)
 - [x] 3.2 input 為 `undefined` 或 `endpoint` 為空時 MUST NOT 發查詢(回 idle 狀態)
 - [x] 3.3 `AbortController` 在 input / endpoint 變更或 unmount 時中止;StrictMode 雙掛載冪等;`void` + `.catch` 滿足 `no-floating-promises` / `no-misused-promises`;不在 unmount 後 setState
 - [x] 3.4 hook 測試:mock `getBackendSrv`,涵蓋雙請求成功、單邊失敗(另一邊結果保留)、HTTP/網路失敗、中止、idle(無 input / 無 endpoint)不發查詢、回傳 JSON 形狀不符的防禦
@@ -34,7 +34,7 @@
 
 - [x] 5.1 `NodeDetailPanel.types.ts`:`NodeDetailData` 新增 `application?: string`、`containers?: ContainerSpec[]`;`NodeDetailPanelProps` 新增 REST 狀態 prop(`applicationUrl` / `urlByContainer` / `loading` / `error` 或等價封裝)
 - [x] 5.2 `KsgPanel.tsx` `resolveSelectedNode()`:擴充傳遞 `application` / `containers`,並一併解析查詢參數來源(pod 取 `data.owner` 的 kind/name、controller 取自身、standalone pod 用自身 kind/name)
-- [x] 5.3 `NodeDetailPanel.tsx`:`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }` 時,有 `application` 渲染 Application section、有非空 `containers` 渲染 Containers section(兩者獨立 gating,作為 Alerts 之外的 sticky sections);其餘 kind 一律不渲染
+- [x] 5.3 `NodeDetailPanel.tsx`:`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }` 時,有 `application` 渲染 Application section、有非空 `containers` 渲染 Containers section(兩者獨立 gating,sticky sections);其餘 kind 一律不渲染(後續定案:view 分流——右鍵 `detail` view 只渲染兩區塊、左鍵 `alerts` view 只渲染告警表)
 - [x] 5.4 `src/features/node-detail/index.ts` barrel:匯出 `ApplicationTable` / `ContainerTable`(及必要時 hook);`KsgPanel` 僅經 barrel import(不越界)
 - [x] 5.5 更新既有測試 fixture(`NodeDetailPanel.test.tsx` / `KsgPanel.test.tsx`)並新增:兩區塊依 kind gating、application/containers 個別有無時的獨立顯示/隱藏、`resolveSelectedNode` 傳遞新欄位
 
@@ -51,4 +51,39 @@
 - [x] 7.2 `npm run lint` 零警告(`import-x/no-default-export`、`import-x/no-restricted-paths`、`no-floating-promises`、`no-misused-promises`、`Readonly` props)
 - [x] 7.3 `npm run test:ci` 全綠
 - [x] 7.4 demo 手動驗證(視 backend 版本支援 `application`/`containers` 欄位與 detail endpoint;必要時先以 mock/seeder 假資料替代):右鍵 pod/controller → loading → Application 單一 URL 按鈕 + Containers 每列按鈕新分頁開啟;map 缺 key 該列停用;非 pod/controller 無區塊;未設定 `detailEndpoint` 停用;查詢失敗顯示錯誤而不影響告警表格;左鍵不發查詢
-- [ ] 7.5 上游對齊:子路徑與回傳形狀已定案(`/api/v1/config_changes` 回 `{url}`;`/api/v1/code_changes` 回 `{name:{url}}`);確認 query 參數名與 D2 假設一致,不一致時僅調整 hook 解析層並回填 design.md;demo seeder 補 container/image 假資料(待 backend 版本)
+- [ ] 7.5 上游對齊:子路徑與回傳形狀已定案(`/api/v1/config_changes` 回 `{url}`;`/api/v1/code_changes` 回 `{name:{url}}`);確認 query 參數名與 D2 假設一致,不一致時僅調整 hook 解析層並回填 design.md;demo seeder 補 container/image 假資料(待 backend 版本);backend 輸出 `application`/`containers` 後,demo 一併手動驗證 §8 表格 header 版型(與 Alerts 表格一致)與 §9 推導路徑(右鍵後 Network 面板見 `/api/datasources/proxy/uid/ksg-default/api/v1/...`)
+
+## 8. 表格版型對齊 Alerts 表格(D8 增補)
+
+- [x] 8.1 `ApplicationTable.tsx`:改以 `@grafana/ui` `InteractiveTable` 渲染,欄位 **Application / URL**;columns / data `useMemo`、`getRowId` 穩定(application name + index,比照 `AlertTable` 的 index 後綴慣例);URL 欄 cell 維持既有 `LinkButton` 語意(成功帶 `href` + `target="_blank"` + `rel="noopener"`、無 URL 停用);loading / error 指示維持表格之外
+- [x] 8.2 `ContainerTable.tsx`:同上改 `InteractiveTable`,欄位 **Name / Image / URL**;`getRowId` 穩定(`name/image` + index);image 欄維持 monospace、ellipsis 改 `break-all` 換行(無空白字串不換行會撐欄)
+- [x] 8.3 測試更新:兩元件斷言 column headers(Application/URL、Name/Image/URL)存在且每列內容落於對應欄;testid 政策——`application-url-button` / `container-url-button`(URL cell 內 LinkButton)與 `*-table-loading` / `*-table-error`(表格外)**原樣保留**(`NodeDetailPanel.test.tsx` / `KsgPanel.test.tsx` 跨檔斷言不必動),`application-row` / `container-row` 移入 cell 內元素或退役(僅兩元件自身測試使用);既有 href / target / rel / 停用 / loading / error / 不自動導頁斷言隨新 DOM 調整
+- [x] 8.4 `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠(2026-06-11,450 tests / 52 suites + production build);demo 視覺驗證併入 7.5(現行 backend 不輸出 `application`/`containers`,區塊在 demo 不出現)
+
+## 9. endpoint 自 panel datasource 自動推導(D7 改版)
+
+- [x] 9.1 新增 `src/features/node-detail/resolveDetailEndpoint.ts`(+ `.test.ts`,經 barrel 匯出):輸入 `{ option, request }`——option 非空(trim 後)→ 原樣回傳;否則依序檢視 `request?.targets` 非隱藏且帶 datasource ref 的 targets,以 `getDataSourceSrv().getInstanceSettings(ref)?.url` 為 base(僅接受非空字串),取第一個解析成功者(hide / 解析不出 url 的 ref 跳過續查);皆無 → `''`。**呼叫順序釘死**:option / request / targets / ref 逐層 early-return,確認有 ref 後才觸碰 `getDataSourceSrv()`(既有測試 fixture 無 `request`,module mock 不含 `getDataSourceSrv`,先觸碰即炸)
+- [x] 9.2 `KsgPanel.tsx`:`useNodeDetailUrls` 改餵解析後 endpoint(`useMemo` 依 option + `data.request` 計算);hook 本身不動(仍接 endpoint 字串、`''` = idle)
+- [x] 9.3 `KsgPanel.editor.tsx`:`detailEndpoint` 選項描述改為「覆寫;留空時自面板查詢的 datasource 自動推導 proxy path(`/api/datasources/proxy/uid/<uid>`)」
+- [x] 9.4 測試:helper 單元測試(mock `getDataSourceSrv`——option 覆寫優先 / 無 targets / 無 datasource ref / 查無 instance settings / `url` 空 → `''` / 正常推導回 proxy path);`KsgPanel.test.tsx` 既有 `jest.mock('@grafana/runtime')` factory **加入 `getDataSourceSrv`**,並增補「option 空 + target 帶 ref → 查詢發往推導 base」、「option 設定 → 覆寫推導」、「皆無法解析 → 右鍵後區塊照資料渲染、按鈕停用、零查詢」
+- [x] 9.5 `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠(2026-06-11,同 8.4);demo Network 驗證併入 7.5(節點無 `application` 時右鍵不組 input、不發查詢,推導路徑在現行 demo 無從觀察)
+
+## 10. 查詢結果顯示於 URL 按鈕右側(D8 增補)
+
+- [x] 10.1 兩元件 URL 欄 cell 改「按鈕 + 右側結果槽」:進行中 spinner + 提示文字、失敗錯誤色訊息(截斷 + `title`)、成功顯示解析 URL(次要色截斷 + `title`)、idle / 缺 key 槽位空白;移除表格外 loading / error 列;per-row testid `*-url-pending` / `*-url-error` / `*-url-result`
+- [x] 10.2 測試更新:兩元件結果槽三態(pending / error / result)與槽位位置(URL cell 內)斷言;`NodeDetailPanel.test.tsx` 錯誤斷言改 per-row testid
+- [x] 10.3 `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠(2026-06-11,454 tests / 52 suites)
+
+## 11. 欄名與按鈕欄對齊(D8 增補)
+
+- [x] 11.1 ApplicationTable 首欄 header 改 **Name**、URL 欄 header 改 **Change Report**;ContainerTable URL 欄 header 同改 **Change Report**(按鈕文字不變)
+- [x] 11.2 兩表 Change Report 欄 `disableGrow`(Application 的 Name 欄、Containers 的 Image 欄填滿剩餘寬度;Containers 的 Name 欄 `disableGrow`),兩區塊按鈕欄靠右、上下對齊
+- [x] 11.3 查詢失敗時 Change Report 欄僅渲染錯誤訊息、不渲染停用按鈕(idle / 進行中 / 缺 key 仍渲染停用按鈕)
+- [x] 11.4 測試同步(header 名、失敗時按鈕缺席)+ `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠
+
+## 12. 收合容器 worstStatus 含 normal(D10)
+
+- [x] 12.1 `normalize.ts`:controller 合成 `worstStatus` 一律寫入(拿掉 `worstRank > 0` 守門);`childWorstStatusRank` pre-pass 記錄所有帶 parent 的 pod(含 rank 0);k8s node 改「有 status 資訊(自身 status 或 ≥1 子 pod)才寫入」,無資訊省略
+- [x] 12.2 `normalize.test.ts`:既有「全 normal 省略」三測項反轉為 `'normal'`;「critical alert 不升級」測項改斷言 `worstStatus: 'normal'`;新增「node 無 status 無子 pod → 省略」
+- [x] 12.3 spec deltas:panel-rendering 與 graph-data-integration 各加 MODIFIED requirement(全 normal 畫綠框 / 一律寫入與無資訊省略);delta 內「告警聚合不影響 status 上色」scenario 同步
+- [x] 12.4 `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠;demo 目視(收合全 normal controller 應綠框——seeder 的 status 組合已可觀察,不依賴 7.5)

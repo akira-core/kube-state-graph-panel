@@ -41,7 +41,7 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 
 ### D2 — REST 傳輸:`getBackendSrv()` 走 Grafana proxy,單一 hook 並行雙請求
 
-新增 hook `useNodeDetailUrls(input | undefined)`(共置 `node-detail/hooks/`),input 為 `{ application, kind, name, time }`;內部以 `@grafana/runtime` 的 `getBackendSrv()` 對 panel option 設定的 endpoint 發出**兩個並行請求**(application-detail、image-detail),回傳 `{ loading, applicationUrl, urlByContainer, applicationError, containersError }`(實作定案:錯誤**按查詢分開**而非單一 `error`——spec 要求「任一查詢失敗只影響對應區塊」,單一 error 無法表達單邊失敗另一邊保留)。input 為 `undefined`(未右鍵、未設 endpoint、左鍵選取)時不發請求。
+新增 hook `useNodeDetailUrls(input | undefined)`(共置 `node-detail/hooks/`),input 為 `{ application, kind, name, time }`;內部以 `@grafana/runtime` 的 `getBackendSrv()` 對**解析後的 endpoint**(依 D7 順序解析;hook 仍接 endpoint 字串)發出**兩個並行請求**(application-detail、image-detail),回傳 `{ loading, applicationUrl, urlByContainer, applicationError, containersError }`(實作定案:錯誤**按查詢分開**而非單一 `error`——spec 要求「任一查詢失敗只影響對應區塊」,單一 error 無法表達單邊失敗另一邊保留)。input 為 `undefined`(未右鍵、左鍵選取)或解析後 endpoint 為空時不發請求。
 
 - **Rationale**:沿用 Grafana 認證、同源無 CORS、plugin-validator 認可路徑;兩查詢同 input 同生命週期,單一 hook 管理一組 loading/error/abort 較兩個 hook 簡單。
 - **REST 契約(路徑與回傳形狀已定案)**:application-detail 查詢 = `GET <endpoint>/api/v1/config_changes` 回 `{ "url": string }`;image-detail 查詢 = `GET <endpoint>/api/v1/code_changes` 回 `{ [containerName]: { "url": string } }`(巢狀物件,非扁平 map)。hook 解析層 MUST 將後者**攤平**為 `urlByContainer: Record<string, string>`,UI 端只認扁平 map。query 參數 `application` / `kind` / `name` / `time`(Unix 秒,參數名仍為假設);參數名若變僅影響 hook 內解析層。
@@ -63,7 +63,8 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 
 右鍵後 hook 立即發出雙查詢;成功後 ApplicationTable / ContainerTable 的 URL 按鈕以 `@grafana/ui` `LinkButton`(或 `<a>`)渲染,`href` 為已解析 URL、`target="_blank"` + `rel="noopener"`,**不** `window.open`、不自動導頁。狀態機:
 
-- **左鍵選取**(或未設 endpoint):區塊照資料渲染(name/image 可見),URL 按鈕**停用**(無查詢)。
+- **左鍵選取**:`alerts` view,不渲染兩區塊(view 分流——見 spec「Node Detail Application 與 Containers 區塊」)。
+- **右鍵但 endpoint 解析為空**(option 空且無法自 datasource 推導,D7):`detail` view 區塊照資料渲染(name/image 可見),URL 按鈕**停用**(無查詢)。
 - **右鍵後 loading** → 兩區塊顯示 loading 指示,不阻塞其餘區塊。
 - **成功** → 按鈕帶 href;`urlByContainer` 查無該 container name(`noUncheckedIndexedAccess` → `undefined`)→ 該列按鈕停用/隱藏,name/image 照常。
 - **失敗** → 對應區塊錯誤/空狀態,header / Alerts / 另一區塊不受影響。
@@ -75,13 +76,27 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 
 「pod/controller」= `pod` + 5 種 controller(`deployment`/`statefulset`/`daemonset`/`job`/`cronjob`),其餘 kind 不渲染兩區塊。已釘於 panel-rendering spec。
 
-### D7 — 面板選項僅新增 endpoint(base route)
+### D7 — endpoint 解析:自 panel datasource 自動推導,面板選項為覆寫(2026-06-11 改版)
 
-`KsgPanelOptions` 新增單一 endpoint 設定(graph API backend 的 proxy route / base path),兩查詢共用、各自固定子路徑(見 D2)。未設定 → 兩區塊停用、不發查詢。**不**提供 label key 選項(label 來源已廢)、不分開設定兩條 route(同一 backend,無必要)。
+`KsgPanelOptions.detailEndpoint` 保留,但語意自「唯一來源」改為**覆寫**。解析順序(panel 層 helper,共置 `node-detail` feature、經 barrel 匯出;hook 介面不變,仍接 endpoint 字串):
+
+1. option 非空 → 以其為準(hook 既有 trim / 去尾斜線行為)。
+2. 否則依序檢視 `data.request?.targets` 中**非隱藏且帶 datasource ref** 的 targets,以 `getDataSourceSrv().getInstanceSettings(ref)?.url` 為 base(僅接受非空字串),取**第一個解析成功**者——`hide` 的 target 與解析不出 url 的 ref(如 expression `__expr__`)跳過續查。`access: proxy` 的 datasource 其 instance settings `url` 即 Grafana 改寫後的 proxy base path `/api/datasources/proxy/uid/<uid>`(`frontendsettings` 行為;已於 Grafana 12.4 + Infinity 3.8 實測 `/api/datasources/proxy/uid/ksg-default/...` 回 200)。
+3. 皆無 → `''`(沿用既有 idle / 停用語意)。
+
+- **Rationale**:面板本就知道資料來自哪個 datasource(targets 的 ref);instance settings `url` 在 `access: proxy` 下天然就是 proxy base path——零設定即可用(demo 的 `ksg-default` 已 provisioned `url: http://kube-state-graph:8080`),且仍走 Grafana dataproxy,「不直連外部」不變量不破。選項保留為 escape hatch(datasource 無 `url`、或 detail endpoint 在另一個 backend)。
+- **限制 / 風險**:Grafana 12 dataproxy 不擋 backend plugin,但 datasource 記錄 MUST 有非空 `url`——UI 新建的 Infinity 預設無 `url`(設定頁已移除該欄),proxy 會 502,且 client 端無法預檢(instance settings `url` 一律被改寫為 proxy path);失敗面化為兩區塊的 error 狀態,以 option 覆寫解套。Infinity 的 resource route(`/api/datasources/uid/<uid>/resources/*`)只有 `ping` / `reference-data`,不可作 passthrough。dataproxy 的 id-based 形式已棄用(v13 預設停用),MUST 只用 uid 形式。
+- **Alternatives**:僅手動選項(原 D7——每個部署多填一格、demo 無法開箱即用);Infinity resource passthrough / `getResource()`(不存在該 resource);讀 datasource 原始 URL 直連(破「不直連外部」不變量、CORS、容器內 hostname 不可達)。
+- 其餘不變:**不**提供 label key 選項(label 來源已廢)、不分開設定兩條 route(同一 backend,無必要)。
 
 ### D8 — 元件:ApplicationTable 與 ContainerTable 共置,同一渲染邏輯
 
 兩元件皆共置 `node-detail/components/`、比照 `AlertTable`(`.tsx` / `.types.ts` / `.test.tsx` / `index.ts`、barrel 匯出、props `Readonly<T>`、`useStyles2`)。ContainerTable 接 `{ containers, urlByContainer, loading, error }` 渲染多列;ApplicationTable 接 `{ application, url, loading, error }` 渲染單列(同一列版型:名稱 + URL 按鈕),介面預留多列成長空間。
+
+**表格版型(2026-06-11 增補)**:兩元件改以 `@grafana/ui` `InteractiveTable` 渲染(與 `AlertTable` 同元件、同版型)——ApplicationTable 欄位 **Name / Change Report**;ContainerTable 欄位 **Name / Image / Change Report**,每欄帶 column header、各列沿欄對齊。Change Report 欄 `disableGrow`(ApplicationTable 的 Name 欄、ContainerTable 的 Image 欄填滿剩餘寬度),兩表的按鈕欄因此同樣靠右、上下對齊(使用者回饋:app URL 位置對齊 container URL)。實作約束:columns / data 皆 `useMemo`(react-table 要求);`getRowId` 穩定(ContainerTable 用 `name/image` + index、ApplicationTable 用 application name + index——比照 `AlertTable` 的 index 後綴慣例);image 欄維持 monospace、改 `word-break: break-all` 換行(無空白的 registry/repo@tag 字串若不換行會把欄撐出面板;cell 內 span);**查詢結果槽**位於 Change Report 欄 cell 內(2026-06-11 使用者回饋:結果要長在按鈕旁)——進行中:停用按鈕 + 右側 spinner 提示;成功:按鈕 + 右側解析 URL(次要色);**失敗:僅渲染錯誤色訊息、不渲染按鈕**(使用者回饋:not found 時只顯示提示);皆過長截斷 + `title` 完整值,idle / 缺 key 僅停用按鈕、槽位空白;**不再有表格外的 loading / error 列**(單一真實來源在列內);URL 欄 cell 維持既有 `LinkButton` 語意(成功帶 `href` + `target="_blank"` + `rel="noopener"`、無 URL 停用),不自動導頁。
+
+- **Rationale**:與 Alerts 表格共用同一表格元件 → header 樣式、欄距、字級全面一致,欄位天然整齊對齊,免手刻 grid/欄寬;一個面板內三個區塊視覺統一。
+- **Alternatives**:CSS grid 手排 header 列(欄寬要自己維護、與 InteractiveTable 樣式漂移);維持無 header flex row(本次需求明確否決)。
 
 ### D9 — 告警 pod → controller 傳播:normalize 聚合,面板零修改
 
@@ -97,6 +112,18 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 - **Rationale**:controller 是 panel 合成物,backend 永遠不會給它 alerts;pod 收進 controller 盒後,使用者仍需在 controller 的 detail 面板看到旗下告警——與 `worstStatus` 邊框同一動機(資料層的對應物)。面板端零修改:`resolveSelectedNode` / `AlertTable` 已照 `data.alerts` 渲染。
 - **Alternatives**:面板端(`resolveSelectedNode`)現場聚合——把聚合邏輯散進 UI,違反 anti-corruption boundary(同 D3 的否決理由);以 alerts 推導節點顏色——明確不做(status 上色為既定決策)。
 
+### D10 — 收合容器的 worstStatus 含 normal(2026-06-11 使用者回饋)
+
+原行為「最差為 `normal` 時省略 `worstStatus`」(收合框維持中性)改為**normal 也畫**:
+
+- **controller**:必有 ≥1 子 pod,`worstStatus` **一律寫入**(全 normal → `'normal'` → 收合畫綠框)。
+- **k8s node**:於**有 status 資訊**時寫入(自身帶合法 `status` 或至少一個子 pod);自身無 status 且無子 pod 時省略——「無資訊」不得偽裝成 normal(中性框)。為此 `childWorstStatusRank` pre-pass 改為**記錄所有**帶 parent 的 pod(含 rank 0),使 `has(nodeId)` 可判別「有無子 pod」。
+- stylesheet 零修改:`node[worstStatus="normal"].cy-expand-collapse-collapsed-node` 綠框 selector 本就由 `STATUS_COLOR` 迭代生成,只差 normalize 寫入。
+- alerts 仍不參與(D9 不變):normal pod + critical alert → `worstStatus: 'normal'`(寫入但不升級)。
+
+- **Rationale**:「沒消息」與「明確的好消息」在收合框上應可區分;全健康容器收合後綠框是主動訊號。
+- **Alternatives**:維持省略(原設計,使用者否決);無資訊也畫綠(把「backend 沒給 status」誤報成健康,否決)。
+
 ## Risks / Trade-offs
 
 - **[backend 欄位與 endpoint 尚未交付]** → 契約(欄位形狀、query 參數、回傳 JSON)已釘於 specs + D2 假設;panel 端全程優雅降級(欄位缺失→區塊隱藏、未設 endpoint→停用),可先行實作並以 mock/測試覆蓋;demo seeder 待 backend 版本支援後補。
@@ -109,13 +136,13 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 
 ## Migration Plan
 
-- **部署前提**(營運側):kube-state-graph backend 升至輸出 `application`/`containers` 與兩個 detail endpoint 的版本;Grafana 有可用 proxy route;面板選項填入 endpoint。
+- **部署前提**(營運側):kube-state-graph backend 升至輸出 `application`/`containers` 與兩個 detail endpoint 的版本;面板查詢的 datasource 帶非空 `url`(預設自動推導 proxy path,見 D7);特殊環境以面板選項覆寫 endpoint。
 - **降級 / rollback**:舊版 backend(無欄位)→ 區塊隱藏;無 endpoint → 區塊停用;REST 失敗 → 錯誤狀態。三者皆**不影響**圖形與其餘面板。純增量、無資料遷移、無 schema 變更;移除變更即回現狀。
 - **落地順序**:specs(已完成)→ design(本文件)→ tasks 重排 → 實作(normalize 透傳/聚合 → 型別/resolveSelectedNode → cxttap 接線 → hook → 元件 → 面板選項)→ 測試 → demo 驗證(視 backend 版本)。
 
 ## Open Questions
 
 - **REST 契約收尾**:子路徑與回傳 JSON 形狀已定案(`/api/v1/config_changes` 回 `{url}`;`/api/v1/code_changes` 回 `{name:{url}}`);僅剩 query 參數名(D2 為假設)待上游 backend 確認——只影響 hook 解析層。
-- **proxy route 由誰提供**:面板無自家後端,`getBackendSrv()` 需指向 Grafana 可代理的路徑(datasource proxy 或部署環境提供的 route)——部署側議題,panel 只吃 endpoint 字串。
+- **proxy route 由誰提供**(已解,見 D7):預設自 panel datasource 推導 `/api/datasources/proxy/uid/<uid>`;部署側只需確保該 datasource 帶非空 `url`(demo 已 provisioned),特殊環境以 option 覆寫。
 - **`time` 參數語意**:backend 用 current time 做什麼(版本對位?快取鍵?)——不影響 panel 實作(送查詢當下 Unix 秒),但值得上游文件化。
 - **快取**:同節點重複右鍵是否快取結果——後續最佳化,本變更不快取。
