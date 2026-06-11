@@ -41,13 +41,25 @@ function resolveParentClusterColor(ele: cytoscape.NodeSingular, fallback: string
 }
 
 function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, EdgeStyle>): EdgeStyle {
-  if (edgeType !== undefined && edgeType in map) {
+  // Object.hasOwn, not `in`: an unknown wire type named after an Object.prototype
+  // member must resolve to the fallback style, not an inherited Function.
+  if (edgeType !== undefined && Object.hasOwn(map, edgeType)) {
     const style = map[edgeType];
     if (style !== undefined) {
       return style;
     }
   }
   return FALLBACK_EDGE_STYLE;
+}
+
+// Selector matching every edge type the map routes as 'taxi' — derived from the
+// single-source map so a new fabric edge type gets right-angle routing by editing
+// ONLY the map (no hardcoded type list here). Empty string when none.
+function taxiEdgeSelector(map: Record<string, EdgeStyle>): string {
+  return Object.entries(map)
+    .filter(([, style]) => style.routing === 'taxi')
+    .map(([type]) => `edge[edgeType='${type}']`)
+    .join(', ');
 }
 
 export function getStylesheet({
@@ -245,23 +257,25 @@ export function getStylesheet({
             .lineStyle) as unknown as cytoscape.Css.LineStyle,
       },
     },
-    {
-      // Switch↔switch and node→switch fabric edges route orthogonally (taxi) so
-      // the many edges converging on one switch share clean right-angle channels
-      // instead of overlapping béziers. node→switch shares the same routing because
-      // K8s nodes are now pinned one tier above the switch fabric (controller mode),
-      // so their uplinks are parallel vertical segments — taxi keeps them aligned
-      // with the inter-switch wiring. Declared AFTER the base `edge` selector so
-      // its curve-style wins; sets only routing props, leaving line-color / arrow
-      // from the `edge` selector intact.
-      selector: "edge[edgeType='switch-to-switch'], edge[edgeType='node-to-switch']",
-      style: {
-        'curve-style': 'taxi',
-        'taxi-direction': 'vertical',
-        'taxi-turn': '50%',
-        'taxi-turn-min-distance': 5,
-      } as unknown as cytoscape.Css.Edge,
-    },
+    // Fabric edges (routing: 'taxi' in the edge-style map — switch↔switch and
+    // node→switch today) route orthogonally so the many edges converging on one
+    // switch share clean right-angle channels instead of overlapping béziers.
+    // The selector is DERIVED from the map (add a fabric type by editing only the
+    // map). Declared AFTER the base `edge` selector so its curve-style wins; sets
+    // only routing props, leaving line-color / arrow from the `edge` rule intact.
+    ...(taxiEdgeSelector(colorMap) === ''
+      ? []
+      : [
+          {
+            selector: taxiEdgeSelector(colorMap),
+            style: {
+              'curve-style': 'taxi',
+              'taxi-direction': 'vertical',
+              'taxi-turn': '50%',
+              'taxi-turn-min-distance': 5,
+            } as unknown as cytoscape.Css.Edge,
+          },
+        ]),
     {
       // Focus dimming for edges (see node.FADED_CLASS). Slightly lower than nodes
       // so faded connections recede further than faded glyphs.

@@ -1,7 +1,7 @@
 import { createTheme } from '@grafana/data';
 import cytoscape from 'cytoscape';
 
-import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
+import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { FALLBACK_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
@@ -79,10 +79,24 @@ describe('getStylesheet', () => {
     const edgeStyle = styleFor('edge');
     const colorFn = edgeStyle['line-color'] as EdgeFn;
     const lineFn = edgeStyle['line-style'] as EdgeFn;
-    for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE)) {
+    for (const [edgeType, style] of Object.entries(EDGE_STYLE_BY_TYPE)) {
       expect(colorFn(fakeEle({ edgeType }))).toBe(style.color);
       expect(lineFn(fakeEle({ edgeType }))).toBe(style.lineStyle);
     }
+  });
+
+  it('derives the taxi-routing selector from the edge-style map (fabric edges only)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const taxiRule = sheet.find((s) => (s.style as Record<string, unknown> | undefined)?.['curve-style'] === 'taxi');
+    expect(taxiRule).toBeDefined();
+    const expected = Object.entries(EDGE_STYLE_BY_TYPE)
+      .filter(([, style]) => style.routing === 'taxi')
+      .map(([type]) => `edge[edgeType='${type}']`)
+      .join(', ');
+    expect(taxiRule?.selector).toBe(expected);
   });
 
   it('falls back for unknown/undefined edge type', () => {

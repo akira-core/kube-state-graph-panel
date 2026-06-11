@@ -44,13 +44,10 @@ export type EdgeType =
   | 'switch-to-switch'
   | 'node-to-switch';
 
-// Edge types the panel actually DRAWS. The backend's compound Cytoscape view
-// (the only format this panel consumes) expresses `pod-runs-on-node` as
-// compound nesting (cluster > node > pod) and omits it as an edge — see
-// serialise.go / design D31. So it is excluded from the drawn map, the legend,
-// the filter, and the stylesheet. It remains in `EdgeType` because it is still a
-// valid wire value (the Grafana Node Graph format retains it).
-export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
+// Which edge types are actually DRAWN (and listed in the legend) depends on the
+// pod-parent mode — see `drawnEdgeTypesForMode`. Notably `pod-runs-on-node` is
+// expressed as compound nesting in the default `node` mode (design D31) and only
+// drawn as an edge in `controller` mode.
 
 // Health status carried on leaf nodes (upstream data.status). Drives the status
 // border colour (pod/node/pvc) and the detail panel badge. Absent/unknown values
