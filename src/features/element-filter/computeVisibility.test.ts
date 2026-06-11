@@ -24,6 +24,32 @@ describe('computeVisibility', () => {
     expect([...visibleNodeIds]).toEqual(['a', 'b']);
   });
 
+  it('never kind-filters the network fabric wrapper (stale saved visibleKinds)', () => {
+    // visibleKinds saved before the `network` kind existed: the wrapper must stay
+    // visible, or every switch nested inside it disappears with it.
+    const elements = [
+      node('net', 'network'),
+      node('sw1', 'switch', { parent: 'net' }),
+      node('sw2', 'switch', { parent: 'net' }),
+      edge('e', 'sw1', 'sw2', 'switch-to-switch'),
+    ];
+    const { visibleNodeIds } = computeVisibility(elements, ['switch'], ['switch-to-switch']);
+    expect([...visibleNodeIds].sort()).toEqual(['net', 'sw1', 'sw2']);
+  });
+
+  it('orphan-cascades the network wrapper away when its switches are filtered out', () => {
+    const elements = [
+      node('net', 'network'),
+      node('sw1', 'switch', { parent: 'net' }),
+      node('p', 'pod', {}),
+      node('p2', 'pod', {}),
+      edge('e', 'p', 'p2', 'pod-calls-pod'),
+    ];
+    const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
+    expect(visibleNodeIds.has('net')).toBe(false);
+    expect(visibleNodeIds.has('sw1')).toBe(false);
+  });
+
   it('hides edges whose edgeType is filtered out', () => {
     const elements = [node('a', 'pod'), node('b', 'service'), edge('e', 'a', 'b', 'service-selects-pod')];
     const { visibleEdgeIds } = computeVisibility(elements, ['pod', 'service'], []);

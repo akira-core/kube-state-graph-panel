@@ -14,6 +14,14 @@ function nodeIsVisible(kind: unknown, visibleKinds: Set<NodeKind>): boolean {
   if (typeof kind !== 'string') {
     return true;
   }
+  // The virtual fabric wrapper is never kind-filtered: cytoscape's effective
+  // visibility is the AND of an element and all its ancestors, so hiding the
+  // wrapper would hide every switch nested inside it (e.g. via a visibleKinds
+  // list saved before the kind existed). An emptied wrapper still disappears
+  // through the orphan cascade when its switches are filtered out.
+  if (kind === 'network') {
+    return true;
+  }
   if (!KNOWN_KINDS.has(kind)) {
     return true;
   }
