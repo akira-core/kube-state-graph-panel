@@ -223,6 +223,9 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   // Pre-pass: worst child-pod STATUS rank per parent container id, so a COLLAPSED k8s
   // node can border by the worst status among the pods it hides (getStylesheet). Keyed
   // by the pod's raw `parent` (its k8s node id in cluster > node > pod nesting).
+  // Every parented pod records an entry — including rank 0 (normal) — so map
+  // membership doubles as "this container HAS child pods" (D10: a node writes
+  // worstStatus only when it has status information at all).
   const childWorstStatusRank = new Map<string, number>();
   for (const entry of rawNodes) {
     if (!isPlainObject(entry)) {
@@ -234,7 +237,8 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     }
     const status: NodeStatus = isNodeStatus(d.status) ? d.status : FALLBACK_STATUS;
     const r = STATUS_RANK[status];
-    if (r > (childWorstStatusRank.get(d.parent) ?? 0)) {
+    const prev = childWorstStatusRank.get(d.parent);
+    if (prev === undefined || r > prev) {
       childWorstStatusRank.set(d.parent, r);
     }
   }
@@ -282,9 +286,13 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     // never carry them (and are excluded from the detail panel that consumes them).
     const alerts = isCluster || isStorageClass ? undefined : parseAlerts(d.alerts);
     // A k8s `node` container surfaces the worst status it would HIDE once collapsed: the
-    // worst of its OWN status and its child pods' statuses (worst-wins). Set only when
-    // worse than normal — else the collapsed box keeps its own status border.
-    const nodeWorstRank = d.type === 'node' ? Math.max(ownStatusRank, childWorstStatusRank.get(d.id) ?? 0) : 0;
+    // worst of its OWN status and its child pods' statuses (worst-wins) — INCLUDING
+    // `normal`, so an all-healthy box collapses to an explicit green border (D10). Set
+    // only when there IS status information (own status or ≥1 child pod): a bare node
+    // with neither must not dress "no data" up as normal.
+    const nodeChildRank = d.type === 'node' ? childWorstStatusRank.get(d.id) : undefined;
+    const nodeHasStatusInfo = d.type === 'node' && (rawStatus !== undefined || nodeChildRank !== undefined);
+    const nodeWorstRank = Math.max(ownStatusRank, nodeChildRank ?? 0);
     // ArgoCD application + container specs + the typed owner ride on POD nodes only
     // (backend contract); a synthesized controller aggregates the first two from its
     // owned pods below, and the detail-URL queries read a pod's controller from owner.
@@ -312,7 +320,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
         ...(application !== undefined ? { application } : {}),
         ...(containers !== undefined ? { containers } : {}),
         ...(owner !== undefined ? { owner } : {}),
-        ...(nodeWorstRank > 0 ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),
+        ...(nodeHasStatusInfo ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),
         ...(labels !== undefined ? { labels } : {}),
       },
     });
@@ -453,7 +461,9 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           isController: true,
           label: o.ownerName,
           ...(parent !== undefined ? { parent } : {}),
-          ...(worstRank > 0 ? { worstStatus: rankToStatus(worstRank) } : {}),
+          // Always written — a controller always owns ≥1 pod, so an all-normal
+          // brood collapses to an explicit green border (normal is drawn too, D10).
+          worstStatus: rankToStatus(worstRank),
           ...(aggregatedAlerts !== undefined ? { alerts: aggregatedAlerts } : {}),
           ...(aggregatedApplication !== undefined ? { application: aggregatedApplication } : {}),
           ...(aggregatedContainers !== undefined ? { containers: aggregatedContainers } : {}),

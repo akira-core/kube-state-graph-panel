@@ -666,14 +666,14 @@ describe('normalizeGraph — controller synthesis', () => {
     expect(controllerOf(raw)?.worstStatus).toBe('warning');
   });
 
-  it('treats an unknown / absent status as normal (default), so worstStatus is omitted', () => {
+  it('treats an unknown / absent status as normal (default), so worstStatus is normal (drawn too, D10)', () => {
     const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'bogus'));
-    expect(controllerOf(raw)?.worstStatus).toBeUndefined();
+    expect(controllerOf(raw)?.worstStatus).toBe('normal');
   });
 
-  it('omits worstStatus when every owned pod is normal', () => {
+  it('writes worstStatus normal when every owned pod is normal (all-healthy collapses to green, D10)', () => {
     const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'normal'));
-    expect(controllerOf(raw)?.worstStatus).toBeUndefined();
+    expect(controllerOf(raw)?.worstStatus).toBe('normal');
   });
 
   // The SAME collapse-status propagation applies to a k8s `node` container: a collapsed
@@ -714,8 +714,18 @@ describe('normalizeGraph — controller synthesis', () => {
       expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
     });
 
-    it('omits worstStatus when the node and all its pods are normal', () => {
+    it('writes worstStatus normal when the node and all its pods are normal (green box, D10)', () => {
       const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'normal'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('normal');
+    });
+
+    it('writes worstStatus normal for a status-less node whose pods are all status-less (children = info)', () => {
+      const raw = graph(k8sNode('node/w0'), podUnder('pod/a', 'node/w0'));
+      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('normal');
+    });
+
+    it('omits worstStatus for a node with no status and no child pods (no data is not normal)', () => {
+      const raw = graph(k8sNode('node/w0'));
       expect(dataOf(raw, 'node/w0')?.worstStatus).toBeUndefined();
     });
   });
@@ -786,7 +796,7 @@ describe('normalizeGraph — controller synthesis', () => {
       expect(controllerOf(raw)?.alerts).toBeUndefined();
     });
 
-    it('keeps colour status-driven: a critical alert on a normal pod adds alerts but no worstStatus', () => {
+    it('keeps colour status-driven: a critical alert on a normal pod never escalates worstStatus', () => {
       const raw = graphOf(
         alertPod(
           'prod/p1',
@@ -797,7 +807,7 @@ describe('normalizeGraph — controller synthesis', () => {
       );
       const ctrl = controllerOf(raw);
       expect(ctrl?.alerts).toHaveLength(1);
-      expect(ctrl?.worstStatus).toBeUndefined(); // STATUS (not alert severity) drives the tint
+      expect(ctrl?.worstStatus).toBe('normal'); // STATUS (not alert severity) drives the tint
     });
 
     it('leaves owns-edge synthesis untouched by the aggregation (one edge per alerting pod)', () => {
