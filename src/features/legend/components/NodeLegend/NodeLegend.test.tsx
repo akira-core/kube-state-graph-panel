@@ -21,11 +21,12 @@ describe('NodeLegend', () => {
     expect(within(legend).getByRole('heading', { name: 'Node Kinds' })).toBeInTheDocument();
   });
 
-  it('shows a label for every kind', () => {
+  it('shows a label for every kind (display-name overrides applied)', () => {
     render(<NodeLegend />);
     const legend = screen.getByTestId('node-legend');
     for (const kind of Object.keys(ICON_SVG_BY_KIND)) {
-      expect(within(legend).getByText(kind)).toBeInTheDocument();
+      const label = kind === 'network' ? 'physical network' : kind;
+      expect(within(legend).getByText(label)).toBeInTheDocument();
     }
   });
 

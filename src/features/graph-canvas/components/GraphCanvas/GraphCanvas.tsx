@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 
 import { useElementFilter } from '../../../element-filter';
 import { HoverTooltip } from '../../../hover-tooltip';
-import { buildSwitchConstraints, readNodeFabricTier, readSwitchLevels } from '../../../switch-topology';
+import { buildSwitchConstraints, readSwitchLevels } from '../../../switch-topology';
 import { useCytoscape } from '../../hooks/useCytoscape';
 import { useExpandCollapse } from '../../hooks/useExpandCollapse';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
@@ -75,10 +75,10 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   // useGraphLayout only when the active layout is fcose; null (no-op) when there
   // are no switches. useGraphLayout reads the latest value at layout-run time, so
   // a refresh-driven identity change here does not by itself rerun the layout.
-  const switchConstraints = useMemo(
-    () => buildSwitchConstraints(readNodeFabricTier(elements, podParentMode ?? 'node', readSwitchLevels(elements))),
-    [elements, podParentMode]
-  );
+  // TEST: K8s-node fabric-tier pinning (readNodeFabricTier) disabled — only
+  // switches are pinned; nodes are pulled toward the fabric by their
+  // node-to-switch edges alone.
+  const switchConstraints = useMemo(() => buildSwitchConstraints(readSwitchLevels(elements)), [elements]);
 
   const collapseEnabled = onCollapsedChange !== undefined;
 

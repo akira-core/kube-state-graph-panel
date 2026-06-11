@@ -31,8 +31,10 @@ export function useGraphLayout({ cyRef, name, runToken = 0, switchConstraints = 
       // "explosion from origin" flash that happens when preset init layout
       // leaves every node at (0,0).
       randomize: true,
-      idealEdgeLength: 100,
-      nodeRepulsion: 5000,
+      // Longer edges + stronger repulsion spread siblings inside a cluster
+      // compound apart.
+      idealEdgeLength: 150,
+      nodeRepulsion: 15000,
     } as unknown as cytoscape.LayoutOptions;
   }, [name]);
 

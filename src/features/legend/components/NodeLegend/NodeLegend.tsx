@@ -48,6 +48,11 @@ function kindsByCategory(kinds: readonly string[]): Map<NodeCategory, string[]> 
   return grouped;
 }
 
+// Display-name overrides for kinds whose raw id reads poorly as a legend label.
+const LABEL_BY_KIND: Record<string, string> = {
+  network: 'physical network',
+};
+
 export interface NodeLegendProps {
   // The kinds to list. Pass the kinds actually present in the graph (like the
   // cluster legend) to show only what's on screen. Omit to list every known
@@ -75,7 +80,7 @@ export function NodeLegend({ kinds }: Readonly<NodeLegendProps> = {}): React.JSX
                 <span className={styles.glyph}>
                   <IconGlyph kind={kind} />
                 </span>
-                <span>{kind}</span>
+                <span>{LABEL_BY_KIND[kind] ?? kind}</span>
               </li>
             ))}
           </ul>
