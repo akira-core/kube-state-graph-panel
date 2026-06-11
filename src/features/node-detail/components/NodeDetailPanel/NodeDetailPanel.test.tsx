@@ -92,7 +92,12 @@ describe('NodeDetailPanel', () => {
 
     it('renders both sections for a controller kind (statefulset)', () => {
       render(
-        <NodeDetailPanel node={{ ...podWithBoth, kind: 'statefulset' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />
+        <NodeDetailPanel
+          node={{ ...podWithBoth, kind: 'statefulset' }}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+        />
       );
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
@@ -100,7 +105,12 @@ describe('NodeDetailPanel', () => {
 
     it('never renders the sections for a non pod/controller kind, even with stray data', () => {
       render(
-        <NodeDetailPanel node={{ ...podWithBoth, kind: 'service' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />
+        <NodeDetailPanel
+          node={{ ...podWithBoth, kind: 'service' }}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+        />
       );
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
@@ -126,7 +136,12 @@ describe('NodeDetailPanel', () => {
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
       rerender(
-        <NodeDetailPanel node={{ ...podWithBoth, containers: [] }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />
+        <NodeDetailPanel
+          node={{ ...podWithBoth, containers: [] }}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+        />
       );
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
     });
@@ -147,9 +162,9 @@ describe('NodeDetailPanel', () => {
           }}
         />
       );
-      // Both lookup errors show in their own sections…
-      expect(screen.getByTestId('application-table-error')).toHaveTextContent('app lookup failed');
-      expect(screen.getByTestId('container-table-error')).toHaveTextContent('image lookup failed');
+      // Both lookup errors show beside their own sections' URL buttons…
+      expect(screen.getByTestId('application-url-error')).toHaveTextContent('app lookup failed');
+      expect(screen.getByTestId('container-url-error')).toHaveTextContent('image lookup failed');
       // …while the header stays untouched and the Alerts table (left-click view
       // content) is not rendered in the detail view, even though alerts exist.
       expect(screen.getByText('mongo-0')).toBeInTheDocument();
