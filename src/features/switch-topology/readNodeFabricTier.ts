@@ -12,14 +12,15 @@ interface ElementDataView {
 
 // Merge a derived K8s-node tier into the switch level map for controller mode.
 // Every `node` that is the source of a `node-to-switch` edge is placed one tier
-// ABOVE the topmost switch row (min level - 1), so the fabric reads
-// `pod -> node -> switch -> switch` top-to-bottom. Switches keep their own levels.
-// In node mode, or with no levelled switch, the switch map is returned unchanged
-// (no node pinned). Pure; does NOT extend readSwitchLevels (which stays
-// switch-only / non-negative) — negative levels are produced here and consumed by
-// buildSwitchConstraints (y = level * TIER_GAP supports y = -180). ALL fabric-
-// connected nodes share the single min-1 tier regardless of which switch each
-// connects to (uplinks to deeper switches may cross rows — accepted).
+// BELOW the bottommost switch row (min level - 1), so the fabric reads
+// `switch -> switch -> node -> pod` top-to-bottom (higher levels on top).
+// Switches keep their own levels. In node mode, or with no levelled switch, the
+// switch map is returned unchanged (no node pinned). Pure; does NOT extend
+// readSwitchLevels (which stays switch-only / non-negative) — negative levels are
+// produced here and consumed by buildSwitchConstraints (y = -level * TIER_GAP
+// supports the -1 tier, y = +180). ALL fabric-connected nodes share the single
+// min-1 tier regardless of which switch each connects to (uplinks to deeper
+// switches may cross rows — accepted).
 export function readNodeFabricTier(
   elements: readonly cytoscape.ElementDefinition[],
   mode: PodParentMode,

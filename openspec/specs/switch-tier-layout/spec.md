@@ -37,9 +37,9 @@ The system SHALL read a network **level** for each `switch` node from that node'
 
 ### Requirement: Switch fabric pinned into stacked levels
 
-The system SHALL pin each levelled `switch` node to an absolute position derived from its level so that switches form horizontal rows, one row per level, stacked so that lower-numbered levels sit above higher-numbered levels, with switches that share a level spread horizontally across a common row. This SHALL be expressed exclusively through the force-directed layout's native fixed-node constraint (`fixedNodeConstraint`), adding no new layout engine or dependency.
+The system SHALL pin each levelled `switch` node to an absolute position derived from its level so that switches form horizontal rows, one row per level, stacked so that higher-numbered levels sit above lower-numbered levels (e.g. a core switch at the highest level renders topmost), with switches that share a level spread horizontally across a common row. This SHALL be expressed exclusively through the force-directed layout's native fixed-node constraint (`fixedNodeConstraint`), adding no new layout engine or dependency.
 
-Additionally, in the **controller** pod-parent mode, when a switch fabric is present (at least one levelled `switch`), the system SHALL also pin every K8s `node` that participates in the fabric — i.e. that is the `source` of at least one `node-to-switch` edge — onto a single derived tier **one level above the topmost (minimum-level) switch row** (`min(switchLevel) − 1`), spread horizontally across that row exactly as switches are. **ALL fabric-connected K8s nodes share this single tier** (`min(switchLevel) − 1`, one row), regardless of which switch level each node actually connects to; a `node-to-switch` uplink to a deeper switch MAY visually cross intervening switch rows, and that is accepted (the system SHALL NOT pin each node to its own connected-switch-relative tier). This realises the `pod → node → switch → switch` top-to-bottom order: workload-bearing nodes sit directly above the physical fabric, with pods/controllers left free to float above them. The derived node tier SHALL be computed from the switch levels (NOT read from any `labels.level`) and merged into the level map by a **separate mode-aware step** — NOT by `readSwitchLevels`, which stays `switch`-kind-only and non-negative; `buildSwitchConstraints` consumes the already-merged map and supports the negative `−1` tier (`y = −180`). A K8s `node` with no `node-to-switch` edge SHALL remain free. In the **node** pod-parent mode the K8s `node` is a compound container boxing its pods and SHALL NOT be pinned. Absent a switch fabric (no levelled switch), no K8s `node` is pinned in either mode.
+Additionally, in the **controller** pod-parent mode, when a switch fabric is present (at least one levelled `switch`), the system SHALL also pin every K8s `node` that participates in the fabric — i.e. that is the `source` of at least one `node-to-switch` edge — onto a single derived tier **one level below the bottommost (minimum-level) switch row** (`min(switchLevel) − 1`), spread horizontally across that row exactly as switches are. **ALL fabric-connected K8s nodes share this single tier** (`min(switchLevel) − 1`, one row), regardless of which switch level each node actually connects to; a `node-to-switch` uplink to a deeper switch MAY visually cross intervening switch rows, and that is accepted (the system SHALL NOT pin each node to its own connected-switch-relative tier). This realises the `switch → switch → node → pod` top-to-bottom order: workload-bearing nodes sit directly below the physical fabric, with pods/controllers left free to float below them. The derived node tier SHALL be computed from the switch levels (NOT read from any `labels.level`) and merged into the level map by a **separate mode-aware step** — NOT by `readSwitchLevels`, which stays `switch`-kind-only and non-negative; `buildSwitchConstraints` consumes the already-merged map and supports the negative `−1` tier (`y = +180`). A K8s `node` with no `node-to-switch` edge SHALL remain free. In the **node** pod-parent mode the K8s `node` is a compound container boxing its pods and SHALL NOT be pinned. Absent a switch fabric (no levelled switch), no K8s `node` is pinned in either mode.
 
 The constraint SHALL reference only (a) levelled `switch` nodes and (b) in controller mode, fabric-connected K8s `node` nodes; every other node (pods, controllers, services, pvcs, clusters, unlevelled switches, fabric-disconnected nodes) SHALL remain free to be placed by the force-directed layout. The constraint SHALL apply only when the active layout is the force-directed (`fcose`) layout. When no `switch` node carries a valid level, the system SHALL produce no constraint and the layout SHALL behave exactly as without this feature.
 
@@ -48,15 +48,15 @@ The constraint SHALL reference only (a) levelled `switch` nodes and (b) in contr
 - **WHEN** two or more `switch` nodes resolve to the same level under the `fcose` layout
 - **THEN** they are pinned to the same vertical position (one row) at distinct horizontal positions
 
-#### Scenario: Levels stack top-to-bottom by level number
+#### Scenario: Levels stack top-to-bottom by descending level number
 
 - **WHEN** level `k` and level `k+1` both contain switches under the `fcose` layout
-- **THEN** the level `k` row is pinned above the level `k+1` row
+- **THEN** the level `k+1` row is pinned above the level `k` row
 
-#### Scenario: Controller-mode K8s nodes pin one tier above the fabric
+#### Scenario: Controller-mode K8s nodes pin one tier below the fabric
 
 - **WHEN** the pod-parent mode is `controller`, the graph has levelled switches whose minimum level is `m`, and a K8s `node` is the source of a `node-to-switch` edge
-- **THEN** that K8s `node` is pinned to the derived tier `m − 1` (one row above the topmost switch row), spread horizontally like switches; the pods/controllers above it remain free
+- **THEN** that K8s `node` is pinned to the derived tier `m − 1` (one row below the bottommost switch row), spread horizontally like switches; the pods/controllers below it remain free
 
 #### Scenario: Node-mode K8s nodes are not pinned
 
