@@ -1,47 +1,55 @@
 # Code Review — xhigh · whole project（2026-06-11）
 
 > 產出流程：9 個 finder 角度 → 31 個去重候選 → 18 個 verifier（多數附 headless cytoscape 實證）→ 補漏掃描 4 個 → **29 成立 / 2 駁回**。
-> 本檔是後續修復的工作清單。每項含證據與修復方向；修完請勾選並補上 commit。
 > 審查基準：commit `8d9c657`（feat/node-detail-panel）。行號以該版本為準。
+>
+> **✅ 修復完成（2026-06-11）**：全部 32 項已在 `9267c61` 之上的工作樹修復，lint / typecheck / test:ci（51 套件 442 tests）/ build 全綠，openspec validate --specs 通過。詳見文末「修復紀錄」。
+>
+> **重核備註**（基準後上游多了 6 個 commit `8d9c657..9267c61`，動工前逐項重核）：
+>
+> - **S1 觸發改變仍成立**：`readNodeFabricTier` 已刪（K8s node 不再 pin），但 levelled switch 仍被 `fixedNodeConstraint` pin，且新的 `network` compound 可 collapse — collapse 後 layout 重跑仍會 NaN。修復＝run-time 過濾。
+> - **S2 / V9 未被上游修掉**：`iconSvgByKind.ts` 只改 icon 內容、`computeVisibility.ts` 只加 `network` kind 豁免。
+> - KsgPanel 因 `wrapSwitchFabric` 加入 pipeline，行號整體偏移；其餘發現所在檔案未被上游觸碰。
 
 ## 修復狀態總覽
 
-| # | ID | 嚴重度 | 檔案:行 | 一句話 | 狀態 |
-|---|----|--------|---------|--------|------|
-| 1 | V1 | CRITICAL | useCytoscape.ts:154 | cy.remove 的 `#id` selector 未跳脫，刪除批次整批靜默失效 | ☐ |
-| 2 | V2 | CRITICAL | KsgPanel.tsx:373 | isLoading 早退卸載 GraphCanvas，每次 refresh 銷毀 cy instance | ☐ |
-| 3 | V12 | CRITICAL | useCytoscape.ts:92 | cytoscape alias React 側 elements data，extension 就地改寫污染 | ☐ |
-| 4 | S1 | HIGH | useGraphLayout.ts:60 | fixedNodeConstraint 引用被 collapse 移除的節點 → 全圖 NaN | ☐ |
-| 5 | V15 | HIGH | useCytoscape.ts:170 | compound parent 移除 cascade 吃掉改宿子節點 | ☐ |
-| 6 | V16 | HIGH | diffElements.ts:67 | edge source/target 變更走 data() patch 死路，永不生效 | ☐ |
-| 7 | V10 | HIGH | KsgPanel.tsx:376 | 任一筆 parse error 整面 Alert，丟棄 partial parse 結果 | ☐ |
-| 8 | V9 | HIGH | computeVisibility.ts:62 | 未知 edgeType 被隱藏（spec 要求 fallback 渲染）+ cascade 連坐 | ☐ |
-| 9 | S3 | MED-HIGH | useExpandCollapse.ts:74 | cue handler 從畫布重建 collapsed 集合，巢狀摺疊 id 遺失 | ☐ |
-| 10 | V18 | MEDIUM | diffElements.ts:19 | extension 殘留 key 使摺疊過的 parent 永遠進 toUpdate | ☐ |
-| 11 | V4 | MEDIUM | GraphCanvas.tsx:195 | mode 切換 rebuild 後選取圈遺失（effect 缺 elements dep） | ☐ |
-| 12 | V17 | MEDIUM | KsgPanel.tsx:186 | detail panel 持續描述被 collapse 掉的節點 | ☐ |
-| 13 | V11 | MEDIUM | KsgPanel.tsx:415 | EmptyState 取代 GraphCanvas（spec 要求 overlay 保留 instance） | ☐ |
-| 14 | V8 | MEDIUM | KsgPanel.tsx:139 | 無 message 的 DataQueryError 被吞掉 | ☐ |
-| 15 | V21 | MEDIUM | useHoverElement.ts:74 | hover 把 cytoscape 即時 data 物件存進 React state | ☐ |
-| 16 | S2 | LOW-MED | iconSvgByKind.ts:82 | `in` 走原型鏈，kind='toString' 之類會 throw | ☐ |
-| 17 | V3 | LOW-MED | ContainerTable.tsx:72 | prototype-ful map 查 'constructor' container 名穿透 guard | ☐ |
-| 18 | V7 | LOW-MED | AlertTable.tsx:67 | 單 pod 內重複 alert id → 重複 React key | ☐ |
-| 19 | V23 | LOW-MED | seedAddedNodePositions.ts:76 | 無 parent 新節點落 (0,0) 不觸發 relayout | ☐ |
-| 20 | S4 | LOW-MED | useGraphLayout.ts:56 | cy.stop() 停不了 fcose 動畫，背靠背 layout 互相拉扯 | ☐ |
-| 21 | V19 | LOW | KsgPanel.tsx:107 | owner kind 未對 DETAIL_URL_KINDS 驗證即發查詢 | ☐ |
-| 22 | V22 | LOW(潛伏) | useExpandCollapse.ts:78 | cleanup 不 teardown extension，重 init 疊 listener/canvas | ☐ |
-| 23 | V6 | LOW | normalize.ts:287 | 重複 id 靜默通過、無 errors[] 記錄 | ☐ |
-| 24 | V14 | SPEC | EdgeLegend.tsx:53 | 雙向 legend 列與 baseline spec 矛盾（改 spec） | ☐ |
-| 25 | V13 | SPEC | normalize.ts:270 | spec 殘句『仍攜帶 status（預設 normal）』與 code/同 spec 矛盾（改 spec） | ☐ |
-| 26 | V24 | PERF | useGraphData.ts:63 | memo 鍵在 series identity，相同 payload 重建整條 pipeline | ☐ |
-| 27 | V26 | PERF | KsgPanel.tsx:186 | computeVisibility 相同輸入算兩次 | ☐ |
-| 28 | V27 | PERF | KsgPanel.tsx:191 | 『React Compiler memoizes』註解為假，O(n) 裸跑 | ☐ |
-| 29 | V28 | CLEANUP | deriveStorageClassContainers.ts:27 | 與 deriveNodeContainers 逐行重複 | ☐ |
-| 30 | V29 | CLEANUP | detailUrlKinds.ts:7 | 手維護平行 kind 清單，無窮舉檢查 | ☐ |
-| 31 | V30 | CLEANUP | getStylesheet.ts:257 | switch 邊 taxi routing 硬編碼於 stylesheet | ☐ |
-| 32 | V31 | CLEANUP | colorByEdgeType.ts:71 | COLOR_BY_EDGE_TYPE + DrawnEdgeType 死碼 | ☐ |
+| #   | ID  | 嚴重度    | 檔案:行                            | 一句話                                                                   | 狀態 |
+| --- | --- | --------- | ---------------------------------- | ------------------------------------------------------------------------ | ---- |
+| 1   | V1  | CRITICAL  | useCytoscape.ts:154                | cy.remove 的 `#id` selector 未跳脫，刪除批次整批靜默失效                 | ☑    |
+| 2   | V2  | CRITICAL  | KsgPanel.tsx:373                   | isLoading 早退卸載 GraphCanvas，每次 refresh 銷毀 cy instance            | ☑    |
+| 3   | V12 | CRITICAL  | useCytoscape.ts:92                 | cytoscape alias React 側 elements data，extension 就地改寫污染           | ☑    |
+| 4   | S1  | HIGH      | useGraphLayout.ts:60               | fixedNodeConstraint 引用被 collapse 移除的節點 → 全圖 NaN                | ☑    |
+| 5   | V15 | HIGH      | useCytoscape.ts:170                | compound parent 移除 cascade 吃掉改宿子節點                              | ☑    |
+| 6   | V16 | HIGH      | diffElements.ts:67                 | edge source/target 變更走 data() patch 死路，永不生效                    | ☑    |
+| 7   | V10 | HIGH      | KsgPanel.tsx:376                   | 任一筆 parse error 整面 Alert，丟棄 partial parse 結果                   | ☑    |
+| 8   | V9  | HIGH      | computeVisibility.ts:62            | 未知 edgeType 被隱藏（spec 要求 fallback 渲染）+ cascade 連坐            | ☑    |
+| 9   | S3  | MED-HIGH  | useExpandCollapse.ts:74            | cue handler 從畫布重建 collapsed 集合，巢狀摺疊 id 遺失                  | ☑    |
+| 10  | V18 | MEDIUM    | diffElements.ts:19                 | extension 殘留 key 使摺疊過的 parent 永遠進 toUpdate                     | ☑    |
+| 11  | V4  | MEDIUM    | GraphCanvas.tsx:195                | mode 切換 rebuild 後選取圈遺失（effect 缺 elements dep）                 | ☑    |
+| 12  | V17 | MEDIUM    | KsgPanel.tsx:186                   | detail panel 持續描述被 collapse 掉的節點                                | ☑    |
+| 13  | V11 | MEDIUM    | KsgPanel.tsx:415                   | EmptyState 取代 GraphCanvas（spec 要求 overlay 保留 instance）           | ☑    |
+| 14  | V8  | MEDIUM    | KsgPanel.tsx:139                   | 無 message 的 DataQueryError 被吞掉                                      | ☑    |
+| 15  | V21 | MEDIUM    | useHoverElement.ts:74              | hover 把 cytoscape 即時 data 物件存進 React state                        | ☑    |
+| 16  | S2  | LOW-MED   | iconSvgByKind.ts:82                | `in` 走原型鏈，kind='toString' 之類會 throw                              | ☑    |
+| 17  | V3  | LOW-MED   | ContainerTable.tsx:72              | prototype-ful map 查 'constructor' container 名穿透 guard                | ☑    |
+| 18  | V7  | LOW-MED   | AlertTable.tsx:67                  | 單 pod 內重複 alert id → 重複 React key                                  | ☑    |
+| 19  | V23 | LOW-MED   | seedAddedNodePositions.ts:76       | 無 parent 新節點落 (0,0) 不觸發 relayout                                 | ☑    |
+| 20  | S4  | LOW-MED   | useGraphLayout.ts:56               | cy.stop() 停不了 fcose 動畫，背靠背 layout 互相拉扯                      | ☑    |
+| 21  | V19 | LOW       | KsgPanel.tsx:107                   | owner kind 未對 DETAIL_URL_KINDS 驗證即發查詢                            | ☑    |
+| 22  | V22 | LOW(潛伏) | useExpandCollapse.ts:78            | cleanup 不 teardown extension，重 init 疊 listener/canvas                | ☑    |
+| 23  | V6  | LOW       | normalize.ts:287                   | 重複 id 靜默通過、無 errors[] 記錄                                       | ☑    |
+| 24  | V14 | SPEC      | EdgeLegend.tsx:53                  | 雙向 legend 列與 baseline spec 矛盾（改 spec）                           | ☑    |
+| 25  | V13 | SPEC      | normalize.ts:270                   | spec 殘句『仍攜帶 status（預設 normal）』與 code/同 spec 矛盾（改 spec） | ☑    |
+| 26  | V24 | PERF      | useGraphData.ts:63                 | memo 鍵在 series identity，相同 payload 重建整條 pipeline                | ☑    |
+| 27  | V26 | PERF      | KsgPanel.tsx:186                   | computeVisibility 相同輸入算兩次                                         | ☑    |
+| 28  | V27 | PERF      | KsgPanel.tsx:191                   | 『React Compiler memoizes』註解為假，O(n) 裸跑                           | ☑    |
+| 29  | V28 | CLEANUP   | deriveStorageClassContainers.ts:27 | 與 deriveNodeContainers 逐行重複                                         | ☑    |
+| 30  | V29 | CLEANUP   | detailUrlKinds.ts:7                | 手維護平行 kind 清單，無窮舉檢查                                         | ☑    |
+| 31  | V30 | CLEANUP   | getStylesheet.ts:257               | switch 邊 taxi routing 硬編碼於 stylesheet                               | ☑    |
+| 32  | V31 | CLEANUP   | colorByEdgeType.ts:71              | COLOR_BY_EDGE_TYPE + DrawnEdgeType 死碼                                  | ☑    |
 
 **建議修復分組**（同根問題一起修，見文末「修復順序建議」）：
+
 - **Group A — diff-patch apply 路徑**：#1 V1、#5 V15、#6 V16（都在 useCytoscape 的 patch 迴圈/diffElements 分類）
 - **Group B — extension 就地改寫家族**：#3 V12、#10 V18、#15 V21（共同根因：cytoscape/extension 與 React 側共享可變物件）
 - **Group C — KsgPanel render gates**：#2 V2、#7 V10、#13 V11、#14 V8（同一段早退邏輯）
@@ -60,7 +68,7 @@
   - `normalize.ts:167` → `ctrl/${cluster}/${ns}/${kind}/${name}`
   - `normalize.ts:453` → `syn:controller-owns-pod:${controllerId}:${podId}`
   - `applyPodParentMode.ts:5` → `ppm:pod-runs-on-node:` 前綴
-  觸發字元是 `/` 與 `:`（實測 `.` 點號 FQDN id 反而合法可刪）。
+    觸發字元是 `/` 與 `:`（實測 `.` 點號 FQDN id 反而合法可刪）。
 - **實證**（headless cytoscape 3.33，專案 node_modules）：
   - `cy.remove('#ctrl/prod/db/x, #ppm:pod-runs-on-node:p1, #a')` → console warn `The selector ... is invalid`、不 throw、**0 個元素被刪**。
   - 一個壞 segment 毒化整串逗號連接的 selector — 連純 `#a` 也不刪。
@@ -263,7 +271,7 @@
 ### V24 — useGraphData memo 鍵在 series identity
 
 - **位置**：`src/features/graph-data/hooks/useGraphData.ts:63-74`（deps `[data.series]`）
-- **問題**：Grafana 每次查詢回應都是新 DataFrame 陣列 → byte-identical payload 也重跑 normalizeGraph、回傳全新物件 → 下游 10+ 個 memo（applyPodParentMode clone、computeVisibility×2、derive*、switchConstraints）+ useCytoscape diff effect 全部失效，每個 refresh tick 重算。
+- **問題**：Grafana 每次查詢回應都是新 DataFrame 陣列 → byte-identical payload 也重跑 normalizeGraph、回傳全新物件 → 下游 10+ 個 memo（applyPodParentMode clone、computeVisibility×2、derive\*、switchConstraints）+ useCytoscape diff effect 全部失效，每個 refresh tick 重算。
 - **修法**：以 ref 比對原始 payload 後短路回傳前次結果物件。**注意**：extractJsonFromFrames 有兩條來源 — `field.values[0]`（可能是 string 或物件）與 `frame.meta.custom.data`（已解析物件）；只比對 string 會漏掉 meta 路徑（會造成 stale graph 正確性回歸）。安全作法：比對「抽取後的 payload」的 stringify。
 
 ### V26 — computeVisibility 相同輸入算兩次
@@ -301,10 +309,10 @@
 
 ## 已駁回（勿再回報）
 
-| ID | 位置 | 候選主張 | 駁回理由 |
-|----|------|----------|----------|
-| V5 | useNodeDetailUrls.ts:41 | requestKeyFor 以空格 join 造成 cache key 別名 | hex dump 證實分隔符是**內嵌 NUL 位元組**（`join('\x00')`，:39 註解明載），K8s 名稱/URL 不可能含 NUL — 設計正確。Read 工具把 NUL 顯示成類空格字元造成誤判 |
-| V20 | KsgPanel.tsx:330 | deriveLegendKinds 不吃 visibleKinds，legend 列出被過濾的 kind | spec `panel-rendering:242-245` **明定** legend 不受 filter 影響（讓使用者知道隱藏了什麼）— 是規格行為 |
+| ID  | 位置                    | 候選主張                                                      | 駁回理由                                                                                                                                                 |
+| --- | ----------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V5  | useNodeDetailUrls.ts:41 | requestKeyFor 以空格 join 造成 cache key 別名                 | hex dump 證實分隔符是**內嵌 NUL 位元組**（`join('\x00')`，:39 註解明載），K8s 名稱/URL 不可能含 NUL — 設計正確。Read 工具把 NUL 顯示成類空格字元造成誤判 |
+| V20 | KsgPanel.tsx:330        | deriveLegendKinds 不吃 visibleKinds，legend 列出被過濾的 kind | spec `panel-rendering:242-245` **明定** legend 不受 filter 影響（讓使用者知道隱藏了什麼）— 是規格行為                                                    |
 
 ## 既知 / 暫緩（使用者已決策，動工前先確認）
 
@@ -325,3 +333,43 @@
 10. **PERF/CLEANUP（V24/V26/V27/V28/V29/V30/V31）** — 獨立 change，建議走 OpenSpec 流程。
 
 > 驗證備註：V1/V4/V12/V15/V16/V17/V18/V21/V3/V6 附 headless cytoscape 實證；S1 的 cose-base NaN 為函式庫原始碼追查（未實測）；S4 為 PLAUSIBLE。最後兩個 sweep verifier 因 session 限額中斷，S1–S4 由主線直接讀碼補驗。
+
+---
+
+## 修復紀錄（2026-06-11，基準 `9267c61` + 工作樹）
+
+實作摘要（與上文建議方向的差異以「⚠」標注）：
+
+- **V1**：`useCytoscape` 移除改走 collection（`cy.elements().filter(removeSet)`），不再組 selector 字串。
+- **V15**：patch 順序改為「先撤離（doomed parent 的 toUpdate 子節點 `move({parent:null})`）→ remove → add → update」，update pass 再把子節點 move 到最終 parent。
+- **V16**：⚠ 採方案 (a)——`diffElements` 偵測 edge 端點變更時直接分類為 toRemove+toAdd（同 id 兩邊都進），比改合成邊 id 更通用（後端 stable-id 邊也涵蓋）。
+- **V18**：新增 `sync/extensionDataKeys.ts` 單一來源；`diffElements.definedKeys` 過濾 extension keys，`useCytoscape.isPreservedDataKey` 共用同一 predicate。
+- **V12**：新增 `sync/cloneElementDefs.ts`（用共用 `shared/clone/clonePlain`），constructor / mode-rebuild `cy.add` / toAdd `cy.add` 三處全 clone。⚠ 與已 rollback 的 snapshot skip-guard（V25）不同層：這是「餵給 cy 的永遠是拋棄式副本」，不涉及 skip 邏輯，V25 仍維持 deferred。
+- **S1**：`useGraphLayout` 新增 `presentConstraints()`，layout run 時過濾不在 live 圖中的 `fixedNodeConstraint` 節點。
+- **S4**：`layoutRef` 保留上一輪 layout handle，下一輪 run 前 `layout.stop()`（`cy.stop()` 保留）。
+- **V2**：`if (isLoading && baseElements.length === 0)` 才整屏 LoadingOverlay；refresh 期間 canvas 持續渲染前次資料。
+- **V10**：只有「整包失敗（0 元素）」才整面 Alert；partial error 改為 canvas 上方的非阻斷 warning Alert（`partialWarning` overlay）。
+- **V11**：EmptyState 改為 `emptyOverlay` 浮層，GraphCanvas 永遠掛載（instance 不重建）。
+- **V8**：`seriesError` 走 `errors[0].message ?? statusText ?? status` 兜底，並把 `state === Error` 且無 errors[] 視為失敗。⚠ 棄用的 `data.error` 不讀（lint no-deprecated）。
+- **V9**：`computeVisibility` 對未知字串 edgeType 預設可見（鏡像 unknown-kind 規則），`KNOWN_EDGE_TYPES` 取自 EDGE_STYLE_BY_TYPE。
+- **V17**：`resolveSelectedNode` 增加第 4 參數 `collapsedIds`，任一祖先被 collapse 即回 null（collapse 的容器本身仍可選）。KsgPanel 測試補「collapse 掉選取 pod 會關 panel」案例；4 個 right-click 測試補 `expandAll()` 前置步驟（模擬真實 UI 須先展開）。
+- **V19**：pod 的 owner kind 也過 `DETAIL_URL_KINDS` 驗證，不通過 fallback 為 standalone-pod identity。
+- **V27**：`resolveSelectedNode` 包進 `useMemo`，兩處「React Compiler memoizes」假註解刪除。
+- **V26**：visibility 只在 KsgPanel 算一次，`GraphCanvas` props 改收 `visibility: VisibilitySets`，`useElementFilter` 改收 `sets`（不再自算）。
+- **S3**：`useExpandCollapse.handleCue` 改為以 event target 對 `collapsedIdsRef.current` 增量 add/delete，不再從畫布重建。
+- **V22**：`cy.scratch` once-guard；二次 effect run 走 `cy.expandCollapse('get')`（型別多載已補進 cytoscape.d.ts）。⚠ cue canvas 的 DOM 清理未做（unmount 時 container 整個被 React 移除，實害有限）。
+- **V4**：GraphCanvas 選取同步 effect deps 加 `elements`。
+- **V21**：`useHoverElement` 存入 state 前 `clonePlain(target.data())`。
+- **S2**：`iconSvgForKind` 改 `Object.hasOwn`；⚠ 順手修了同型的 `getStylesheet.resolveEdgeStyle`（也用 `in`）。
+- **V3**：`parseUrlByContainer` 的 map 改 `Object.create(null)`（建表端根治）。
+- **V7**：`AlertTable.rowId` 一律帶 index 後綴。
+- **V23**：parentless 新節點計入 `unanchored`；釘住舊行為的測試同步更新（wholly-new family 案例期望 1→2，兩個成員皆無錨點）。
+- **V6**：normalize 拒絕重複 node/edge id 進 `errors[]`（first-wins）。
+- **V24**：⚠ ref-cache 方案被 `react-hooks/refs` lint 禁止，改為純粹的雙層 useMemo：series → fingerprint 字串 → 以 fingerprint 為 dep 的 normalize memo（等值字串＝快取命中；真正變更時多一次 JSON.parse，可接受）。
+- **V28**：抽出 `deriveContainersBy` 核心，兩個 derivation 變薄包裝（entry 型別 alias 到共用 `ContainerEntry`）。
+- **V29**：`DETAIL_URL_KINDS` 改由 `CATEGORY_BY_KIND` 的 Workloads 類別推導。
+- **V30**：`EdgeStyle` 增加必填 `routing: 'bezier' | 'taxi'`；getStylesheet 的 taxi selector 由 map 推導（`taxiEdgeSelector`）。
+- **V31**：`COLOR_BY_EDGE_TYPE` + `DrawnEdgeType` 刪除；3 個測試檔改用 `EDGE_STYLE_BY_TYPE` / `drawnEdgeTypesForMode('node')`。
+- **V14/V13**：`openspec/specs/panel-rendering/spec.md` 三處合併列措辭改為 `pod ↔ pod/service` 雙向列；status 預設-normal 殘句改為 data-driven 行為（與 :401 對齊）。`openspec validate --specs` 通過。
+
+新增測試約 30 個（442 total）。**V25（expandAll→jsons→diff→re-collapse 整輪 skip-guard）依使用者 6/10 決策維持 deferred，未動。**
