@@ -68,9 +68,11 @@ export function buildKsgPanelOptions(
       path: 'detailEndpoint',
       name: 'Detail URL endpoint',
       description:
-        'Base path (Grafana proxy route) of the graph API backend used by the node-detail ' +
-        'Application/Containers URL lookups. Shared by both queries under fixed sub-paths ' +
-        '(/api/v1/config_changes and /api/v1/code_changes). Leave empty to disable the lookups.',
+        'Overrides the endpoint of the node-detail Application/Containers URL lookups. ' +
+        "Leave empty to derive it from the dashboard query's datasource " +
+        '(its Grafana proxy path /api/datasources/proxy/uid/<uid>). Shared by both queries ' +
+        'under fixed sub-paths (/api/v1/config_changes and /api/v1/code_changes). ' +
+        'If neither resolves, the URL buttons stay disabled and no lookup is issued.',
       defaultValue: defaultOptions.detailEndpoint,
     });
 }

@@ -9,3 +9,4 @@ export {
   type NodeDetailUrlsState,
 } from './hooks/useNodeDetailUrls';
 export { DETAIL_URL_KINDS } from './detailUrlKinds';
+export { resolveDetailEndpoint, type ResolveDetailEndpointInput } from './resolveDetailEndpoint';

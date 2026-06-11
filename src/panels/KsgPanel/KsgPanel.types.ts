@@ -7,10 +7,12 @@ export interface KsgPanelOptions {
   showLegend: boolean;
   visibleKinds: NodeKind[];
   visibleEdgeTypes: EdgeType[];
-  // Base path (Grafana proxy route) of the graph API backend serving the
-  // node-detail URL lookups. Both queries share it under fixed sub-paths
-  // (/api/v1/config_changes + /api/v1/code_changes). Empty (default) disables
-  // the lookups: the Application/Containers URL buttons stay inert and no
+  // Override for the base path of the graph API backend serving the node-detail
+  // URL lookups. Both queries share it under fixed sub-paths
+  // (/api/v1/config_changes + /api/v1/code_changes). Empty (default) derives the
+  // endpoint from the dashboard query's datasource instead — its Grafana proxy
+  // path /api/datasources/proxy/uid/<uid>; when neither resolves, the lookups
+  // are disabled: the Application/Containers URL buttons stay inert and no
   // query is ever issued.
   detailEndpoint: string;
 }

@@ -28,11 +28,16 @@ jest.mock('../../features/graph-canvas', () => {
   };
 });
 
-// Backend transport stub for the right-click detail-URL flow (useNodeDetailUrls).
-// Dereferenced lazily inside getBackendSrv() calls, so hoisting order is safe.
+// Backend transport stub for the right-click detail-URL flow (useNodeDetailUrls)
+// plus the datasource registry stub for endpoint derivation (resolveDetailEndpoint).
+// Dereferenced lazily inside the service getters, so hoisting order is safe.
 const detailGetMock = jest.fn();
+const getInstanceSettingsMock = jest.fn();
 jest.mock('@grafana/runtime', () => ({
   getBackendSrv: (): { get: typeof detailGetMock } => ({ get: detailGetMock }),
+  getDataSourceSrv: (): { getInstanceSettings: typeof getInstanceSettingsMock } => ({
+    getInstanceSettings: getInstanceSettingsMock,
+  }),
 }));
 
 import { KsgPanel, resolveSelectedNode } from './KsgPanel';
@@ -537,21 +542,33 @@ describe('KsgPanel', () => {
       });
     };
 
-    function renderPanel(options: KsgPanelOptions): void {
+    function renderPanel(options: KsgPanelOptions, request?: PanelData['request']): void {
       render(
         <KsgPanel
           {...buildProps({
-            data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+            data: {
+              state: LoadingState.Done,
+              series: [frame],
+              timeRange: stubTimeRange,
+              ...(request !== undefined ? { request } : {}),
+            },
             options,
           })}
         />
       );
     }
     const withEndpoint: KsgPanelOptions = { ...defaultOptions, detailEndpoint: '/proxy' };
+    // A query request whose target refs the demo Infinity datasource — the
+    // derivation source when the detailEndpoint option is left empty.
+    const requestWithRef = {
+      targets: [{ refId: 'A', datasource: { uid: 'ksg-default', type: 'yesoreyeram-infinity-datasource' } }],
+    } as unknown as NonNullable<PanelData['request']>;
 
     beforeEach(() => {
       detailGetMock.mockReset();
       detailGetMock.mockResolvedValue({});
+      getInstanceSettingsMock.mockReset();
+      getInstanceSettingsMock.mockReturnValue(undefined);
       jest.spyOn(Date, 'now').mockReturnValue(1717500000123);
     });
 
@@ -619,8 +636,64 @@ describe('KsgPanel', () => {
       expect(detailGetMock).not.toHaveBeenCalled();
     });
 
-    it('never queries while detailEndpoint is unset (sections render, buttons disabled)', () => {
+    it('never queries while the endpoint resolves to nothing (sections render, buttons disabled)', () => {
+      // No option AND no derivable datasource ref (the fixture carries no request).
       renderPanel(defaultOptions);
+      expandAll();
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(detailGetMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('application-url-button')).not.toHaveAttribute('href');
+    });
+
+    it('derives the endpoint from the query datasource proxy path when the option is empty', async () => {
+      getInstanceSettingsMock.mockReturnValue({ url: '/api/datasources/proxy/uid/ksg-default' });
+      renderPanel(defaultOptions, requestWithRef);
+      expandAll();
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledTimes(2);
+      });
+      const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
+      expect(detailGetMock).toHaveBeenCalledWith(
+        '/api/datasources/proxy/uid/ksg-default/api/v1/config_changes',
+        params,
+        undefined,
+        expect.anything()
+      );
+      expect(detailGetMock).toHaveBeenCalledWith(
+        '/api/datasources/proxy/uid/ksg-default/api/v1/code_changes',
+        params,
+        undefined,
+        expect.anything()
+      );
+    });
+
+    it('a configured detailEndpoint option overrides the datasource derivation', async () => {
+      getInstanceSettingsMock.mockReturnValue({ url: '/api/datasources/proxy/uid/ksg-default' });
+      renderPanel(withEndpoint, requestWithRef);
+      expandAll();
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledTimes(2);
+      });
+      const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
+      expect(detailGetMock).toHaveBeenCalledWith('/proxy/api/v1/config_changes', params, undefined, expect.anything());
+      expect(detailGetMock).toHaveBeenCalledWith('/proxy/api/v1/code_changes', params, undefined, expect.anything());
+      // The option short-circuits derivation — the registry is never consulted.
+      expect(getInstanceSettingsMock).not.toHaveBeenCalled();
+    });
+
+    it('never queries when the query ref resolves to no usable proxy url (registry-unresolvable)', () => {
+      // beforeEach defaults getInstanceSettingsMock to undefined — the ref exists
+      // but the registry cannot resolve it to a proxied base path.
+      renderPanel(defaultOptions, requestWithRef);
       expandAll();
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');

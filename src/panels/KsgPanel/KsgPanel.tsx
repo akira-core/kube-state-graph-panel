@@ -17,7 +17,13 @@ import {
   StorageClassLegend,
   type ClusterLegendEntry,
 } from '../../features/legend';
-import { DETAIL_URL_KINDS, NodeDetailPanel, useNodeDetailUrls, type NodeDetailData } from '../../features/node-detail';
+import {
+  DETAIL_URL_KINDS,
+  NodeDetailPanel,
+  resolveDetailEndpoint,
+  useNodeDetailUrls,
+  type NodeDetailData,
+} from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
@@ -286,9 +292,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
 
   // The detail-URL query input: defined ONLY when the current selection came from a
   // right-click on that same node AND it resolves an application + query target
-  // (pod/controller kinds only — queryTarget gates the rest). The hook itself idles
-  // on an empty endpoint, so an unconfigured panel never queries.
-  const detailEndpoint = options.detailEndpoint ?? defaultOptions.detailEndpoint;
+  // (pod/controller kinds only — queryTarget gates the rest). The endpoint resolves
+  // option-overrides-derivation (D7): an explicit option wins, otherwise the
+  // dashboard query's datasource proxy path; '' idles the hook (no query ever).
+  const detailEndpointOption = options.detailEndpoint ?? defaultOptions.detailEndpoint;
+  const detailEndpoint = useMemo(
+    () => resolveDetailEndpoint({ option: detailEndpointOption, request: data.request }),
+    [detailEndpointOption, data.request]
+  );
   const detailQueryInput =
     detailRequest !== null &&
     selectedNode !== null &&
