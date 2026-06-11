@@ -63,9 +63,11 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-// Stable id per alert row so InteractiveTable (react-table) does not thrash.
+// Stable id per alert row so InteractiveTable (react-table) does not thrash. The
+// index suffix applies to the id path too: normalize does not dedupe a single
+// pod's alerts, so two entries sharing a backend id must not collide as React keys.
 function rowId(alert: NodeAlert, index: number): string {
-  return alert.id ?? `${alert.name}-${alert.timeRecords.join(',')}-${String(index)}`;
+  return `${alert.id ?? `${alert.name}-${alert.timeRecords.join(',')}`}-${String(index)}`;
 }
 
 // Last occurrence = max. timeRecords is ascending (normalize sorts it), so it is the
