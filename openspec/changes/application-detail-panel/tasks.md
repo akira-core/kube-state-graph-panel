@@ -87,3 +87,9 @@
 - [x] 12.2 `normalize.test.ts`:既有「全 normal 省略」三測項反轉為 `'normal'`;「critical alert 不升級」測項改斷言 `worstStatus: 'normal'`;新增「node 無 status 無子 pod → 省略」
 - [x] 12.3 spec deltas:panel-rendering 與 graph-data-integration 各加 MODIFIED requirement(全 normal 畫綠框 / 一律寫入與無資訊省略);delta 內「告警聚合不影響 status 上色」scenario 同步
 - [x] 12.4 `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠;demo 目視(收合全 normal controller 應綠框——seeder 的 status 組合已可觀察,不依賴 7.5)
+
+## 13. detail 面板間距微調(demo 回饋)
+
+- [x] 13.1 `NodeDetailPanel` 樣式:header(節點/controller 標題)與區塊之間的分隔線**同款 2px `border.strong`**(header 線貼近標題 `paddingBottom: 4` + `marginBottom: 10`;區塊間 `marginTop: 12` / `paddingTop: 10`);字級層級修正——sectionTitle `10 → 13px`、sectionBody 設 `bodySmall`(InteractiveTable 不自帶 fontSize,th/td 繼承)使標題 > 表格內文;(`themeColors` 補 `border.strong` 欄位)
+- [x] 13.3 `AlertTable` 對齊同步 detail 表格節奏:Pod / Service / Severity / Count / Last occurred `disableGrow`(識別欄貼內容、右側狀態/動作欄靠右),Alert 主文字欄吃滿剩餘寬度
+- [x] 13.2 使用者 demo preview 確認(2026-06-11:分隔線 2px strong 上下對稱 10px、標題 13px / 內文 bodySmall、AlertTable 對齊同步)後 commit
