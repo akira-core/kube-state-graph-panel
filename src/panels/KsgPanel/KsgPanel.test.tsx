@@ -415,6 +415,132 @@ describe('KsgPanel', () => {
     expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
   });
 
+  describe('legend kind visibility toggles', () => {
+    // A pod and a service joined by an edge (keeps both out of the orphan
+    // cascade), so the icon legend lists two togglable kinds.
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'p1', type: 'pod', name: 'web' } },
+          { data: { id: 's1', type: 'service', name: 'web-svc' } },
+        ],
+        edges: [{ data: { id: 'e1', type: 'service-selects-pod', source: 's1', target: 'p1' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    const dataDone: PanelData = { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange };
+
+    it('eye click writes visibleKinds through onOptionsChange (other options untouched)', () => {
+      const onOptionsChange = jest.fn<void, [KsgPanelOptions]>();
+      render(<KsgPanel {...buildProps({ data: dataDone, onOptionsChange })} />);
+      fireEvent.click(screen.getByTestId('node-legend-toggle-service'));
+      expect(onOptionsChange).toHaveBeenCalledTimes(1);
+      const next = onOptionsChange.mock.calls.at(0)![0];
+      expect(next.visibleKinds).toEqual(defaultOptions.visibleKinds.filter((k) => k !== 'service'));
+      expect({ ...next, visibleKinds: defaultOptions.visibleKinds }).toEqual(defaultOptions);
+    });
+
+    it('a hidden kind keeps its legend row (Show affordance) and the eye click restores it', () => {
+      const onOptionsChange = jest.fn<void, [KsgPanelOptions]>();
+      const options: KsgPanelOptions = {
+        ...defaultOptions,
+        visibleKinds: defaultOptions.visibleKinds.filter((k) => k !== 'service'),
+      };
+      render(<KsgPanel {...buildProps({ data: dataDone, options, onOptionsChange })} />);
+      // Hidden from the canvas: the visibility handed to GraphCanvas drops the
+      // service node and its incident edge (endpoint rule)…
+      type CanvasVisibility = { visibility?: { visibleNodeIds: Set<string>; visibleEdgeIds: Set<string> } };
+      const canvasProps = (graphCanvasSpy.mock.calls as Array<[CanvasVisibility]>).at(-1)![0];
+      expect(canvasProps.visibility?.visibleNodeIds.has('s1')).toBe(false);
+      expect(canvasProps.visibility?.visibleEdgeIds.has('e1')).toBe(false);
+      // …but the legend row survives, flipped to the Show affordance.
+      expect(screen.getByTestId('node-legend-row-service')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Show service' }));
+      const next = onOptionsChange.mock.calls.at(0)![0];
+      // Restored in canonical ALL_KINDS order — a hide/show round-trip converges
+      // back to the default array instead of appending at the tail.
+      expect(next.visibleKinds).toEqual(defaultOptions.visibleKinds);
+    });
+
+    it('hiding a kind leaves the collapse state (collapsedIds) untouched', () => {
+      const clusterPayload = {
+        elements: {
+          nodes: [
+            { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+            { data: { id: 'demo/p1', type: 'pod', name: 'web', parent: 'cluster:demo' } },
+            { data: { id: 'demo/s1', type: 'service', name: 'web-svc', parent: 'cluster:demo' } },
+          ],
+          edges: [{ data: { id: 'e1', type: 'service-selects-pod', source: 'demo/s1', target: 'demo/p1' } }],
+        },
+      };
+      const clusterFrame: DataFrame = {
+        name: 'graph',
+        length: 1,
+        fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(clusterPayload)] }],
+      };
+      const data: PanelData = { state: LoadingState.Done, series: [clusterFrame], timeRange: stubTimeRange };
+      const { rerender } = render(<KsgPanel {...buildProps({ data })} />);
+      fireEvent.click(screen.getByTestId('cluster-collapse-toggle'));
+      // Re-render with the kind filtered out — the option write a real Grafana
+      // host would loop back — and assert the collapsed cluster stayed collapsed.
+      rerender(
+        <KsgPanel
+          {...buildProps({
+            data,
+            options: { ...defaultOptions, visibleKinds: defaultOptions.visibleKinds.filter((k) => k !== 'service') },
+          })}
+        />
+      );
+      type CanvasProps = { collapsedIds?: Set<string> };
+      const lastCall = (graphCanvasSpy.mock.calls as Array<[CanvasProps]>).at(-1)![0];
+      expect(lastCall.collapsedIds?.has('cluster:demo')).toBe(true);
+    });
+
+    it('a pod-parent mode flip never writes options: the hidden kind survives the round-trip', () => {
+      const onOptionsChange = jest.fn();
+      const options: KsgPanelOptions = {
+        ...defaultOptions,
+        visibleKinds: defaultOptions.visibleKinds.filter((k) => k !== 'service'),
+      };
+      render(<KsgPanel {...buildProps({ data: dataDone, options, onOptionsChange })} />);
+      act(() => {
+        fireEvent.click(screen.getByLabelText('Node'));
+      });
+      act(() => {
+        fireEvent.click(screen.getByLabelText('Controller'));
+      });
+      expect(onOptionsChange).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Show service' })).toBeInTheDocument();
+    });
+
+    it('hiding every present kind shows the filtered-out empty state while the legend rows stay restorable', () => {
+      // pvc stays checked but absent from the graph — the message must key off
+      // the computed visibility, not visibleKinds.length.
+      render(
+        <KsgPanel {...buildProps({ data: dataDone, options: { ...defaultOptions, visibleKinds: ['pvc'] } })} />
+      );
+      expect(screen.getByText('All node types filtered')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show pod' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show service' })).toBeInTheDocument();
+    });
+
+    it('a canvas blanked by edge-type filtering alone does not blame node types', () => {
+      // All kinds stay checked; hiding every edge type orphan-cascades the
+      // whole graph away — the message must not claim node types are filtered.
+      render(
+        <KsgPanel {...buildProps({ data: dataDone, options: { ...defaultOptions, visibleEdgeTypes: [] } })} />
+      );
+      expect(screen.getByText('All elements filtered out')).toBeInTheDocument();
+      expect(screen.queryByText('All node types filtered')).toBeNull();
+      // The kind rows stay full-strength (Hide affordance) — they are not the cause.
+      expect(screen.getByRole('button', { name: 'Hide pod' })).toBeInTheDocument();
+    });
+  });
+
   it("resolveSelectedNode carries a node's alerts onto the detail data", () => {
     const alerts = [{ name: 'HighMem', severity: 'critical' as const, timeRecords: [1717500000] }];
     const elements: cytoscape.ElementDefinition[] = [

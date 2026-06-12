@@ -1,6 +1,6 @@
 import type cytoscape from 'cytoscape';
 
-import { computeVisibility } from './computeVisibility';
+import { computeVisibility, isFilterableKind } from './computeVisibility';
 
 const node = (id: string, kind: string, extra: Record<string, unknown> = {}): cytoscape.ElementDefinition =>
   ({ group: 'nodes', data: { id, kind, ...extra } }) as unknown as cytoscape.ElementDefinition;
@@ -8,6 +8,18 @@ const cluster = (id: string): cytoscape.ElementDefinition =>
   ({ group: 'nodes', data: { id, isCluster: true } }) as unknown as cytoscape.ElementDefinition;
 const edge = (id: string, source: string, target: string, edgeType: string): cytoscape.ElementDefinition =>
   ({ group: 'edges', data: { id, source, target, edgeType } }) as unknown as cytoscape.ElementDefinition;
+
+describe('isFilterableKind', () => {
+  it('accepts known resource kinds', () => {
+    expect(isFilterableKind('pod')).toBe(true);
+    expect(isFilterableKind('storageclass')).toBe(true);
+  });
+
+  it('rejects the network wrapper and unknown kinds (never kind-filtered)', () => {
+    expect(isFilterableKind('network')).toBe(false);
+    expect(isFilterableKind('crd-from-the-future')).toBe(false);
+  });
+});
 
 describe('computeVisibility', () => {
   it('marks everything visible when all kinds + edgeTypes are enabled', () => {
@@ -119,6 +131,24 @@ describe('computeVisibility', () => {
       expect(visibleNodeIds.has('n')).toBe(true);
       expect(visibleNodeIds.has('cl')).toBe(true);
       expect(visibleNodeIds.has('p1')).toBe(true);
+    });
+
+    it('cascades a controller box away when the pod kind is filtered out (legend eye on pod, controller mode)', () => {
+      // The owns-edge dies with its pod endpoint, so a controller with no other
+      // visible edge or child follows its pods out (D11 interplay scenario).
+      const elements = [
+        cluster('cl'),
+        node('ctrl', 'deployment', { parent: 'cl', isController: true }),
+        node('p1', 'pod', { parent: 'ctrl' }),
+        edge('owns', 'ctrl', 'p1', 'controller-owns-pod'),
+      ];
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(
+        elements,
+        ['deployment', 'node'],
+        ['controller-owns-pod']
+      );
+      expect(visibleEdgeIds.has('owns')).toBe(false);
+      expect([...visibleNodeIds]).toEqual([]);
     });
 
     it('recursively hides an emptied node container and its cluster', () => {

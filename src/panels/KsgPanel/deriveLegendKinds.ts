@@ -14,10 +14,26 @@ import type cytoscape from 'cytoscape';
 // holds for node⇄pod and controller⇄pod. `cluster` containers carry no kind and
 // never appear here. First-seen order, deduped — a pure function of (elements,
 // collapsedIds), mirroring how the cluster legend is derived from the data.
+export interface LegendKindSets {
+  // The glyph kinds per the rules above, first-seen order.
+  glyphKinds: string[];
+  // EVERY non-cluster node kind present in the elements (insertion-ordered),
+  // regardless of collapse/container state — the universe the hidden-row union
+  // in deriveLegendEntries draws from.
+  presentKinds: Set<string>;
+}
+
 export function deriveLegendKinds(
   elements: readonly cytoscape.ElementDefinition[],
   collapsedIds: ReadonlySet<string>
 ): string[] {
+  return deriveLegendKindSets(elements, collapsedIds).glyphKinds;
+}
+
+export function deriveLegendKindSets(
+  elements: readonly cytoscape.ElementDefinition[],
+  collapsedIds: ReadonlySet<string>
+): LegendKindSets {
   const parentById = new Map<string, string>();
   const parentIds = new Set<string>();
   for (const el of elements) {
@@ -45,7 +61,8 @@ export function deriveLegendKinds(
   };
 
   const seen = new Set<string>();
-  const ordered: string[] = [];
+  const glyphKinds: string[] = [];
+  const presentKinds = new Set<string>();
   for (const el of elements) {
     if (el.group !== 'nodes') {
       continue;
@@ -54,6 +71,7 @@ export function deriveLegendKinds(
     if (typeof d.id !== 'string' || typeof d.kind !== 'string' || d.isCluster === true) {
       continue;
     }
+    presentKinds.add(d.kind);
     if (hasCollapsedAncestor(d.id)) {
       continue; // hidden inside a collapsed box — no glyph on canvas
     }
@@ -64,7 +82,7 @@ export function deriveLegendKinds(
       continue;
     }
     seen.add(d.kind);
-    ordered.push(d.kind);
+    glyphKinds.push(d.kind);
   }
-  return ordered;
+  return { glyphKinds, presentKinds };
 }

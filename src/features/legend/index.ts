@@ -1,4 +1,4 @@
-export { NodeLegend } from './components/NodeLegend';
+export { NodeLegend, type NodeLegendKindEntry } from './components/NodeLegend';
 export { EdgeLegend } from './components/EdgeLegend';
 export { LayoutModeControl } from './components/LayoutModeControl';
 export { ClusterLegend, type ClusterLegendEntry } from './components/ClusterLegend';

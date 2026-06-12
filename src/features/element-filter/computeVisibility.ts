@@ -12,22 +12,27 @@ export interface VisibilitySets {
 const KNOWN_KINDS = new Set<string>(Object.keys(ICON_SVG_BY_KIND));
 const KNOWN_EDGE_TYPES = new Set<string>(Object.keys(EDGE_STYLE_BY_TYPE));
 
+// THE filterable-kind universe — the single predicate behind the kind filter
+// here, the visibleKinds option default (ALL_KINDS) and the legend eye toggles
+// (deriveLegendEntries). Two exemptions, both always-visible and untogglable:
+//   - the `network` virtual fabric wrapper: cytoscape's effective visibility is
+//     the AND of an element and all its ancestors, so hiding the wrapper would
+//     hide every switch nested inside it (e.g. via a visibleKinds list saved
+//     before the kind existed). An emptied wrapper still disappears through the
+//     orphan cascade when its switches are filtered out.
+//   - unknown kinds: the filter universe only covers known kinds, so a backend
+//     addition must not silently disappear.
+// The narrowing excludes `network` so a NodeKind-typed input keeps a sound
+// (reachable) false branch.
+export function isFilterableKind(kind: string): kind is Exclude<NodeKind, 'network'> {
+  return kind !== 'network' && KNOWN_KINDS.has(kind);
+}
+
 function nodeIsVisible(kind: unknown, visibleKinds: Set<NodeKind>): boolean {
   if (typeof kind !== 'string') {
     return true;
   }
-  // The virtual fabric wrapper is never kind-filtered: cytoscape's effective
-  // visibility is the AND of an element and all its ancestors, so hiding the
-  // wrapper would hide every switch nested inside it (e.g. via a visibleKinds
-  // list saved before the kind existed). An emptied wrapper still disappears
-  // through the orphan cascade when its switches are filtered out.
-  if (kind === 'network') {
-    return true;
-  }
-  if (!KNOWN_KINDS.has(kind)) {
-    return true;
-  }
-  return visibleKinds.has(kind as NodeKind);
+  return !isFilterableKind(kind) || visibleKinds.has(kind);
 }
 
 export function computeVisibility(

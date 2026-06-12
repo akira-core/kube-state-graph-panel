@@ -1,3 +1,4 @@
+import { isFilterableKind } from '../../features/element-filter';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { ICON_SVG_BY_KIND } from '../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
@@ -17,12 +18,10 @@ export interface KsgPanelOptions {
   detailEndpoint: string;
 }
 
-// `network` is excluded: the virtual fabric wrapper is a synthetic grouping box,
-// not a filterable resource kind. computeVisibility exempts it from the kind
-// filter (hiding it would hide every nested switch — cytoscape's effective
-// visibility is the AND of an element and all its ancestors), and dashboards
-// with a visibleKinds list saved before the kind existed must not hide it.
-export const ALL_KINDS = (Object.keys(ICON_SVG_BY_KIND) as NodeKind[]).filter((kind) => kind !== 'network');
+// The filterable-kind universe, derived from the element-filter's single
+// predicate (which is what exempts the `network` virtual wrapper — see
+// isFilterableKind for the why) over the canonical icon map.
+export const ALL_KINDS = Object.keys(ICON_SVG_BY_KIND).filter(isFilterableKind);
 // All wire edge types: pod-runs-on-node is drawn only in `controller` pod-parent
 // mode, so it is a filterable type and a default-visible type (both modes' edges
 // stay visible by default; the type that has no edges in a given mode is inert).

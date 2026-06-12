@@ -1,1 +1,1 @@
-export { NodeLegend } from './NodeLegend';
+export { NodeLegend, type NodeLegendKindEntry } from './NodeLegend';

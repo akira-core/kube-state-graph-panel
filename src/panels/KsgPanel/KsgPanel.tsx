@@ -4,7 +4,7 @@ import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { computeVisibility } from '../../features/element-filter';
+import { computeVisibility, isFilterableKind } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
 import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
 import {
@@ -30,10 +30,10 @@ import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, NodeKind, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
 
-import { deriveLegendKinds } from './deriveLegendKinds';
+import { deriveLegendEntries } from './deriveLegendEntries';
 import { deriveContainers } from './deriveNodeContainers';
 import { deriveStorageClassContainers } from './deriveStorageClassContainers';
-import { defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
+import { ALL_KINDS, defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 import { useCollapseGroup } from './useCollapseGroup';
 
 export type KsgPanelProps = PanelProps<KsgPanelOptions>;
@@ -198,7 +198,7 @@ export function resolveSelectedNode(
 }
 
 export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
-  const { options, data, onChangeTimeRange, timeZone } = props;
+  const { options, data, onChangeTimeRange, onOptionsChange, timeZone } = props;
   const styles = useStyles2(getStyles);
   const theme = useTheme2();
   const stylesheet = useGraphTheme();
@@ -220,11 +220,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       : undefined;
   const { elements: baseElements, error: normalizeError } = useGraphData(data);
 
-  // Pod-parent view mode — local state, toggled from the legend (Grafana panel
-  // options are read-only at runtime, so this cannot be an option). 'controller'
-  // re-parents pods under their owning controller and swaps the pod↔node /
-  // pod↔controller relationships between nesting and drawn edge. Default
-  // 'controller' aggregates pods under their owning controller; 'node' is the
+  // Pod-parent view mode — deliberately ephemeral per-session view state,
+  // toggled from the legend and NOT persisted to panel options (unlike the
+  // visibleKinds eye toggles, which write through onOptionsChange — see
+  // handleToggleKind): a mode flip is a transient way of looking at the same
+  // data, not a dashboard-authoring decision. 'controller' re-parents pods
+  // under their owning controller and swaps the pod↔node / pod↔controller
+  // relationships between nesting and drawn edge. Default 'controller'
+  // aggregates pods under their owning controller; 'node' is the
   // infrastructure view (clean cluster > node > pod backend topology).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
   // wrapSwitchFabric synthesizes the virtual `network > switch` compound when
@@ -386,7 +389,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // "Controllers" section. In node mode these are the K8s `node` boxes; in controller
   // mode the synthesized controllers. Childless candidates are drawn leaves, not
   // containers. Whether a kind ALSO shows in the icon Node-kinds legend is decided by
-  // deriveLegendKinds (below), not here.
+  // deriveLegendEntries (below), not here.
   const {
     containerEntries,
     containerIds,
@@ -418,12 +421,34 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     setCollapsedIds((prev) => new Set([...prev, ...storageClassIds]));
   }, [storageClassIds]);
 
-  // The kinds shown in the icon Node-kinds legend — collapse- + container-aware, so
-  // the legend lists exactly what renders as a glyph: drawn leaves + collapsed
-  // containers; expanded containers (Nodes / Controllers / Storage classes) and
-  // collapse-hidden children drop out. This is why collapsing a storageclass swaps
-  // `pvc` → `storageclass` (and node⇄pod, controller⇄pod likewise).
-  const nodeLegendKinds = useMemo(() => deriveLegendKinds(elements, collapsedIds), [elements, collapsedIds]);
+  // The rows of the icon Node-kinds legend — collapse- + container-aware (drawn
+  // leaves + collapsed containers; expanded containers and collapse-hidden
+  // children drop out, so collapsing a storageclass swaps `pvc` → `storageclass`,
+  // node⇄pod / controller⇄pod likewise), UNIONED with kinds the visibleKinds
+  // filter currently hides so their eye-slash rows stay restorable (D11).
+  const nodeLegendEntries = useMemo(
+    () => deriveLegendEntries(elements, collapsedIds, visibleKinds),
+    [elements, collapsedIds, visibleKinds]
+  );
+
+  // Legend eye toggle writes the panel option — the options editor multi-select
+  // and the legend buttons are two faces of the same visibleKinds state, so they
+  // stay in sync for free and the choice persists with the dashboard. Collapse
+  // state (collapsedIds) is an independent layer and is deliberately untouched.
+  const handleToggleKind = useCallback(
+    (kind: string) => {
+      if (!isFilterableKind(kind)) {
+        return; // non-togglable rows render no button; guard the narrowing anyway
+      }
+      // Rebuilt in ALL_KINDS order so the persisted array stays canonical — a
+      // hide/show round-trip must not reorder the dashboard JSON or the
+      // options-editor pills.
+      const hide = visibleKinds.includes(kind);
+      const next = ALL_KINDS.filter((k) => (k === kind ? !hide : visibleKinds.includes(k)));
+      onOptionsChange({ ...options, visibleKinds: next });
+    },
+    [visibleKinds, options, onOptionsChange]
+  );
 
   // Cluster container ids = backend cluster containers (isCluster).
   const clusterContainerIds = useMemo<string[]>(() => {
@@ -485,15 +510,29 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     );
   }
 
+  // Keyed off the computed visibility, not visibleKinds.length: hiding just the
+  // kinds actually present (e.g. via the legend eye toggles) must surface the
+  // filtered-out message even while absent kinds remain checked. The orphan
+  // cascade can also empty the canvas through EDGE-type filtering alone (all
+  // edges hidden → leaves orphan → containers empty out) with every kind still
+  // on — blame node types only when every togglable legend row is hidden.
+  const allTogglableKindsHidden =
+    nodeLegendEntries.some((e) => e.togglable) && nodeLegendEntries.every((e) => !e.togglable || e.hidden);
   const emptyMessage =
-    elements.length === 0 ? 'No graph data' : visibleKinds.length === 0 ? 'All node types filtered' : null;
+    elements.length === 0
+      ? 'No graph data'
+      : visibleNodeIds.size === 0
+        ? allTogglableKindsHidden
+          ? 'All node types filtered'
+          : 'All elements filtered out'
+        : null;
 
   return (
     <div className={styles.root}>
       {options.showLegend && (
         <aside className={styles.legendArea}>
           <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
-          <NodeLegend kinds={nodeLegendKinds} />
+          <NodeLegend entries={nodeLegendEntries} onToggleKind={handleToggleKind} />
           <EdgeLegend edgeTypes={presentEdgeTypes} />
           <StatusLegend />
           <ClusterLegend
