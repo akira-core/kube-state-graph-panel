@@ -93,3 +93,12 @@
 - [x] 13.1 `NodeDetailPanel` 樣式:header(節點/controller 標題)與區塊之間的分隔線**同款 2px `border.strong`**(header 線貼近標題 `paddingBottom: 4` + `marginBottom: 10`;區塊間 `marginTop: 12` / `paddingTop: 10`);字級層級修正——sectionTitle `10 → 13px`、sectionBody 設 `bodySmall`(InteractiveTable 不自帶 fontSize,th/td 繼承)使標題 > 表格內文;(`themeColors` 補 `border.strong` 欄位)
 - [x] 13.3 `AlertTable` 對齊同步 detail 表格節奏:Pod / Service / Severity / Count / Last occurred `disableGrow`(識別欄貼內容、右側狀態/動作欄靠右),Alert 主文字欄吃滿剩餘寬度
 - [x] 13.2 使用者 demo preview 確認(2026-06-11:分隔線 2px strong 上下對稱 10px、標題 13px / 內文 bodySmall、AlertTable 對齊同步)後 commit
+
+## 14. 圖例節點種類顯示/隱藏切換按鈕(D11)
+
+- [x] 14.1 圖例 kind 列表推導改版:新 helper `src/panels/KsgPanel/deriveLegendEntries.ts`(+ `isFilterableKind` type guard)輸出 `NodeLegendKindEntry[]`(`{ kind, hidden, togglable }`)——`deriveLegendKinds(elements, collapsedIds)` ∪「存在於 mode 轉換後 elements 但被 `visibleKinds` 濾掉」的 kinds;`togglable` = kind ∈ `ALL_KINDS`(`network` 與未知 kind 為 `false`);純函式 + 單元測試(隱藏 kind 保留於列表、收合互換列不重複、展開容器 kind 隱藏後可還原、未知 kind 不可切換、去重)
+- [x] 14.2 `NodeLegend`:props 自 `kinds` 遷移為 `entries: readonly NodeLegendKindEntry[]` + `onToggleKind?: (kind) => void`(type 經 legend barrel 匯出;省略 props 仍列全部已知 kind);每列右側 `IconButton`(`eye`/`eye-slash`,`tooltip` 帶 kind 名 → aria-label);隱藏列 glyph + label 淡化(opacity 0.4,按鈕不淡化);`togglable: false` 或無 `onToggleKind` 不渲染按鈕;`useStyles2` + emotion
+- [x] 14.3 `KsgPanel.tsx` 接線:`handleToggleKind` → `onOptionsChange({ ...options, visibleKinds: toggle(...) })`(部分更新、不動其他 option;`isFilterableKind` 守門);`nodeLegendEntries` `useMemo` 依 `elements` / `collapsedIds` / `visibleKinds`;`computeVisibility` / `useElementFilter` / `collapsedIds` 零修改(獨立兩層);空狀態改鍵 `visibleNodeIds.size === 0`(只隱藏「實際在圖中」的 kinds 也要出 `All node types filtered`)
+- [x] 14.4 測試:`NodeLegend.test.tsx`(按鈕渲染/缺席、點擊回呼、隱藏列淡化與 Show/Hide affordance、read-only 無按鈕);`KsgPanel.test.tsx` 新 describe(eye 點擊 → `onOptionsChange` 收到更新後 `visibleKinds` 且其餘 option 原封;隱藏 kind 列保留可還原 + GraphCanvas visibility 同步丟節點與端點邊;隱藏不清除 `collapsedIds`;模式往返不寫 option、隱藏設定保留;只隱藏在場 kinds → `All node types filtered` 且圖例列可還原)
+- [x] 14.5 `computeVisibility` 互動驗證:端點邊隱藏與孤兒級聯既有測試核對通過;補一條 D11 對位 scenario(controller 模式濾掉 `pod` → `controller-owns-pod` 邊與 controller 盒級聯隱藏)
+- [ ] 14.6 `npm run typecheck` + `npm run lint` + `npm run test:ci` 全綠(2026-06-12,474 tests / 53 suites + production build)✅;demo 目視待確認:點 `service` 列 → service 節點與 `pod-calls-service` / `service-selects-pod` 邊消失、列淡化可還原;收合 storageclass 後切 `storageclass` 列 → 容器連內容物消失、還原後仍收合;editor multi-select 與圖例同步

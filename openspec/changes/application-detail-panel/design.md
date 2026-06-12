@@ -124,6 +124,26 @@ node-detail feature 是畫布左下角的浮動面板,使用者**左鍵 tap**節
 - **Rationale**:「沒消息」與「明確的好消息」在收合框上應可區分;全健康容器收合後綠框是主動訊號。
 - **Alternatives**:維持省略(原設計,使用者否決);無資訊也畫綠(把「backend 沒給 status」誤報成健康,否決)。
 
+### D11 — 圖例節點種類列加顯示/隱藏切換按鈕(2026-06-12 使用者回饋)
+
+`NodeLegend` 每列(icon + 名稱)右側加一顆**切換按鈕**(`@grafana/ui` `IconButton`,`eye` / `eye-slash`),點擊切換該 kind 的顯示/隱藏;隱藏的 kind 其**相關邊**(任一端點為該 kind 節點的邊)隨既有 `computeVisibility` 端點規則自動隱藏,孤兒節點隨 `hideOrphans` 級聯——**邊與級聯零新邏輯**。
+
+- **狀態位置(已定案)**:切換寫入 **panel option `visibleKinds`**,經 `PanelProps.onOptionsChange`(部分更新,只動 `visibleKinds`)。單一真實來源——options editor 的 multi-select 與圖例按鈕是同一狀態的兩個介面,天然同步;dashboard 儲存後持久化。**不**另設 runtime 圖層(兩套過濾來源會出現「editor 開、圖例關」的交集語意,否決)。
+- **圖例列表改版(必要)**:現行 `deriveLegendKinds(elements, collapsedIds)` 只列「實際以 glyph 渲染」的 kinds——被隱藏的 kind 會從圖中消失,若列也跟著消失就**永遠無法從圖例還原**。故圖例 kind 列表改為:`deriveLegendKinds(...)` ∪ **「存在於 `elements`(mode 轉換後)但被 `visibleKinds` 濾掉」的 kinds**。隱藏列以淡化樣式(降低 opacity)+ `eye-slash` 呈現,glyph 與名稱照常列出。
+- **按鈕適用範圍**:只有**可過濾的已知 kind**(`ALL_KINDS` 宇宙)有按鈕。`network` 虛擬 fabric wrapper(`computeVisibility` 永不 kind-過濾)與未知 kind(預設永遠可見,upstream 新增不得無聲消失)若出現在圖例,**不渲染按鈕**。
+- **與 controller/node/storageclass 切換的互動(本決策核心)**:
+  - **collapse-all 切換(cluster / nodes-or-controllers / storage classes)**:`collapsedIds`(展開/收合)與 `visibleKinds`(顯示/隱藏)為**獨立兩層**——收合是 expand-collapse 擴充的結構操作,隱藏是 `cy.style('visibility')` 樣式層。隱藏一個 kind MUST NOT 清除其收合狀態;重新顯示後收合狀態原樣回復。Swatch 區塊的 collapse-all 按鈕行為不變。
+  - **收合容器的圖例代表性**:`deriveLegendKinds` 既有「收合互換」語意(收合 storageclass → 圖例列 `storageclass` 而非 `pvc`;node⇄pod、controller⇄pod 同理)不變——按鈕切的是**該列的 kind**:收合 storageclass 時點 `storageclass` 列 → 隱藏 storageclass 容器(其內 PVC 因 cytoscape「有效可見性 = 自身 AND 所有祖先」本就不可見);`pvc` 列此時不在列表、自然無按鈕。
+  - **展開容器 kind 無列(接受的限制)**:展開的容器(k8s node 盒 / controller 盒 / storageclass 盒)依既有設計**不**出現在 icon 圖例(由各自 swatch 區塊代表),故展開狀態下無法從 icon 圖例隱藏該容器 kind——先收合(該 kind 列出現)再切換,或用 options editor 的 multi-select。**不**在 swatch 區塊加隱藏按鈕(本次範圍釘死為 node-kind icon 圖例;swatch 區塊職責是收合,混入隱藏會讓兩層語意在同一 UI 糾纏)。
+  - **podParentMode(controller/node 模式)切換**:`visibleKinds` 作用於 mode 轉換後的 `elements`(`computeVisibility` 既有輸入),模式切換後自動重算。option 是**跨模式**的全域集合:在 controller 模式隱藏 `deployment` 後切到 node 模式,圖中無 controller 節點、該設定無視覺效果,但 option 保留——切回 controller 模式時恢復隱藏。模式下不存在的 kind 不在圖例列表(`elements` 裡沒有),不額外列。
+  - **容器 kind 隱藏 = 整棵子樹隱藏(釘死)**:隱藏容器 kind(`node` / controller kinds / `storageclass`)時其後代節點一併不可見(cytoscape 祖先 AND 語意)——與既有 options editor multi-select 行為一致,本次不改。
+  - **級聯互動範例(spec scenario 化)**:controller 模式隱藏 `pod` → `controller-owns-pod` 邊隨端點消失 → 無其他可見邊/可見子節點的 controller 盒被 `hideOrphans` 級聯隱藏。
+- **空狀態(2026-06-12 review 修訂)**:空狀態改鍵計算後可見性(`visibleNodeIds.size === 0`,而非 `visibleKinds.length === 0`)——只隱藏「實際在圖中」的 kinds 也要出訊息;訊息歸因分流:全部可切換圖例列均隱藏 → `'All node types filtered'`;畫布因邊類型過濾經孤兒級聯清空(kind 未隱藏)→ `'All elements filtered out'`(不得誤導使用者去動錯的過濾器)。圖例列表仍列出所有(隱藏的)kind 供還原。
+- **option 寫回順序(2026-06-12 review 修訂)**:`handleToggleKind` 以 `ALL_KINDS` canonical 順序重建 `visibleKinds`(非尾端追加)——隱藏/還原往返後持久化陣列與預設逐項相等,避免 dashboard JSON diff churn 與 editor multi-select 重排。
+- **單一走訪(2026-06-12 review 修訂)**:`deriveLegendKinds` 一般化為 `deriveLegendKindSets`(單次走訪同時回 `glyphKinds` + `presentKinds`),`deriveLegendKinds` 保留為薄包裝;`deriveLegendEntries` 的 union 自 `presentKinds` 取,不再維護第二份節點走訪守門(消除 guard 漂移與多餘 O(N) pass)。`isFilterableKind` 的 narrowing 定為 `kind is Exclude<NodeKind, 'network'>`(`network` ∈ `NodeKind`,排除後 false 分支對 `NodeKind` 輸入仍 sound)。
+- **Rationale**:過濾管線(`visibleKinds` → `computeVisibility` → `useElementFilter`)既有且完整,本次只是把開關從 options editor 搬一份到圖例(就地、毋須開編輯器);寫回 option 讓兩個介面零同步成本。
+- **Alternatives**:runtime-only 狀態(重載即失、與 editor 雙來源,否決);edge 圖例列同加按鈕(使用者範圍釘死 node kinds only;`visibleEdgeTypes` 仍經 editor);swatch 區塊加隱藏按鈕(見上,否決)。
+
 ## Risks / Trade-offs
 
 - **[backend 欄位與 endpoint 尚未交付]** → 契約(欄位形狀、query 參數、回傳 JSON)已釘於 specs + D2 假設;panel 端全程優雅降級(欄位缺失→區塊隱藏、未設 endpoint→停用),可先行實作並以 mock/測試覆蓋;demo seeder 待 backend 版本支援後補。
