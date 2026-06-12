@@ -221,19 +221,20 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       : undefined;
   const { elements: baseElements, error: normalizeError, hasPayload } = useGraphData(data);
 
+  // Whole-payload normalize failure (nothing parsed) — shared verbatim by the
+  // variable-export gate below and the fatal early return so the two can't drift.
+  const isFatalNormalizeError = normalizeError !== undefined && baseElements.length === 0;
+
   // Export every pod name into the dashboard variable named by the option (for
   // consumers like an ES logs panel). Reads baseElements — the data-layer truth,
   // before the pod-parent-mode/switch-fabric view transforms. Gated off in every
-  // "not a successful graph load" state: query error, the three early-return
-  // states below, and frames with no recognizable payload at all (hidden/not-run
-  // query, empty series) — none of those may be written out as "no pods"; only a
-  // loaded graph that truly has zero pods clears the variable ($__empty).
+  // "not a successful graph load" state: no recognizable payload (hasPayload
+  // false — this also covers the first load, where the series is still empty),
+  // query error, and whole-payload normalize failure — none of those may be
+  // written out as "no pods"; only a loaded graph that truly has zero pods
+  // clears the variable ($__empty).
   const podListVariable = options.podListVariable ?? defaultOptions.podListVariable;
-  const variableExportEnabled =
-    hasPayload &&
-    seriesError === undefined &&
-    !(isLoading && baseElements.length === 0) &&
-    !(normalizeError !== undefined && baseElements.length === 0);
+  const variableExportEnabled = hasPayload && seriesError === undefined && !isFatalNormalizeError;
   useVariableExport(baseElements, podListVariable, variableExportEnabled);
 
   // Pod-parent view mode — deliberately ephemeral per-session view state,
@@ -518,7 +519,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // A whole-payload failure (nothing parsed) is fatal; per the partial-parse
   // contract, anything less renders the surviving elements with a non-blocking
   // warning (below) instead of blanking the panel for one bad entry.
-  if (normalizeError !== undefined && baseElements.length === 0) {
+  if (isFatalNormalizeError) {
     return (
       <Alert severity="error" title="Graph data malformed">
         {normalizeError}

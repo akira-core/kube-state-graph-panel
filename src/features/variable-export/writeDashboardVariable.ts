@@ -20,7 +20,7 @@ export const EMPTY_VALUE_SENTINEL = '$__empty';
  * This module is the feature's single @grafana/runtime touchpoint.
  */
 export function writeDashboardVariable(name: string, values: readonly string[]): void {
-  const next = values.length === 0 ? [EMPTY_VALUE_SENTINEL] : [...values];
+  const next: readonly string[] = values.length === 0 ? [EMPTY_VALUE_SENTINEL] : values;
   const key = `var-${name}`;
   if (sameValueSet(locationService.getSearch().getAll(key), next)) {
     return;

@@ -33,6 +33,8 @@ Panel 已有完整的資料管線:`useGraphData → normalizeGraph → ElementDe
 
 **錯誤與初載入閘門**:panel 處於「非成功載入」的四種狀態時 MUST 不寫入——查詢錯誤 `seriesError`、初次載入中 `isLoading && baseElements.length === 0`、整包 normalize 失敗 `normalizeError && baseElements.length === 0`,以及 **frames 無可辨識 payload**(`useGraphData` 新增的 `hasPayload === false`:空 series、隱藏/未執行查詢、字串皆不可解析——adversarial review 發現的第四態,Done-with-no-payload 與「合法空 graph」在原三條件下不可區分)。查詢失敗或沒拿到資料都不等於「沒有 pod」,把這些狀態寫成 `$__empty` 會讓 ES panel 查空。hook 收 `enabled` 參數,由 `KsgPanel` 以上述條件計算。真正的空 graph(`hasPayload === true`、零 pod)才寫哨兵。
 
+實作註記(/simplify cleanup):gate 以**三個**條款實現四種狀態——「初次載入(loading 且空 series)」必然 `hasPayload === false`(無 frame 即無 fingerprint),獨立的 `isLoading` 條款被涵蓋且會在空 graph 的 refresh tick 造成 enabled 翻動(effect 無謂重跑),故省略;fatal-normalize 述詞抽成 `isFatalNormalizeError` named const,與 panel 的 fatal early return 共用同一個運算式防漂移。
+
 ### D2: 模組切分(feature-first + touchpoint 隔離)
 
 ```

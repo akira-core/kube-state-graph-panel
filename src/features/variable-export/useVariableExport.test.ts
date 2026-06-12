@@ -1,16 +1,13 @@
 import { renderHook } from '@testing-library/react';
 import type cytoscape from 'cytoscape';
 
-// locationService stub shared by every case — dereferenced lazily inside the
-// service getters, so hoisting order is safe.
-const partialMock = jest.fn();
-const getSearchMock = jest.fn(() => new URLSearchParams());
-jest.mock('@grafana/runtime', () => ({
-  locationService: {
-    getSearch: (): URLSearchParams => getSearchMock(),
-    partial: (query: Record<string, unknown>, replace?: boolean): void => {
-      partialMock(query, replace);
-    },
+// Mock the feature's write boundary: the hook's job is WHEN to write (gating,
+// memo stability), not the var- URL wire format — writeDashboardVariable.test.ts
+// pins that. Dereferenced lazily inside the factory, so hoisting order is safe.
+const writeVariableMock = jest.fn();
+jest.mock('./writeDashboardVariable', () => ({
+  writeDashboardVariable: (name: string, values: readonly string[]): void => {
+    writeVariableMock(name, values);
   },
 }));
 
@@ -22,32 +19,23 @@ function pod(id: string, label: string): cytoscape.ElementDefinition {
 
 describe('useVariableExport', () => {
   beforeEach(() => {
-    partialMock.mockClear();
-    getSearchMock.mockReset();
-    getSearchMock.mockReturnValue(new URLSearchParams());
+    writeVariableMock.mockClear();
   });
 
-  it('does nothing when the variable name is empty', () => {
-    renderHook(() => {
-      useVariableExport([pod('p1', 'mongo-0')], '', true);
-    });
-    expect(getSearchMock).not.toHaveBeenCalled();
-    expect(partialMock).not.toHaveBeenCalled();
-  });
-
-  it('does nothing when the variable name is whitespace only', () => {
-    renderHook(() => {
-      useVariableExport([pod('p1', 'mongo-0')], '   ', true);
-    });
-    expect(partialMock).not.toHaveBeenCalled();
+  it('does nothing when the variable name is empty or whitespace only', () => {
+    for (const name of ['', '   ']) {
+      renderHook(() => {
+        useVariableExport([pod('p1', 'mongo-0')], name, true);
+      });
+    }
+    expect(writeVariableMock).not.toHaveBeenCalled();
   });
 
   it('does nothing while disabled (error / first-load gate)', () => {
     renderHook(() => {
       useVariableExport([pod('p1', 'mongo-0')], 'pod_list', false);
     });
-    expect(getSearchMock).not.toHaveBeenCalled();
-    expect(partialMock).not.toHaveBeenCalled();
+    expect(writeVariableMock).not.toHaveBeenCalled();
   });
 
   it('writes the pod names once for a stable element list across re-renders', () => {
@@ -57,8 +45,8 @@ describe('useVariableExport', () => {
     });
     rerender();
     rerender();
-    expect(partialMock).toHaveBeenCalledTimes(1);
-    expect(partialMock).toHaveBeenCalledWith({ 'var-pod_list': ['mongo-0', 'mongo-1'] }, true);
+    expect(writeVariableMock).toHaveBeenCalledTimes(1);
+    expect(writeVariableMock).toHaveBeenCalledWith('pod_list', ['mongo-0', 'mongo-1']);
   });
 
   it('writes again when the element list gains a pod', () => {
@@ -69,8 +57,8 @@ describe('useVariableExport', () => {
       { initialProps: { elements: [pod('p1', 'mongo-0')] } }
     );
     rerender({ elements: [pod('p1', 'mongo-0'), pod('p3', 'nats-0')] });
-    expect(partialMock).toHaveBeenCalledTimes(2);
-    expect(partialMock).toHaveBeenLastCalledWith({ 'var-pod_list': ['mongo-0', 'nats-0'] }, true);
+    expect(writeVariableMock).toHaveBeenCalledTimes(2);
+    expect(writeVariableMock).toHaveBeenLastCalledWith('pod_list', ['mongo-0', 'nats-0']);
   });
 
   it('starts writing when the gate opens', () => {
@@ -81,8 +69,8 @@ describe('useVariableExport', () => {
       },
       { initialProps: { enabled: false } }
     );
-    expect(partialMock).not.toHaveBeenCalled();
+    expect(writeVariableMock).not.toHaveBeenCalled();
     rerender({ enabled: true });
-    expect(partialMock).toHaveBeenCalledWith({ 'var-pod_list': ['mongo-0'] }, true);
+    expect(writeVariableMock).toHaveBeenCalledWith('pod_list', ['mongo-0']);
   });
 });

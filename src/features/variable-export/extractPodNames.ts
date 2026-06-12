@@ -19,7 +19,7 @@ export function extractPodNames(elements: readonly cytoscape.ElementDefinition[]
       continue;
     }
     const label = typeof d.label === 'string' && d.label !== '' ? d.label : d.id;
-    if (typeof label === 'string' && label !== '') {
+    if (label !== undefined && label !== '') {
       names.add(label);
     }
   }
