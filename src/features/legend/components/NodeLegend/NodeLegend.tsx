@@ -120,7 +120,7 @@ export function NodeLegend({ entries, onToggleKind }: Readonly<NodeLegendProps> 
                     <IconButton
                       className={styles.toggle}
                       name={entry.hidden ? 'eye-slash' : 'eye'}
-                      size="sm"
+                      size="lg"
                       tooltip={`${entry.hidden ? 'Show' : 'Hide'} ${label}`}
                       onClick={() => onToggleKind(entry.kind)}
                       data-testid={`node-legend-toggle-${entry.kind}`}
