@@ -48,6 +48,16 @@ describe('useGraphData', () => {
     const { result } = renderHook(() => useGraphData(panelData([])));
     expect(result.current.elements).toEqual([]);
     expect(result.current.error).toBeUndefined();
+    expect(result.current.hasPayload).toBe(false);
+  });
+
+  it('reports hasPayload=true for a graph payload that normalizes to zero elements', () => {
+    // "Loaded and genuinely empty" must stay distinguishable from "no payload at
+    // all" — side-effecting consumers (pod-list variable export) key off this.
+    const data = panelData([frameWithFieldValue(JSON.stringify({ nodes: [], edges: [] }))]);
+    const { result } = renderHook(() => useGraphData(data));
+    expect(result.current.elements).toEqual([]);
+    expect(result.current.hasPayload).toBe(true);
   });
 
   it('parses JSON string field and normalizes graph payload', () => {
@@ -75,6 +85,7 @@ describe('useGraphData', () => {
     const { result } = renderHook(() => useGraphData(data));
     expect(result.current.elements).toEqual([]);
     expect(result.current.error).toBeUndefined();
+    expect(result.current.hasPayload).toBe(false);
   });
 
   it('surfaces normalize errors when payload shape is invalid', () => {

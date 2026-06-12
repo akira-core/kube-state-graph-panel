@@ -74,5 +74,17 @@ export function buildKsgPanelOptions(
         'under fixed sub-paths (/api/v1/config_changes and /api/v1/code_changes). ' +
         'If neither resolves, the URL buttons stay disabled and no lookup is issued.',
       defaultValue: defaultOptions.detailEndpoint,
+    })
+    .addTextInput({
+      path: 'podListVariable',
+      name: 'Pod list variable',
+      description:
+        'Name of an existing dashboard variable to export the pod names of the graph into ' +
+        '(multi-value), e.g. for an Elasticsearch logs panel querying ${pod_list:lucene}. ' +
+        'A successfully loaded graph with zero pods writes the $__empty sentinel (consumers ' +
+        'match no pod) — query errors and payload-less refreshes leave the variable untouched. ' +
+        'The variable must already exist on the dashboard and must not feed back into ' +
+        "this panel's own query. Leave empty to disable.",
+      defaultValue: defaultOptions.podListVariable,
     });
 }

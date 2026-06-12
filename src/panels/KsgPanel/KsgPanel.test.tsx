@@ -29,15 +29,24 @@ jest.mock('../../features/graph-canvas', () => {
 });
 
 // Backend transport stub for the right-click detail-URL flow (useNodeDetailUrls)
-// plus the datasource registry stub for endpoint derivation (resolveDetailEndpoint).
+// plus the datasource registry stub for endpoint derivation (resolveDetailEndpoint)
+// plus the locationService stub for the pod-list variable export (useVariableExport).
 // Dereferenced lazily inside the service getters, so hoisting order is safe.
 const detailGetMock = jest.fn();
 const getInstanceSettingsMock = jest.fn();
+const locationPartialMock = jest.fn();
+const locationGetSearchMock = jest.fn(() => new URLSearchParams());
 jest.mock('@grafana/runtime', () => ({
   getBackendSrv: (): { get: typeof detailGetMock } => ({ get: detailGetMock }),
   getDataSourceSrv: (): { getInstanceSettings: typeof getInstanceSettingsMock } => ({
     getInstanceSettings: getInstanceSettingsMock,
   }),
+  locationService: {
+    getSearch: (): URLSearchParams => locationGetSearchMock(),
+    partial: (query: Record<string, unknown>, replace?: boolean): void => {
+      locationPartialMock(query, replace);
+    },
+  },
 }));
 
 import { KsgPanel, resolveSelectedNode } from './KsgPanel';
@@ -85,6 +94,9 @@ function buildProps(overrides: Partial<PanelProps<KsgPanelOptions>> = {}): Panel
 describe('KsgPanel', () => {
   beforeEach(() => {
     graphCanvasSpy.mockClear();
+    locationPartialMock.mockClear();
+    locationGetSearchMock.mockReset();
+    locationGetSearchMock.mockReturnValue(new URLSearchParams());
   });
 
   it('renders empty state when no data', () => {
@@ -113,6 +125,133 @@ describe('KsgPanel', () => {
       />
     );
     expect(screen.getByRole('alert')).toHaveTextContent('boom');
+  });
+
+  it('does not touch the dashboard variable URL state by default', () => {
+    const payload = {
+      elements: {
+        nodes: [{ data: { id: 'demo/p1', type: 'pod', name: 'web' } }],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel {...buildProps({ data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange } })} />
+    );
+    expect(locationGetSearchMock).not.toHaveBeenCalled();
+    expect(locationPartialMock).not.toHaveBeenCalled();
+  });
+
+  it('exports the pod names into the configured dashboard variable', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/p2', type: 'pod', name: 'web-1', parent: 'cluster:demo' } },
+          { data: { id: 'demo/p1', type: 'pod', name: 'web-0', parent: 'cluster:demo' } },
+          { data: { id: 'demo/svc', type: 'service', name: 'web-svc', parent: 'cluster:demo' } },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, podListVariable: 'pod_list' },
+        })}
+      />
+    );
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-pod_list': ['web-0', 'web-1'] }, true);
+  });
+
+  it('does not export while the query is in an error state', () => {
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: {
+            state: LoadingState.Error,
+            series: [],
+            errors: [{ message: 'boom', refId: 'A' }],
+            timeRange: stubTimeRange,
+          },
+          options: { ...defaultOptions, podListVariable: 'pod_list' },
+        })}
+      />
+    );
+    expect(locationPartialMock).not.toHaveBeenCalled();
+  });
+
+  it('does not export during the first load (loading, no elements yet)', () => {
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Loading, series: [], timeRange: stubTimeRange },
+          options: { ...defaultOptions, podListVariable: 'pod_list' },
+        })}
+      />
+    );
+    expect(locationPartialMock).not.toHaveBeenCalled();
+  });
+
+  it('does not export when a Done frame carries no recognizable payload', () => {
+    // A hidden/not-yet-run query or a transform stripping every frame must not be
+    // written out as "no pods" — only a loaded graph may clear the variable.
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [], timeRange: stubTimeRange },
+          options: { ...defaultOptions, podListVariable: 'pod_list' },
+        })}
+      />
+    );
+    expect(locationPartialMock).not.toHaveBeenCalled();
+  });
+
+  it('does not export when the whole payload fails to normalize', () => {
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify({ nodes: 'bogus' })] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, podListVariable: 'pod_list' },
+        })}
+      />
+    );
+    expect(locationPartialMock).not.toHaveBeenCalled();
+  });
+
+  it('clears the variable with the $__empty sentinel for a loaded graph with zero pods', () => {
+    const payload = {
+      elements: { nodes: [{ data: { id: 'demo/svc', type: 'service', name: 'web-svc' } }], edges: [] },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, podListVariable: 'pod_list' },
+        })}
+      />
+    );
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-pod_list': ['$__empty'] }, true);
   });
 
   it('renders cluster swatches derived from backend cluster container nodes', () => {
@@ -520,9 +659,7 @@ describe('KsgPanel', () => {
     it('hiding every present kind shows the filtered-out empty state while the legend rows stay restorable', () => {
       // pvc stays checked but absent from the graph — the message must key off
       // the computed visibility, not visibleKinds.length.
-      render(
-        <KsgPanel {...buildProps({ data: dataDone, options: { ...defaultOptions, visibleKinds: ['pvc'] } })} />
-      );
+      render(<KsgPanel {...buildProps({ data: dataDone, options: { ...defaultOptions, visibleKinds: ['pvc'] } })} />);
       expect(screen.getByText('All node types filtered')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Show pod' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Show service' })).toBeInTheDocument();
@@ -531,9 +668,7 @@ describe('KsgPanel', () => {
     it('a canvas blanked by edge-type filtering alone does not blame node types', () => {
       // All kinds stay checked; hiding every edge type orphan-cascades the
       // whole graph away — the message must not claim node types are filtered.
-      render(
-        <KsgPanel {...buildProps({ data: dataDone, options: { ...defaultOptions, visibleEdgeTypes: [] } })} />
-      );
+      render(<KsgPanel {...buildProps({ data: dataDone, options: { ...defaultOptions, visibleEdgeTypes: [] } })} />);
       expect(screen.getByText('All elements filtered out')).toBeInTheDocument();
       expect(screen.queryByText('All node types filtered')).toBeNull();
       // The kind rows stay full-strength (Hide affordance) — they are not the cause.

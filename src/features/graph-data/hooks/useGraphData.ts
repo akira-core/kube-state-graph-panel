@@ -7,6 +7,13 @@ import { isPlainObject, normalizeGraph } from '../normalize';
 export interface UseGraphDataResult {
   elements: cytoscape.ElementDefinition[];
   error?: string;
+  // False when the frames carried nothing recognizable as a graph payload (empty
+  // series from a hidden/not-yet-run query, a transform stripping every frame,
+  // unparseable string bodies). Distinguishes "no payload at all" from a payload
+  // that legitimately normalized to zero elements — consumers with side effects
+  // (the pod-list variable export) must not treat the former as "the graph is
+  // empty". A genuinely empty backend graph still HAS a payload (hasPayload true).
+  hasPayload: boolean;
 }
 
 // A graph payload is either the full backend response ({ elements: { nodes, edges } })
@@ -75,13 +82,15 @@ export function useGraphData(data: PanelData): UseGraphDataResult {
 
   return useMemo<UseGraphDataResult>(() => {
     if (fingerprint === null) {
-      return { elements: [] };
+      return { elements: [], hasPayload: false };
     }
     // Re-parse from the fingerprint (one parse per ACTUAL data change) so this
     // memo's input is the plain string — no object identity in the dep array.
     const payload = JSON.parse(fingerprint) as unknown;
     const { elements, errors } = normalizeGraph(payload);
     const firstError = errors[0];
-    return firstError !== undefined ? { elements, error: firstError } : { elements };
+    return firstError !== undefined
+      ? { elements, error: firstError, hasPayload: true }
+      : { elements, hasPayload: true };
   }, [fingerprint]);
 }

@@ -16,6 +16,11 @@ export interface KsgPanelOptions {
   // are disabled: the Application/Containers URL buttons stay inert and no
   // query is ever issued.
   detailEndpoint: string;
+  // Name of an EXISTING dashboard variable to export the graph's pod names
+  // into (multi-value, via var-<name> URL sync) — e.g. for an ES logs panel
+  // consuming ${pod_list:lucene}. Empty (default) disables the export. The
+  // panel can only set values; it cannot create the variable or its options.
+  podListVariable: string;
 }
 
 // The filterable-kind universe, derived from the element-filter's single
@@ -33,4 +38,5 @@ export const defaultOptions: KsgPanelOptions = {
   visibleKinds: ALL_KINDS,
   visibleEdgeTypes: ALL_EDGE_TYPES,
   detailEndpoint: '',
+  podListVariable: '',
 };

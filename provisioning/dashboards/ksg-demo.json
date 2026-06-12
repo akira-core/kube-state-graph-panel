@@ -23,7 +23,8 @@
       "id": 1,
       "options": {
         "layout": "fcose",
-        "showLegend": true
+        "showLegend": true,
+        "podListVariable": "pod_list"
       },
       "targets": [
         {
@@ -154,6 +155,24 @@
           {
             "text": "service-selects-pod",
             "value": "service-selects-pod",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "pod_list",
+        "label": "Pod list (exported)",
+        "description": "Written by the KSG panel after each graph load — all pod names currently in the graph; $__empty means a loaded graph with zero pods (and is the pre-first-write placeholder, so consumers never match a literal placeholder name). Consume it from other panels, e.g. an ES logs query via ${pod_list:lucene}. Deliberately NOT referenced by the KSG panel's own query (no self-filtering feedback loop).",
+        "type": "custom",
+        "query": "$__empty",
+        "multi": true,
+        "includeAll": false,
+        "current": {},
+        "options": [
+          {
+            "text": "$__empty",
+            "value": "$__empty",
             "selected": false
           }
         ],
