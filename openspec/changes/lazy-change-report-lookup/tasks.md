@@ -35,3 +35,10 @@
 
 - [x] 6.1 `openspec validate lazy-change-report-lookup --strict` 通過
 - [x] 6.2 確認元件檔頭 / 程式碼註解與更新後規格一致(`LinkButton` 全數替換、無殘留 D5「預解析 / 不 window.open / 失敗不渲染按鈕」描述)
+
+## 7. 呼叫快取(每端點每次開啟最多一次)
+
+- [x] 7.1 (RED)`useNodeDetailUrls.test.ts`:多個 container 點擊只發一次 `code_changes`(共用快取);換節點後清快取並重發;失敗不快取、重試重發;application 重複點擊只發一次 `config_changes`
+- [x] 7.2 (GREEN)hook 加 `appCacheRef` / `codeCacheRef`(以 request key 為界,快取成功 promise、共用 in-flight);失敗 `promise.catch` 清 slot;`[key]` cleanup 連同 abort 清兩快取;`window.open` / Not Found 改由共用 promise 解析後處理
+- [x] 7.3 更新 design(Goals + D6)與 spec(呼叫快取段 + 兩個 scenario)
+- [x] 7.4 全閘綠(test:ci / typecheck / lint / build / `openspec validate --strict`)

@@ -11,7 +11,9 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 **查詢契約**:兩個查詢 MUST 共用同一組 input——ArgoCD application name、pod-controller kind、pod-controller name、time(右鍵建立 input 當下時間,Unix 秒)。pod 節點的 controller kind/name 取自其 owner(`data.owner`);controller 節點取自身 kind/name;無 owner 的 standalone pod 以自身 kind(`pod`)與 name 帶入。回傳:
 
 - **application-detail 查詢**(`GET <endpoint>/api/v1/config_changes`):回 `{ "url": string }`——**單一 URL**(該 ArgoCD application 的外部詳情頁)。
-- **image-detail 查詢**(`GET <endpoint>/api/v1/code_changes`):回 `{ [containerName]: { "url": string } }`——**map(container name → URL)**,UI 端以攤平後的 map 查值;input MUST NOT 含 image 參數,一次點擊一次呼叫涵蓋該節點所有 containers(UI 僅取所點 container 的對應值)。
+- **image-detail 查詢**(`GET <endpoint>/api/v1/code_changes`):回 `{ [containerName]: { "url": string } }`——**map(container name → URL)**,UI 端以攤平後的 map 查值;input MUST NOT 含 image 參數,一次呼叫即涵蓋該節點所有 containers。
+
+**呼叫快取**:panel 開啟期間,`code_changes` 與 `config_changes` 各 MUST **最多呼叫一次**——`code_changes` 回的整包 map 由所有 container 列**共用**(第一次點擊發出、其餘 container 點擊重用該次結果,MUST NOT 重發);`config_changes` 同(單一 application 按鈕,重複點擊重用快取)。僅快取**成功**回應:失敗(非 200 / 回應格式錯誤)MUST NOT 入快取(該按鈕仍可重試、重試會重新發出查詢);成功 map 中查無某 container = 該列確定性「Not Found」(用快取、不重發)。**換節點 / 關閉 panel(unmount / 清除選取)MUST 清除快取**(連同中止 in-flight),下次開啟重新呼叫。
 
 **查詢傳輸**:查詢 MUST 透過 Grafana runtime(`@grafana/runtime` `getBackendSrv()`)發往**同一個 graph API backend**;MUST NOT 自 `src/**` 直接以 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend(與 graph-data-integration「Datasource 整合策略」之「Panel 不直接 fetch 外部 URL」一致)。查詢端點(base path)MUST 依下列順序解析:(1)panel option 非空時以其為準(**覆寫**);(2)否則 SHALL 自面板查詢請求(`data.request.targets`)**自動推導**——依序檢視非隱藏(`hide` ≠ true)且帶 datasource ref 的 targets,經 Grafana runtime 的 datasource instance settings 解析其 proxied base path(`access: proxy` 的 datasource 其 instance settings `url` 即 `/api/datasources/proxy/uid/<uid>`),取**第一個解析出非空 base path** 者(隱藏 target 或解析不出 url 的 ref——如 expression——跳過續查,不視為終點);(3)兩者皆無(option 空且無任一 target 可解析出非空 base path)時,兩區塊照資料渲染但 Change Report 按鈕 MUST 停用,且 MUST NOT 發出任何查詢。點擊觸發的查詢 MUST 可中止(unmount / 換節點),MUST NOT 在 unmount 後 setState。
 
@@ -94,6 +96,17 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 
 - **WHEN** 右鍵開啟的 detail view 渲染 Containers 區塊(節點帶兩個以上、name 長度不一的 containers)
 - **THEN** 區塊以 `InteractiveTable` 呈現 column headers **Name** / **Image** / **Change Report**,每列的 container name / image / 按鈕分別落於對應欄、沿欄對齊(欄界不隨 name 長度漂移)
+
+#### Scenario: 開啟期間 code_changes 只呼叫一次、各 container 共用結果
+
+- **WHEN** 使用者於同一節點先後點擊多個 container 的 Change Report 按鈕
+- **THEN** 系統僅對 `code_changes` 發出**一次**呼叫,其餘 container 以該次回傳的 map 取值(MUST NOT 重發)
+- **AND** 關閉 panel / 換節點後快取 MUST 清除,下次點擊重新呼叫
+
+#### Scenario: 失敗的查詢不入快取(重試會重發)
+
+- **WHEN** 某次 `code_changes`(或 `config_changes`)失敗(非 200 / 格式錯誤),使用者再次點擊該按鈕
+- **THEN** 系統重新發出該查詢(失敗結果未被快取)
 
 #### Scenario: Change Report 按鈕跨區塊與跨狀態上下對齊
 

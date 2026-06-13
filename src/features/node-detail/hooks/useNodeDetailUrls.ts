@@ -119,16 +119,22 @@ function mergeContainer(
 /**
  * Lazy detail-URL lookups for a right-clicked pod/controller. The right-click only
  * builds the query input; NOTHING is fetched until the user clicks a Change Report
- * button. `openApplicationReport()` / `openContainerReport(name)` each fire their
- * query through the Grafana backend proxy (`getBackendSrv()` — the panel never
- * fetches external URLs directly); on HTTP 200 + valid URL they open the report in
- * a new tab (`window.open(..., '_blank', 'noopener,noreferrer')`) and return to
- * idle; otherwise they leave a retryable error on that target.
+ * button. `openApplicationReport()` / `openContainerReport(name)` fire their query
+ * through the Grafana backend proxy (`getBackendSrv()` — the panel never fetches
+ * external URLs directly); on HTTP 200 + valid URL they open the report in a new
+ * tab (`window.open(..., '_blank', 'noopener,noreferrer')`); otherwise they leave a
+ * retryable error on that target.
  *
- * State is keyed by the request context: the derived getters return idle for any
- * key but the current one, so changing the selected node resets every button with
- * no stale render frame. In-flight requests abort on node/endpoint change and on
- * unmount; an aborted pass never writes state.
+ * Each endpoint fires AT MOST ONCE per open node: the `code_changes` response is the
+ * whole container→URL map, so every container row shares one cached call (later
+ * clicks reuse the resolved promise — no new request), and `config_changes` is cached
+ * the same way. Only successes cache; a failure clears its slot so a retry refetches.
+ *
+ * State (and the caches) are keyed by the request context: the derived getters return
+ * idle for any key but the current one, so changing the selected node resets every
+ * button with no stale render frame. The caches and any in-flight request clear/abort
+ * on node/endpoint change and on unmount (panel close); an aborted pass never writes
+ * state.
  */
 export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpoint: string): NodeDetailLookups {
   const base = endpoint.trim().replace(/\/+$/, '');
@@ -138,19 +144,30 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
   const [appResult, setAppResult] = useState<{ key: string; state: ChangeReportState } | null>(null);
   const [containerResult, setContainerResult] = useState<ContainerResult>(null);
 
-  // Latest request context for the (stable) triggers to read at click time.
+  // Latest request context for the (stable) triggers to read at click time. Synced
+  // in an effect (not written during render) so the click handlers always see the
+  // current node without touching the ref mid-render (react-hooks/refs).
   const ctxRef = useRef<{ input: NodeDetailQueryInput | undefined; base: string; enabled: boolean; key: string }>({
     input,
     base,
     enabled,
     key,
   });
-  ctxRef.current = { input, base, enabled, key };
+  useEffect(() => {
+    ctxRef.current = { input, base, enabled, key };
+  });
 
   // In-flight requests, aborted on node/endpoint change (the [key] effect) and on
   // unmount. The same Set instance is mutated (never reassigned), so the cleanup
   // sees every controller registered during this key's lifetime.
   const controllersRef = useRef<Set<AbortController>>(new Set());
+  // Per-node response cache so each endpoint fires AT MOST ONCE while the panel
+  // stays open: the first click stores the in-flight/resolved promise, later clicks
+  // (any container shares the one `code_changes` map) reuse it — no new call. Only
+  // SUCCESSES are cached; a failure clears its slot so a later click retries. Both
+  // slots clear on node/endpoint change + unmount (panel close), below.
+  const appCacheRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
+  const codeCacheRef = useRef<{ key: string; promise: Promise<Record<string, string>> } | null>(null);
   useEffect(() => {
     const controllers = controllersRef.current;
     return (): void => {
@@ -158,6 +175,8 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
         controller.abort();
       }
       controllers.clear();
+      appCacheRef.current = null;
+      codeCacheRef.current = null;
     };
   }, [key]);
 
@@ -168,35 +187,44 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
     }
     const k = ctx.key;
     setAppResult({ key: k, state: { status: 'loading' } });
-    const controller = new AbortController();
-    controllersRef.current.add(controller);
-    const options = { abortSignal: controller.signal, showErrorAlert: false };
-    void (async (): Promise<void> => {
-      try {
-        const res = await getBackendSrv().get<unknown>(
-          `${ctx.base}/api/v1/config_changes`,
-          ctx.input,
-          undefined,
-          options
-        );
-        if (controller.signal.aborted) {
-          return;
+    let entry = appCacheRef.current;
+    if (entry === null || entry.key !== k) {
+      const controller = new AbortController();
+      controllersRef.current.add(controller);
+      const options = { abortSignal: controller.signal, showErrorAlert: false };
+      const promise = getBackendSrv()
+        .get<unknown>(`${ctx.base}/api/v1/config_changes`, ctx.input, undefined, options)
+        .then((res): string => {
+          const url = parseApplicationUrl(res);
+          if (url === undefined) {
+            throw new Error('Not Found'); // malformed 200 → reject (uncached, retryable)
+          }
+          return url;
+        })
+        .finally(() => controllersRef.current.delete(controller));
+      entry = { key: k, promise };
+      appCacheRef.current = entry;
+      const created = entry;
+      promise.catch(() => {
+        if (appCacheRef.current === created) {
+          appCacheRef.current = null; // don't cache failures — allow retry
         }
-        const url = parseApplicationUrl(res);
-        if (url === undefined) {
-          setAppResult({ key: k, state: { status: 'error', error: 'Not Found' } });
-          return;
+      });
+    }
+    void entry.promise.then(
+      (url) => {
+        if (ctxRef.current.key !== k) {
+          return; // node changed while awaiting — never write stale state
         }
         const opened = window.open(url, '_blank', 'noopener,noreferrer');
         setAppResult({ key: k, state: opened === null ? { status: 'error', error: 'Pop-up blocked' } : IDLE });
-      } catch (reason: unknown) {
-        if (!controller.signal.aborted) {
+      },
+      (reason: unknown) => {
+        if (ctxRef.current.key === k) {
           setAppResult({ key: k, state: { status: 'error', error: errorMessage(reason) } });
         }
-      } finally {
-        controllersRef.current.delete(controller);
       }
-    })();
+    );
   }, []);
 
   const openContainerReport = useCallback((container: string) => {
@@ -206,21 +234,40 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
     }
     const k = ctx.key;
     setContainerResult((prev) => mergeContainer(prev, k, container, { status: 'loading' }));
-    const controller = new AbortController();
-    controllersRef.current.add(controller);
-    const options = { abortSignal: controller.signal, showErrorAlert: false };
-    void (async (): Promise<void> => {
-      try {
-        const res = await getBackendSrv().get<unknown>(
-          `${ctx.base}/api/v1/code_changes`,
-          ctx.input,
-          undefined,
-          options
-        );
-        if (controller.signal.aborted) {
+    // The backend returns the WHOLE container→URL map in one call, so every row
+    // shares a single `code_changes` request: fetch once, then look the clicked
+    // container up in the cached map.
+    let entry = codeCacheRef.current;
+    if (entry === null || entry.key !== k) {
+      const controller = new AbortController();
+      controllersRef.current.add(controller);
+      const options = { abortSignal: controller.signal, showErrorAlert: false };
+      const promise = getBackendSrv()
+        .get<unknown>(`${ctx.base}/api/v1/code_changes`, ctx.input, undefined, options)
+        .then((res): Record<string, string> => {
+          const map = parseUrlByContainer(res);
+          if (map === undefined) {
+            throw new Error('Not Found'); // malformed 200 → reject (uncached, retryable)
+          }
+          return map;
+        })
+        .finally(() => controllersRef.current.delete(controller));
+      entry = { key: k, promise };
+      codeCacheRef.current = entry;
+      const created = entry;
+      promise.catch(() => {
+        if (codeCacheRef.current === created) {
+          codeCacheRef.current = null; // don't cache failures — allow retry
+        }
+      });
+    }
+    void entry.promise.then(
+      (map) => {
+        if (ctxRef.current.key !== k) {
           return;
         }
-        const url = parseUrlByContainer(res)?.[container];
+        // A valid map missing this container = definitive "Not Found" (cached, no refetch).
+        const url = map[container];
         if (url === undefined) {
           setContainerResult((prev) => mergeContainer(prev, k, container, { status: 'error', error: 'Not Found' }));
           return;
@@ -229,16 +276,15 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
         setContainerResult((prev) =>
           mergeContainer(prev, k, container, opened === null ? { status: 'error', error: 'Pop-up blocked' } : IDLE)
         );
-      } catch (reason: unknown) {
-        if (!controller.signal.aborted) {
+      },
+      (reason: unknown) => {
+        if (ctxRef.current.key === k) {
           setContainerResult((prev) =>
             mergeContainer(prev, k, container, { status: 'error', error: errorMessage(reason) })
           );
         }
-      } finally {
-        controllersRef.current.delete(controller);
       }
-    })();
+    );
   }, []);
 
   // Results count only for the CURRENT request key; a node/endpoint change reads

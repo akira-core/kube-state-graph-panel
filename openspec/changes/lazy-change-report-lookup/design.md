@@ -14,11 +14,12 @@
 - 每顆按鈕獨立的 idle → loading → 成功(開新分頁)/ 失敗(顯示 Not Found、可重試)狀態機。
 - Application 與 Containers 兩區塊一致採用此 lazy 行為。
 - 保持 hook 集中查詢、表格 presentational 的既有分層。
+- panel 開啟期間每個端點**最多呼叫一次**:`code_changes` 回的是整包 container→URL map,所有 container 列共用同一次呼叫的結果(後續點擊重用已解析的 promise、不再發 API);`config_changes` 同。關閉 panel / 換節點清快取。
 
 **Non-Goals:**
 
 - 不改 endpoint 解析、查詢契約、傳輸層(`getBackendSrv()`)。
-- 不做跨列結果快取(點 container A 不預先解析 B/C);container 數極少,每次點擊各自查。
+- 不快取**失敗**結果(非 200 / 格式錯誤不入快取,仍可重試)。
 - 不改右鍵/左鍵 gating、區塊顯示條件、Alerts view。
 - 不在面板內 inline 呈現成功 URL(成功即開新分頁)。
 
@@ -59,6 +60,12 @@ URL 在點擊查詢回來前未知,無法再用預解析連結。成功時 `wind
 兩區塊的 Change Report 欄皆 `disableGrow` 靠右,既有規格要求其**上下對齊**。最初把 loading/error 提示放在按鈕**右側**(`[button][hint]`),會在提示出現時把按鈕往左推——實測(Playwright bounding box)顯示:全 idle 時兩區塊按鈕對齊(Δ=0),但一旦兩區塊狀態不同(例:點了 Application、Containers 仍 idle),按鈕錯位 **42px**。改為 `urlCell { justifyContent: flex-end }` 並把提示渲染在按鈕**左側**(`[hint][button]`):按鈕恆貼齊 cell 右緣 = 欄右緣 = 面板右緣,故跨列、跨區塊、跨狀態(含混合)皆對齊。
 
 **為何**:固定欄寬會截斷較長的錯誤訊息;右釘按鈕 + 左置提示在不犧牲訊息可讀性下,robust 地還原「兩區塊 Change Report 上下對齊」。jsdom 無法量版面,對齊以 Playwright bounding-box 量測佐證,單元測試僅鎖定 DOM 順序(提示在按鈕之前)。
+
+### D6:每個端點每次開啟最多呼叫一次(成功快取、共用 in-flight promise)
+
+`code_changes` 一次回傳整包 container→URL map,但最初版每點一個 container 就重打一次、只取所點列。改為:hook 以 request key 為界,用 ref 快取該端點**成功**回應的 promise(`appCacheRef` / `codeCacheRef`)——第一次點擊建立並快取 promise,其後任一 container 點擊**重用同一 promise**(連續快點也只打一次,因共用的是 in-flight promise 而非已解析值)。失敗(reject / 格式錯誤→reject)**不入快取**(`promise.catch` 清掉該 slot),故仍可重試;成功 map 中缺某 container = 該列確定性「Not Found」(用快取、不重打)。快取掛在既有 `[key]` effect cleanup,換節點 / unmount(關閉 panel)時與 in-flight abort 一併清除。
+
+**為何**:後端已把整包資料一次回傳,逐列重打是浪費;共用快取讓「開啟期間每個端點一次」成立,同時保留失敗可重試與換節點重取的正確性。
 
 ### D3:失敗保留按鈕、旁顯「Not Found」(可重試)
 

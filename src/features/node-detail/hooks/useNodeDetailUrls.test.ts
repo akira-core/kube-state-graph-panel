@@ -197,6 +197,90 @@ describe('useNodeDetailUrls (lazy, click-triggered)', () => {
     expect(result.current.containers).toEqual({});
   });
 
+  it('fetches code_changes once for multiple container clicks, sharing the cached map', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openContainerReport('app');
+    });
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
+    });
+    act(() => {
+      result.current.openContainerReport('sidecar');
+    });
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://x/sc', '_blank', 'noopener,noreferrer');
+    });
+    // Both rows opened, but only ONE code_changes request fired (shared cache).
+    const codeCalls = mockGet.mock.calls.filter((c: unknown[]) => String(c[0]).includes('code_changes'));
+    expect(codeCalls).toHaveLength(1);
+  });
+
+  it('refetches code_changes after the selected node changes (cache cleared on close)', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
+      initialProps: { i: input },
+    });
+    act(() => {
+      result.current.openContainerReport('app');
+    });
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    rerender({ i: { ...input, name: 'other' } });
+    act(() => {
+      result.current.openContainerReport('app');
+    });
+    await waitFor(() => {
+      expect(mockGet.mock.calls.filter((c: unknown[]) => String(c[0]).includes('code_changes'))).toHaveLength(2);
+    });
+  });
+
+  it('does not cache a failed code_changes lookup — a retry refetches', async () => {
+    let codeCall = 0;
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes('config_changes')) {
+        return Promise.resolve(appOk);
+      }
+      codeCall += 1;
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped rejection
+      return codeCall === 1 ? Promise.reject({ statusText: 'Not Found' }) : Promise.resolve(codeOk);
+    });
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openContainerReport('app');
+    });
+    await waitFor(() => {
+      expect(result.current.containers.app).toEqual({ status: 'error', error: 'Not Found' });
+    });
+    act(() => {
+      result.current.openContainerReport('app');
+    });
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
+    });
+    expect(codeCall).toBe(2);
+  });
+
+  it('fetches config_changes once across application re-clicks (cached), reopening from cache', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openApplicationReport();
+    });
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    act(() => {
+      result.current.openApplicationReport();
+    });
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledTimes(2); // reopened from the cached URL
+    });
+    expect(mockGet.mock.calls.filter((c: unknown[]) => String(c[0]).includes('config_changes'))).toHaveLength(1);
+  });
+
   it('aborts an in-flight request on unmount (signal flips, no late state write)', () => {
     routeGet(new Promise(() => undefined), new Promise(() => undefined)); // never settles
     const { result, unmount } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
