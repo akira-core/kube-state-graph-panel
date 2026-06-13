@@ -6,7 +6,7 @@ import React from 'react';
 import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
 import { themeColors } from '../../../../shared/theme/themeColors';
 import { DETAIL_URL_KINDS } from '../../detailUrlKinds';
-import { IDLE_NODE_DETAIL_URLS } from '../../hooks/useNodeDetailUrls';
+import { IDLE_NODE_DETAIL_LOOKUPS } from '../../hooks/useNodeDetailUrls';
 import { AlertTable } from '../AlertTable';
 import { ApplicationTable } from '../ApplicationTable';
 import { ContainerTable } from '../ContainerTable';
@@ -142,7 +142,7 @@ export function NodeDetailPanel({
   onClose,
   onAlertTimeClick,
   timeZone,
-  urls,
+  lookups,
   view = 'alerts',
 }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
@@ -153,10 +153,10 @@ export function NodeDetailPanel({
   // the Alerts table only; 'detail' (right-click) shows Application/Containers
   // only. Within the detail view the sections gate twice, independently: kind ∈
   // DETAIL_URL_KINDS (pod + workload controllers — every other kind never shows
-  // them, even with stray data) AND the node actually carrying that field. urls
-  // defaults to idle: sections render their data with the URL buttons disabled
-  // (design D5).
-  const urlsState = urls ?? IDLE_NODE_DETAIL_URLS;
+  // them, even with stray data) AND the node actually carrying that field.
+  // lookups defaults to idle/disabled: sections render their data with the
+  // Change Report buttons disabled (no endpoint / left-click selection).
+  const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
   const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
   const showContainers =
@@ -190,9 +190,9 @@ export function NodeDetailPanel({
             <div className={styles.sectionBody}>
               <ApplicationTable
                 application={node.application}
-                url={urlsState.applicationUrl}
-                loading={urlsState.loading}
-                error={urlsState.applicationError}
+                state={lookupsState.application}
+                enabled={lookupsState.enabled}
+                onOpen={lookupsState.openApplicationReport}
               />
             </div>
           </div>
@@ -203,9 +203,9 @@ export function NodeDetailPanel({
             <div className={styles.sectionBody}>
               <ContainerTable
                 containers={node.containers}
-                urlByContainer={urlsState.urlByContainer}
-                loading={urlsState.loading}
-                error={urlsState.containersError}
+                stateByContainer={lookupsState.containers}
+                enabled={lookupsState.enabled}
+                onOpen={lookupsState.openContainerReport}
               />
             </div>
           </div>

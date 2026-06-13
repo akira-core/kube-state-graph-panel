@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 // Evaluated lazily (inside getBackendSrv calls at hook run time), so the const is
 // initialized before the factory closure ever dereferences it.
@@ -8,172 +8,205 @@ jest.mock('@grafana/runtime', () => ({
   getBackendSrv: (): { get: typeof mockGet } => ({ get: mockGet }),
 }));
 
-import { IDLE_NODE_DETAIL_URLS, useNodeDetailUrls, type NodeDetailQueryInput } from './useNodeDetailUrls';
+import { useNodeDetailUrls, type NodeDetailQueryInput } from './useNodeDetailUrls';
 
 const input: NodeDetailQueryInput = { application: 'checkout', kind: 'deployment', name: 'gateway', time: 1717500000 };
+const params = { application: 'checkout', kind: 'deployment', name: 'gateway', time: 1717500000 };
 
 const appOk = { url: 'https://argo/app/checkout' };
 const codeOk = { app: { url: 'https://x/app' }, sidecar: { url: 'https://x/sc' } };
 
-// Route by sub-path so call order never matters.
 function routeGet(appResult: Promise<unknown>, codeResult: Promise<unknown>): void {
   mockGet.mockImplementation((url: string) => (url.includes('config_changes') ? appResult : codeResult));
 }
 
-describe('useNodeDetailUrls', () => {
+describe('useNodeDetailUrls (lazy, click-triggered)', () => {
+  let openSpy: jest.SpyInstance;
+
   beforeEach(() => {
     mockGet.mockReset();
+    // jsdom's window.open is a no-op returning null; default to a truthy window so
+    // "success opens a tab" is the default (the pop-up-blocked test overrides it).
+    openSpy = jest.spyOn(window, 'open').mockReturnValue({} as Window);
   });
 
-  it('fires both queries in parallel with the shared params and parses both results', async () => {
+  afterEach(() => {
+    openSpy.mockRestore();
+  });
+
+  it('does not query on mount or input change — idle until a button is triggered', () => {
+    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
+      initialProps: { i: input },
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(result.current.enabled).toBe(true);
+    expect(result.current.application).toEqual({ status: 'idle' });
+    expect(result.current.containers).toEqual({});
+
+    rerender({ i: { ...input, name: 'other' } });
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it('openApplicationReport fires config_changes and opens the resolved URL in a new tab', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/api/ds/proxy/1'));
-    expect(result.current.loading).toBe(true);
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+
+    act(() => {
+      result.current.openApplicationReport();
     });
-    expect(result.current.applicationUrl).toBe('https://argo/app/checkout');
-    expect(result.current.urlByContainer).toEqual({ app: 'https://x/app', sidecar: 'https://x/sc' });
-    expect(result.current.applicationError).toBeUndefined();
-    expect(result.current.containersError).toBeUndefined();
-    expect(mockGet).toHaveBeenCalledTimes(2);
-    const params = { application: 'checkout', kind: 'deployment', name: 'gateway', time: 1717500000 };
+    await waitFor(() => {
+      expect(result.current.application.status).toBe('idle');
+    });
+
+    expect(mockGet).toHaveBeenCalledTimes(1);
     expect(mockGet).toHaveBeenCalledWith(
       '/api/ds/proxy/1/api/v1/config_changes',
       params,
       undefined,
       expect.objectContaining({ abortSignal: expect.any(AbortSignal) as AbortSignal })
     );
-    expect(mockGet).toHaveBeenCalledWith(
-      '/api/ds/proxy/1/api/v1/code_changes',
-      params,
-      undefined,
-      expect.objectContaining({ abortSignal: expect.any(AbortSignal) as AbortSignal })
-    );
+    expect(openSpy).toHaveBeenCalledWith('https://argo/app/checkout', '_blank', 'noopener,noreferrer');
   });
 
-  it('strips trailing slashes off the endpoint before appending the sub-paths', async () => {
+  it('strips trailing slashes off the endpoint before appending the sub-path', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/api/ds/proxy/1//'));
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+    act(() => {
+      result.current.openApplicationReport();
     });
-    expect(mockGet).toHaveBeenCalledWith('/api/ds/proxy/1/api/v1/config_changes', expect.anything(), undefined, expect.anything());
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalled();
+    });
+    expect(mockGet).toHaveBeenCalledWith('/api/ds/proxy/1/api/v1/config_changes', params, undefined, expect.anything());
   });
 
-  it('keeps the surviving side when one query fails (application fails, containers kept)', async () => {
-    routeGet(Promise.reject(new Error('boom')), Promise.resolve(codeOk));
+  it('openContainerReport fires code_changes and opens that container’s URL', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+
+    act(() => {
+      result.current.openContainerReport('app');
     });
-    expect(result.current.applicationUrl).toBeUndefined();
-    expect(result.current.applicationError).toBe('boom');
-    expect(result.current.urlByContainer).toEqual({ app: 'https://x/app', sidecar: 'https://x/sc' });
-    expect(result.current.containersError).toBeUndefined();
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
+    });
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(mockGet).toHaveBeenCalledWith('/proxy/api/v1/code_changes', params, undefined, expect.anything());
+    expect(result.current.containers.app).toEqual({ status: 'idle' });
   });
 
-  it('reports both errors when both queries fail', async () => {
+  it('shows loading on the triggered target while the query is in flight', () => {
+    routeGet(new Promise(() => undefined), new Promise(() => undefined)); // never settles
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openApplicationReport();
+    });
+    expect(result.current.application).toEqual({ status: 'loading' });
+  });
+
+  it('marks the container "Not Found" when its name is absent from the map (no tab opened)', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openContainerReport('missing');
+    });
+    await waitFor(() => {
+      expect(result.current.containers.missing).toEqual({ status: 'error', error: 'Not Found' });
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a failed (non-200) application query as an error and opens no tab', async () => {
     routeGet(
       // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
-      Promise.reject({ statusText: 'Bad Gateway' }),
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
-      Promise.reject({ data: { message: 'backend down' } })
+      Promise.reject({ statusText: 'Not Found' }),
+      Promise.resolve(codeOk)
     );
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+    act(() => {
+      result.current.openApplicationReport();
     });
-    expect(result.current.applicationError).toBe('Bad Gateway');
-    expect(result.current.containersError).toBe('backend down');
-  });
-
-  it('idles without querying when input is undefined', () => {
-    const { result } = renderHook(() => useNodeDetailUrls(undefined, '/proxy'));
-    expect(mockGet).not.toHaveBeenCalled();
-    expect(result.current).toEqual(IDLE_NODE_DETAIL_URLS);
-  });
-
-  it('idles without querying when the endpoint is empty/blank', () => {
-    const { result } = renderHook(() => useNodeDetailUrls(input, '  '));
-    expect(mockGet).not.toHaveBeenCalled();
-    expect(result.current).toEqual(IDLE_NODE_DETAIL_URLS);
-  });
-
-  it('flattens the nested code_changes response and drops malformed entries', async () => {
-    routeGet(
-      Promise.resolve(appOk),
-      Promise.resolve({ good: { url: 'https://x/good' }, noUrl: {}, notObj: 'x', emptyUrl: { url: '' } })
-    );
-    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.application).toEqual({ status: 'error', error: 'Not Found' });
     });
-    expect(result.current.urlByContainer).toEqual({ good: 'https://x/good' });
-    expect(result.current.containersError).toBeUndefined();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("flags a shape-mismatched response as that side's error only", async () => {
+  it('falls back to "Not Found" on a malformed (200 but shapeless) application response', async () => {
     routeGet(Promise.resolve('not-an-object'), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+    act(() => {
+      result.current.openApplicationReport();
     });
-    expect(result.current.applicationUrl).toBeUndefined();
-    expect(result.current.applicationError).toBe('Malformed application-detail response');
-    expect(result.current.urlByContainer).toEqual({ app: 'https://x/app', sidecar: 'https://x/sc' });
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'error', error: 'Not Found' });
+    });
   });
 
-  it('aborts the in-flight request on unmount (signal flips, no late state write)', () => {
+  it('reports "Pop-up blocked" when the browser blocks the new tab (window.open → null)', async () => {
+    openSpy.mockReturnValue(null);
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openApplicationReport();
+    });
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'error', error: 'Pop-up blocked' });
+    });
+  });
+
+  it('is disabled and never queries when input is undefined', () => {
+    const { result } = renderHook(() => useNodeDetailUrls(undefined, '/proxy'));
+    expect(result.current.enabled).toBe(false);
+    act(() => {
+      result.current.openApplicationReport();
+      result.current.openContainerReport('app');
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it('is disabled and never queries when the endpoint is blank', () => {
+    const { result } = renderHook(() => useNodeDetailUrls(input, '  '));
+    expect(result.current.enabled).toBe(false);
+    act(() => {
+      result.current.openApplicationReport();
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it('resets every button back to idle when the selected node changes', async () => {
+    routeGet(
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
+      Promise.reject({ statusText: 'Not Found' }),
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
+      Promise.reject({ statusText: 'Not Found' })
+    );
+    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
+      initialProps: { i: input },
+    });
+    act(() => {
+      result.current.openApplicationReport();
+      result.current.openContainerReport('app');
+    });
+    await waitFor(() => {
+      expect(result.current.application.status).toBe('error');
+    });
+
+    rerender({ i: { ...input, name: 'other' } });
+    expect(result.current.application).toEqual({ status: 'idle' });
+    expect(result.current.containers).toEqual({});
+  });
+
+  it('aborts an in-flight request on unmount (signal flips, no late state write)', () => {
     routeGet(new Promise(() => undefined), new Promise(() => undefined)); // never settles
-    const { unmount } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    const { result, unmount } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    act(() => {
+      result.current.openApplicationReport();
+    });
     const firstCall = mockGet.mock.calls[0] as unknown[];
     const options = firstCall[3] as { abortSignal: AbortSignal };
     expect(options.abortSignal.aborted).toBe(false);
     unmount();
     expect(options.abortSignal.aborted).toBe(true);
-  });
-
-  it('refetches on input change and discards the superseded pass', async () => {
-    let resolveStaleApp: (v: unknown) => void = () => undefined;
-    const staleApp = new Promise((resolve) => {
-      resolveStaleApp = resolve;
-    });
-    routeGet(staleApp, new Promise(() => undefined));
-    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
-      initialProps: { i: input },
-    });
-    expect(mockGet).toHaveBeenCalledTimes(2);
-
-    routeGet(Promise.resolve({ url: 'https://argo/app/fresh' }), Promise.resolve(codeOk));
-    rerender({ i: { ...input, name: 'other' } });
-    expect(mockGet).toHaveBeenCalledTimes(4);
-    expect(mockGet).toHaveBeenLastCalledWith(
-      '/proxy/api/v1/code_changes',
-      expect.objectContaining({ name: 'other' }),
-      undefined,
-      expect.anything()
-    );
-
-    // Late-resolve the stale pass — its abort gate must keep it out of state.
-    resolveStaleApp({ url: 'https://argo/app/stale' });
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-    expect(result.current.applicationUrl).toBe('https://argo/app/fresh');
-  });
-
-  it('clears previous results back to idle when the input goes undefined (selection cleared)', async () => {
-    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
-    const initialProps: { i: NodeDetailQueryInput | undefined } = { i: input };
-    const { result, rerender } = renderHook(
-      ({ i }: { i: NodeDetailQueryInput | undefined }) => useNodeDetailUrls(i, '/proxy'),
-      { initialProps }
-    );
-    await waitFor(() => {
-      expect(result.current.applicationUrl).toBe('https://argo/app/checkout');
-    });
-    rerender({ i: undefined });
-    expect(result.current).toEqual(IDLE_NODE_DETAIL_URLS);
   });
 });

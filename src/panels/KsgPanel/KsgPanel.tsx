@@ -333,7 +333,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           time: detailRequest.time,
         }
       : undefined;
-  const detailUrls = useNodeDetailUrls(detailQueryInput, detailEndpoint);
+  const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
   // Cluster swatches are derived from the backend's compound (cluster) container
   // nodes, so the legend colours always match the on-canvas backplates (single
@@ -601,7 +601,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           onClose={() => handleSelect(null)}
           onAlertTimeClick={handleAlertTimeClick}
           timeZone={timeZone}
-          urls={detailUrls}
+          lookups={detailLookups}
           view={detailRequest !== null ? 'detail' : 'alerts'}
         />
       </div>

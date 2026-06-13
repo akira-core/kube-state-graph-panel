@@ -4,9 +4,10 @@ export { ApplicationTable, type ApplicationTableProps } from './components/Appli
 export { ContainerTable, type ContainerTableProps } from './components/ContainerTable';
 export {
   useNodeDetailUrls,
-  IDLE_NODE_DETAIL_URLS,
+  IDLE_NODE_DETAIL_LOOKUPS,
   type NodeDetailQueryInput,
-  type NodeDetailUrlsState,
+  type NodeDetailLookups,
+  type ChangeReportState,
 } from './hooks/useNodeDetailUrls';
 export { DETAIL_URL_KINDS } from './detailUrlKinds';
 export { resolveDetailEndpoint, type ResolveDetailEndpointInput } from './resolveDetailEndpoint';

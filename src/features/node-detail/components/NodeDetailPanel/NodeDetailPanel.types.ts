@@ -1,6 +1,6 @@
 import type { NodeAlert, NodeKind, NodeStatus } from '../../../../shared/constants/types';
 import type { ContainerSpec } from '../../../../shared/types/containerSpec';
-import type { NodeDetailUrlsState } from '../../hooks/useNodeDetailUrls';
+import type { NodeDetailLookups } from '../../hooks/useNodeDetailUrls';
 
 // The slice of a node's data the detail panel needs. Resolved by KsgPanel from
 // the selected node id (cluster containers excluded).
@@ -25,10 +25,10 @@ export interface NodeDetailPanelProps {
   // dashboard time range to a fixed ±5m window around it.
   onAlertTimeClick: (timeSec: number) => void;
   timeZone?: string; // for formatting alert times in the table
-  // REST lookup state behind the Application / Containers URL buttons. Omitted or
-  // idle (endpoint unset) → sections still render their data with the buttons
-  // disabled (design D5).
-  urls?: NodeDetailUrlsState;
+  // Lazy Change Report controller behind the Application / Containers buttons:
+  // per-target state + the click triggers. Omitted → idle/disabled (no endpoint /
+  // left-click selection): sections still render their data, buttons disabled.
+  lookups?: NodeDetailLookups;
   // Which sections to render — the two click paths show disjoint content:
   //   'alerts' (default; left-click selection) → Alerts table only
   //   'detail' (right-click)                   → Application / Containers only

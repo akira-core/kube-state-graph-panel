@@ -1,6 +1,6 @@
 import { css } from '@emotion/css';
 import type { GrafanaTheme2 } from '@grafana/data';
-import { type CellProps, type Column, InteractiveTable, LinkButton, Spinner, useStyles2 } from '@grafana/ui';
+import { Button, type CellProps, type Column, InteractiveTable, Spinner, useStyles2 } from '@grafana/ui';
 import React, { useMemo } from 'react';
 
 import { themeColors } from '../../../../shared/theme/themeColors';
@@ -10,30 +10,22 @@ import type { ContainerTableProps } from './ContainerTable.types';
 interface ContainerRow {
   name: string;
   image: string;
-  url: string | undefined;
 }
 
-interface ResultSlotStyles {
-  pending: string;
-  result: string;
-  resultError: string;
-}
-
-function getStyles(theme: GrafanaTheme2): ResultSlotStyles & {
+function getStyles(theme: GrafanaTheme2): {
   name: string;
   image: string;
+  reportHeader: string;
   urlCell: string;
+  pending: string;
+  resultError: string;
 } {
   const colors = themeColors(theme);
-  // The truncation cap keeps a long URL / error message from stretching the URL
-  // column past the panel edge; the full value stays reachable via title.
-  const truncated = {
-    maxWidth: '40ch',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  } as const;
   return {
+    // Right-align the header to the column's right edge — same edge the buttons pin
+    // to — so the "Change Report" label lines up with the Application section's even
+    // when a hint widens this column leftward.
+    reportHeader: css({ textAlign: 'right' }),
     // nowrap: a container name is an identifier. disableGrow shrinks this column to
     // its min-content width, and without nowrap the browser breaks the name at its
     // hyphens (e.g. `nats-server-config-reloader`), wrapping it across lines. Pin it
@@ -49,7 +41,11 @@ function getStyles(theme: GrafanaTheme2): ResultSlotStyles & {
       fontSize: theme.typography.bodySmall.fontSize,
       wordBreak: 'break-all',
     }),
-    urlCell: css({ display: 'flex', alignItems: 'center', gap: 8 }),
+    // flex-end pins the button to the column's right edge so every row's button —
+    // and the Application section's — line up vertically, and stay put when a
+    // loading/error hint (rendered to its LEFT) widens the cell. A left-anchored
+    // button would drift per-row as hints appear, breaking the alignment.
+    urlCell: css({ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }),
     pending: css({
       display: 'inline-flex',
       alignItems: 'center',
@@ -58,14 +54,14 @@ function getStyles(theme: GrafanaTheme2): ResultSlotStyles & {
       fontSize: theme.typography.bodySmall.fontSize,
       whiteSpace: 'nowrap',
     }),
-    result: css({
-      ...truncated,
-      color: colors.text.secondary,
-      fontFamily: theme.typography.fontFamilyMonospace,
-      fontSize: theme.typography.bodySmall.fontSize,
-    }),
+    // The failure hint sits BESIDE the (still clickable) button — the lazy button
+    // is a live retry trigger, not a dead disabled control. Long messages truncate
+    // with the full value in title.
     resultError: css({
-      ...truncated,
+      maxWidth: '40ch',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
       color: theme.colors.error.text,
       fontSize: theme.typography.bodySmall.fontSize,
     }),
@@ -79,57 +75,24 @@ function rowId(row: ContainerRow, index: number): string {
   return `${row.name}/${row.image}-${String(index)}`;
 }
 
-// The lookup-state slot rendered to the RIGHT of a row's URL button: in flight →
-// spinner hint; resolved → the URL itself. Idle (no lookup ran) and a
-// map-missing container leave the slot empty — the disabled button is the
-// signal. A FAILED lookup never reaches this slot: the cell renders the error
-// hint alone, without a button (a dead button next to "Not Found" reads as
-// broken UI). Long values truncate with the full text in title.
-function resultSlot(
-  styles: ResultSlotStyles,
-  loading: boolean,
-  url: string | undefined,
-  testIdPrefix: string
-): React.JSX.Element | null {
-  if (loading) {
-    return (
-      <span className={styles.pending} data-testid={`${testIdPrefix}-pending`}>
-        <Spinner inline size="sm" /> Looking up…
-      </span>
-    );
-  }
-  if (url !== undefined) {
-    return (
-      <span className={styles.result} title={url} data-testid={`${testIdPrefix}-result`}>
-        {url}
-      </span>
-    );
-  }
-  return null;
-}
-
 // The containers table: a headered InteractiveTable (same component and column
-// layout as the Alerts table — D8) with Name / Image / URL columns, one row per
-// container. Each URL button is a plain pre-resolved link (right-click fired the
-// lookup up front — D5): new tab via target=_blank + rel=noopener, never
-// window.open, and it renders DISABLED (no href) while no URL is known — idle
-// (no lookup ran), loading, lookup failed, or the container name missing from
-// the returned map. The lookup state renders in the result slot to each row's
-// button right; the header and rows always render.
+// layout as the Alerts table — D8) with Name / Image / Change Report columns, one
+// row per container. Each Change Report button is LAZY: a click fires that
+// container's image-detail lookup and (on HTTP 200) opens its report in a NEW TAB
+// via window.open — no URL is pre-resolved, so there is no href. A button renders
+// disabled when no endpoint is known (`enabled` false) or while its own click is in
+// flight; on failure / map-miss a retryable error shows beside it. The header and
+// rows always render; each row's state is independent.
 export function ContainerTable({
   containers,
-  urlByContainer,
-  loading,
-  error,
+  stateByContainer,
+  enabled,
+  onOpen,
 }: Readonly<ContainerTableProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
 
   // columns + data must be memoized (InteractiveTable / react-table requirement).
-  // The per-row URL is resolved here once so the cell renderers stay lookup-free.
-  const data = useMemo<ContainerRow[]>(
-    () => containers.map((c) => ({ name: c.name, image: c.image, url: urlByContainer?.[c.name] })),
-    [containers, urlByContainer]
-  );
+  const data = useMemo<ContainerRow[]>(() => containers.map((c) => ({ name: c.name, image: c.image })), [containers]);
 
   const columns = useMemo<Array<Column<ContainerRow>>>(
     () => [
@@ -149,51 +112,42 @@ export function ContainerTable({
       },
       {
         id: 'url',
-        header: 'Change Report',
+        header: () => <div className={styles.reportHeader}>Change Report</div>,
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => {
-          if (!loading && error !== undefined) {
-            // Failed lookup: the hint alone — no dead disabled button next to it.
-            return (
-              <span className={styles.resultError} title={error} data-testid="container-url-error">
-                {error}
-              </span>
-            );
-          }
+          const name = row.original.name;
+          const state = stateByContainer[name];
           return (
             <div className={styles.urlCell}>
-              {row.original.url !== undefined ? (
-                <LinkButton
-                  size="sm"
-                  fill="outline"
-                  variant="secondary"
-                  icon="external-link-alt"
-                  href={row.original.url}
-                  target="_blank"
-                  rel="noopener"
-                  data-testid="container-url-button"
-                >
-                  URL
-                </LinkButton>
-              ) : (
-                <LinkButton
-                  size="sm"
-                  fill="outline"
-                  variant="secondary"
-                  icon="external-link-alt"
-                  disabled
-                  data-testid="container-url-button"
-                >
-                  URL
-                </LinkButton>
+              {state?.status === 'loading' && (
+                <span className={styles.pending} data-testid="container-url-pending">
+                  <Spinner inline size="sm" /> Looking up…
+                </span>
               )}
-              {resultSlot(styles, loading, row.original.url, 'container-url')}
+              {state?.status === 'error' && state.error !== undefined && (
+                <span className={styles.resultError} title={state.error} data-testid="container-url-error">
+                  {state.error}
+                </span>
+              )}
+              <Button
+                size="sm"
+                fill="outline"
+                variant="secondary"
+                icon="external-link-alt"
+                onClick={() => {
+                  onOpen(name);
+                }}
+                disabled={!enabled || state?.status === 'loading'}
+                data-testid="container-url-button"
+              >
+                URL
+              </Button>
             </div>
           );
         },
       },
     ],
-    [styles, loading, error]
+    [styles, stateByContainer, enabled, onOpen]
   );
 
   return (

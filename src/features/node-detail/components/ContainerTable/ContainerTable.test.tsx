@@ -1,5 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
+
+import type { ChangeReportState } from '../../hooks/useNodeDetailUrls';
 
 import { ContainerTable } from './ContainerTable';
 
@@ -13,9 +15,9 @@ function dataRows(): HTMLElement[] {
   return screen.getAllByRole('row').slice(1);
 }
 
-describe('ContainerTable', () => {
-  it('renders a headered table (Name / Image / Change Report) with one row per container, content in its column', () => {
-    render(<ContainerTable containers={containers} urlByContainer={undefined} loading={false} error={undefined} />);
+describe('ContainerTable (lazy Change Report)', () => {
+  it('renders a headered table (Name / Image / Change Report), one clickable button per container', () => {
+    render(<ContainerTable containers={containers} stateByContainer={{}} enabled onOpen={jest.fn()} />);
     expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Image' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Change Report' })).toBeInTheDocument();
@@ -26,88 +28,61 @@ describe('ContainerTable', () => {
     const first = within(rows[0]!).getAllByRole('cell');
     expect(first[0]).toHaveTextContent(/^app$/);
     expect(first[1]).toHaveTextContent(/^repo\/app:1\.2$/);
-    expect(within(first[2]!).getByTestId('container-url-button')).toBeInTheDocument();
-    const second = within(rows[1]!).getAllByRole('cell');
-    expect(second[0]).toHaveTextContent(/^sidecar$/);
-    expect(second[1]).toHaveTextContent(/^repo\/sc:0\.9$/);
-    expect(within(second[2]!).getByTestId('container-url-button')).toBeInTheDocument();
-  });
-
-  it('shows a per-row pending hint to the right of the disabled buttons while the lookup is in flight', () => {
-    render(<ContainerTable containers={containers} urlByContainer={undefined} loading={true} error={undefined} />);
-    const pendings = screen.getAllByTestId('container-url-pending');
-    expect(pendings).toHaveLength(2);
-    for (const p of pendings) {
-      expect(p).toHaveTextContent('Looking up…');
-    }
-    expect(dataRows()).toHaveLength(2);
-  });
-
-  it('binds each row button to its mapped URL and shows the URL to its right, without auto-navigation', () => {
-    const openSpy = jest.spyOn(window, 'open');
-    render(
-      <ContainerTable
-        containers={containers}
-        urlByContainer={{ app: 'https://x/app', sidecar: 'https://x/sc' }}
-        loading={false}
-        error={undefined}
-      />
-    );
-    const buttons = screen.getAllByTestId('container-url-button');
-    expect(buttons[0]).toHaveAttribute('href', 'https://x/app');
-    expect(buttons[1]).toHaveAttribute('href', 'https://x/sc');
-    for (const b of buttons) {
-      expect(b).toHaveAttribute('target', '_blank');
-      expect(b).toHaveAttribute('rel', 'noopener');
-    }
-    const results = screen.getAllByTestId('container-url-result');
-    expect(results[0]).toHaveTextContent('https://x/app');
-    expect(results[1]).toHaveTextContent('https://x/sc');
-    expect(results[0]).toHaveAttribute('title', 'https://x/app');
-    // Pre-resolved links only — the lookup result must never auto-open a tab.
-    expect(openSpy).not.toHaveBeenCalled();
-    openSpy.mockRestore();
-  });
-
-  it('disables only the row whose container name is missing from the map (empty result slot)', () => {
-    render(
-      <ContainerTable
-        containers={containers}
-        urlByContainer={{ app: 'https://x/app' }}
-        loading={false}
-        error={undefined}
-      />
-    );
-    const buttons = screen.getAllByTestId('container-url-button');
-    expect(buttons[0]).toHaveAttribute('href', 'https://x/app');
-    expect(buttons[1]).not.toHaveAttribute('href');
-    expect(buttons[1]).toHaveAttribute('aria-disabled', 'true');
-    // The resolved row shows its URL; the missing-key row's slot stays empty.
-    expect(screen.getAllByTestId('container-url-result')).toHaveLength(1);
-    expect(screen.getByText('sidecar')).toBeInTheDocument();
-    expect(screen.getByText('repo/sc:0.9')).toBeInTheDocument();
-  });
-
-  it('disables every button with empty result slots when no lookup ran (idle)', () => {
-    render(<ContainerTable containers={containers} urlByContainer={undefined} loading={false} error={undefined} />);
-    for (const b of screen.getAllByTestId('container-url-button')) {
-      expect(b).not.toHaveAttribute('href');
-      expect(b).toHaveAttribute('aria-disabled', 'true');
-    }
-    expect(screen.queryByTestId('container-url-pending')).not.toBeInTheDocument();
+    expect(within(first[2]!).getByTestId('container-url-button')).toBeEnabled();
+    // Idle by default: no error / pending anywhere.
     expect(screen.queryByTestId('container-url-error')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('container-url-result')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('container-url-pending')).not.toBeInTheDocument();
   });
 
-  it('shows only the error hint per row (no buttons) when the lookup failed, keeping rows visible', () => {
-    render(<ContainerTable containers={containers} urlByContainer={undefined} loading={false} error="boom" />);
-    const errors = screen.getAllByTestId('container-url-error');
-    expect(errors).toHaveLength(2);
-    for (const e of errors) {
-      expect(e).toHaveTextContent('boom');
-      expect(e).toHaveAttribute('title', 'boom');
+  it('fires onOpen with the row’s container name when its button is clicked', () => {
+    const onOpen = jest.fn();
+    render(<ContainerTable containers={containers} stateByContainer={{}} enabled onOpen={onOpen} />);
+    const buttons = screen.getAllByTestId('container-url-button');
+    fireEvent.click(buttons[1]!);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith('sidecar');
+  });
+
+  it('disables every button when no endpoint is configured (enabled=false)', () => {
+    render(<ContainerTable containers={containers} stateByContainer={{}} enabled={false} onOpen={jest.fn()} />);
+    for (const b of screen.getAllByTestId('container-url-button')) {
+      expect(b).toBeDisabled();
     }
-    expect(screen.queryByTestId('container-url-button')).not.toBeInTheDocument();
-    expect(dataRows()).toHaveLength(2);
+  });
+
+  it('shows the per-row state independently: one loading, one error, one idle', () => {
+    const stateByContainer: Record<string, ChangeReportState> = {
+      app: { status: 'loading' },
+      sidecar: { status: 'error', error: 'Not Found' },
+    };
+    render(<ContainerTable containers={containers} stateByContainer={stateByContainer} enabled onOpen={jest.fn()} />);
+    const rows = dataRows();
+    // Row 0 (app): loading hint + disabled button.
+    expect(within(rows[0]!).getByTestId('container-url-pending')).toHaveTextContent('Looking up…');
+    expect(within(rows[0]!).getByTestId('container-url-button')).toBeDisabled();
+    // Row 1 (sidecar): error beside a still-clickable button (retryable).
+    const error = within(rows[1]!).getByTestId('container-url-error');
+    expect(error).toHaveTextContent('Not Found');
+    expect(error).toHaveAttribute('title', 'Not Found');
+    const errBtn = within(rows[1]!).getByTestId('container-url-button');
+    expect(errBtn).toBeEnabled();
+    // The hint renders BEFORE the button so the button stays pinned right (flex-end),
+    // keeping every row's button aligned with the others and the Application section.
+    expect(error.compareDocumentPosition(errBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps a failed row’s button clickable for retry', () => {
+    const onOpen = jest.fn();
+    render(
+      <ContainerTable
+        containers={containers}
+        stateByContainer={{ app: { status: 'error', error: 'Not Found' } }}
+        enabled
+        onOpen={onOpen}
+      />
+    );
+    const buttons = screen.getAllByTestId('container-url-button');
+    fireEvent.click(buttons[0]!);
+    expect(onOpen).toHaveBeenCalledWith('app');
   });
 });

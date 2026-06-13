@@ -153,16 +153,16 @@ describe('NodeDetailPanel', () => {
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
           view="detail"
-          urls={{
-            loading: false,
-            applicationUrl: undefined,
-            urlByContainer: undefined,
-            applicationError: 'app lookup failed',
-            containersError: 'image lookup failed',
+          lookups={{
+            enabled: true,
+            application: { status: 'error', error: 'app lookup failed' },
+            containers: { app: { status: 'error', error: 'image lookup failed' } },
+            openApplicationReport: jest.fn(),
+            openContainerReport: jest.fn(),
           }}
         />
       );
-      // Both lookup errors show beside their own sections' URL buttons…
+      // Both lookup errors show beside their own sections' Change Report buttons…
       expect(screen.getByTestId('application-url-error')).toHaveTextContent('app lookup failed');
       expect(screen.getByTestId('container-url-error')).toHaveTextContent('image lookup failed');
       // …while the header stays untouched and the Alerts table (left-click view
@@ -171,30 +171,34 @@ describe('NodeDetailPanel', () => {
       expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
     });
 
-    it('passes the lookup state down: resolved URLs land on the section buttons', () => {
+    it('threads the lookup controller down: section buttons call the open triggers', () => {
+      const openApplicationReport = jest.fn();
+      const openContainerReport = jest.fn();
       render(
         <NodeDetailPanel
           node={podWithBoth}
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
           view="detail"
-          urls={{
-            loading: false,
-            applicationUrl: 'https://argo/app/checkout',
-            urlByContainer: { app: 'https://x/app' },
-            applicationError: undefined,
-            containersError: undefined,
+          lookups={{
+            enabled: true,
+            application: { status: 'idle' },
+            containers: {},
+            openApplicationReport,
+            openContainerReport,
           }}
         />
       );
-      expect(screen.getByTestId('application-url-button')).toHaveAttribute('href', 'https://argo/app/checkout');
-      expect(screen.getByTestId('container-url-button')).toHaveAttribute('href', 'https://x/app');
+      fireEvent.click(screen.getByTestId('application-url-button'));
+      expect(openApplicationReport).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByTestId('container-url-button'));
+      expect(openContainerReport).toHaveBeenCalledWith('app');
     });
 
-    it('renders disabled buttons when urls is omitted (idle: left-click / endpoint unset)', () => {
+    it('disables the Change Report buttons when lookups is omitted (idle: left-click / endpoint unset)', () => {
       render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.getByTestId('application-url-button')).not.toHaveAttribute('href');
-      expect(screen.getByTestId('container-url-button')).not.toHaveAttribute('href');
+      expect(screen.getByTestId('application-url-button')).toBeDisabled();
+      expect(screen.getByTestId('container-url-button')).toBeDisabled();
     });
   });
 });
