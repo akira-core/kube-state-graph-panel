@@ -197,35 +197,13 @@ function resolveContainer(raw: Record<string, unknown>): Record<string, unknown>
   return raw;
 }
 
-export function normalizeGraph(raw: unknown): NormalizeResult {
-  const errors: string[] = [];
-  const elements: cytoscape.ElementDefinition[] = [];
-
-  if (!isPlainObject(raw)) {
-    return { elements, errors: ['payload is not an object'] };
-  }
-
-  const container = resolveContainer(raw);
-  const rawNodes = Array.isArray(container.nodes) ? (container.nodes as unknown[]) : [];
-  const rawEdges = Array.isArray(container.edges) ? (container.edges as unknown[]) : [];
-
-  if (!Array.isArray(container.nodes)) {
-    errors.push('payload.nodes is missing or not an array');
-  }
-  if (!Array.isArray(container.edges)) {
-    errors.push('payload.edges is missing or not an array');
-  }
-
-  const nodeIds = new Set<string>();
-  const edgeIds = new Set<string>();
-  const pendingOwned: PendingOwned[] = [];
-  const clusterIdByName = new Map<string, string>();
-  // Pre-pass: worst child-pod STATUS rank per parent container id, so a COLLAPSED k8s
-  // node can border by the worst status among the pods it hides (getStylesheet). Keyed
-  // by the pod's raw `parent` (its k8s node id in cluster > node > pod nesting).
-  // Every parented pod records an entry — including rank 0 (normal) — so map
-  // membership doubles as "this container HAS child pods" (D10: a node writes
-  // worstStatus only when it has status information at all).
+// Pre-pass: worst child-pod STATUS rank per parent container id, so a COLLAPSED k8s
+// node can border by the worst status among the pods it hides (getStylesheet). Keyed
+// by the pod's raw `parent` (its k8s node id in cluster > node > pod nesting).
+// Every parented pod records an entry — including rank 0 (normal) — so map
+// membership doubles as "this container HAS child pods" (D10: a node writes
+// worstStatus only when it has status information at all).
+function computeChildWorstStatus(rawNodes: unknown[]): Map<string, number> {
   const childWorstStatusRank = new Map<string, number>();
   for (const entry of rawNodes) {
     if (!isPlainObject(entry)) {
@@ -242,13 +220,39 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       childWorstStatusRank.set(d.parent, r);
     }
   }
-  // The compound (cluster/node) grouping STRUCTURE is owned by the backend: we
-  // pass its `parent` field through untouched. A flat payload renders flat; a
-  // nested one (cluster > node > pod, cluster > svc) renders boxes — the panel
-  // is structure-agnostic. The one presentation concern that stays here is the
-  // cluster accent COLOUR (theme/palette is a frontend decision), assigned to
-  // each `type: "cluster"` container from a stable palette (single source:
-  // data.clusterColor, which the legend swatches read back).
+  return childWorstStatusRank;
+}
+
+interface ParsedNodes {
+  elements: cytoscape.ElementDefinition[];
+  // Accumulators the controller-synthesis stage consumes: pods carrying an owner, and
+  // the cluster name → container id map (a synthesized controller nests under its
+  // cluster). `nodeIds` is the dedup set the edge stage validates endpoints against.
+  pendingOwned: PendingOwned[];
+  clusterIdByName: Map<string, string>;
+  nodeIds: Set<string>;
+  errors: string[];
+}
+
+interface ParsedEdges {
+  elements: cytoscape.ElementDefinition[];
+  errors: string[];
+}
+
+// Stage 1 — project raw nodes onto cytoscape node elements (in payload order) and
+// collect what controller synthesis needs. The compound (cluster/node) grouping
+// STRUCTURE is owned by the backend: we pass its `parent` field through untouched. A
+// flat payload renders flat; a nested one (cluster > node > pod, cluster > svc) renders
+// boxes — the panel is structure-agnostic. The one presentation concern that stays here
+// is the cluster accent COLOUR (theme/palette is a frontend decision), assigned to each
+// `type: "cluster"` container from a stable palette (single source: data.clusterColor,
+// which the legend swatches read back).
+function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<string, number>): ParsedNodes {
+  const elements: cytoscape.ElementDefinition[] = [];
+  const errors: string[] = [];
+  const nodeIds = new Set<string>();
+  const pendingOwned: PendingOwned[] = [];
+  const clusterIdByName = new Map<string, string>();
   for (const [index, entry] of rawNodes.entries()) {
     if (!isPlainObject(entry)) {
       errors.push(`nodes[${String(index)}] is not an object`);
@@ -341,7 +345,16 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       });
     }
   }
+  return { elements, pendingOwned, clusterIdByName, nodeIds, errors };
+}
 
+// Stage 2 — project raw edges onto cytoscape edge elements (in payload order). An edge
+// whose endpoints are not BOTH known node ids is dropped into the partial-parse channel
+// (cytoscape would otherwise throw on an edge to a missing node).
+function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEdges {
+  const elements: cytoscape.ElementDefinition[] = [];
+  const errors: string[] = [];
+  const edgeIds = new Set<string>();
   for (const [index, entry] of rawEdges.entries()) {
     if (!isPlainObject(entry)) {
       errors.push(`edges[${String(index)}] is not an object`);
@@ -373,10 +386,18 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       },
     });
   }
+  return { elements, errors };
+}
 
-  // Synthesize controller nodes + controller-owns-pod edges from pod owners. The
-  // backend emits owner metadata on pods only; the panel materializes the
-  // controller node the contract implies (deduped) and the owns edge. Deterministic.
+// Stage 3 — synthesize controller nodes + controller-owns-pod edges from pod owners. The
+// backend emits owner metadata on pods only; the panel materializes the controller node
+// the contract implies (deduped) and the owns edge. Deterministic. Returns the controller
+// NODES first, then the owns EDGES — the order the single-pass version appended them.
+function synthesizeControllers(
+  pendingOwned: PendingOwned[],
+  clusterIdByName: ReadonlyMap<string, string>
+): cytoscape.ElementDefinition[] {
+  const controllerNodes: cytoscape.ElementDefinition[] = [];
   const controllerSeen = new Set<string>();
   const ownsEdges: cytoscape.ElementDefinition[] = [];
   const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
@@ -453,7 +474,7 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
           : [...containersByKey.values()].sort(
               (a, b) => a.name.localeCompare(b.name) || a.image.localeCompare(b.image)
             );
-      elements.push({
+      controllerNodes.push({
         group: 'nodes',
         data: {
           id: controllerId,
@@ -480,7 +501,38 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
       },
     });
   }
-  elements.push(...ownsEdges);
+  return [...controllerNodes, ...ownsEdges];
+}
 
-  return { elements, errors };
+export function normalizeGraph(raw: unknown): NormalizeResult {
+  if (!isPlainObject(raw)) {
+    return { elements: [], errors: ['payload is not an object'] };
+  }
+
+  const errors: string[] = [];
+  const container = resolveContainer(raw);
+  const rawNodes = Array.isArray(container.nodes) ? (container.nodes as unknown[]) : [];
+  const rawEdges = Array.isArray(container.edges) ? (container.edges as unknown[]) : [];
+
+  if (!Array.isArray(container.nodes)) {
+    errors.push('payload.nodes is missing or not an array');
+  }
+  if (!Array.isArray(container.edges)) {
+    errors.push('payload.edges is missing or not an array');
+  }
+
+  // Explicit pipeline, each stage a pure function: child-status pre-pass → nodes →
+  // edges (validated against the parsed node ids) → synthesized controllers (+ owns
+  // edges) from the pods' owner metadata. Element order — nodes, then edges, then
+  // controller nodes + owns edges — and error order — container-shape, then node-parse,
+  // then edge-parse — are preserved exactly as the prior single-pass version emitted them.
+  const childWorstStatusRank = computeChildWorstStatus(rawNodes);
+  const nodes = parseNodes(rawNodes, childWorstStatusRank);
+  const edges = parseEdges(rawEdges, nodes.nodeIds);
+  const controllers = synthesizeControllers(nodes.pendingOwned, nodes.clusterIdByName);
+
+  return {
+    elements: [...nodes.elements, ...edges.elements, ...controllers],
+    errors: [...errors, ...nodes.errors, ...edges.errors],
+  };
 }
