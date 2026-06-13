@@ -409,7 +409,7 @@
           </p>
           <p>
             這個 repo <strong>只做前端 panel</strong>，不包含 Go backend。產生 graph JSON 的服務是上游
-            <code>marz32one/kube-state-graph</code> Docker image。<strong>v0.0.14 backend 是從 PromQL（一個
+            <code>marz32one/kube-state-graph</code> Docker image。<strong>kube-state-graph backend 是從 PromQL（一個
             <code>[start,end]</code> 時間窗）衍生出整張拓撲圖，它<em>不</em>讀 Kubernetes API</strong>；資料實際來自一個
             Prometheus 相容的 metrics store。本 panel 透過 Grafana 的 Infinity datasource 呼叫 backend 的
             <code>GET /v1/graph</code>，再把回來的 JSON 正規化成 cytoscape elements。
@@ -495,7 +495,7 @@
                 </tr>
                 <tr>
                   <td><code>kube-state-graph</code>（<code>ksg-backend</code>）</td>
-                  <td>v0.0.14 backend；<code>KSG_PROM_URL</code> 指向 VictoriaMetrics。</td>
+                  <td>kube-state-graph backend；<code>KSG_PROM_URL</code> 指向 VictoriaMetrics。</td>
                 </tr>
                 <tr>
                   <td><code>victoriametrics</code></td>
@@ -971,7 +971,7 @@ import {
 
           <h4>Compound（巢狀）結構由 backend 決定</h4>
           <p>
-            v0.0.14 起 backend 會 emit compound nodes：<code>type: "cluster"</code> 的合成群組包住各 cluster 內資源；pod 嵌在 K8s
+            backend 會 emit compound nodes：<code>type: "cluster"</code> 的合成群組包住各 cluster 內資源；pod 嵌在 K8s
             node 底下。 <code>pod-runs-on-node</code> 關係<strong>不畫成 edge</strong>，而是以
             <code>parent</code> 巢狀表達（design D31）。panel 對 <code>parent</code> 欄位<strong>原樣 pass-through</strong>，只額外替
             <code>cluster</code> 容器加上 accent 色（<code>clusterColor</code>）。

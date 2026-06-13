@@ -1,5 +1,5 @@
 #!/bin/sh
-# kube-state-graph v0.0.14 demo metrics seeder.
+# kube-state-graph demo metrics seeder.
 #
 # Pushes the synthetic topology fixture plus an ever-increasing set of
 # traces_service_graph_request_total counters into VictoriaMetrics on a loop.
