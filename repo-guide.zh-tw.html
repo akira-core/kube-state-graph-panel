@@ -743,7 +743,7 @@ docker compose --profile backend up -d
                   <td><code>features/node-detail</code></td>
                   <td>
                     浮動 NodeDetailPanel（Alerts / Application / Containers）；<code>useNodeDetailUrls</code> 以
-                    <code>getBackendSrv()</code> lazy 查 Change Report；<code>resolveDetailEndpoint</code> 推導 REST base path。
+                    <code>getBackendSrv()</code> lazy 查 Change Report（含成功 promise 快取）；<code>resolveDetailEndpoint</code> 推導 REST base path。
                   </td>
                   <td>擴充 detail 區塊、調整右鍵行為、Change Report 查詢契約。</td>
                 </tr>
@@ -861,7 +861,7 @@ import {
                   <td><code>features/node-detail/hooks/useNodeDetailUrls.ts</code></td>
                   <td>
                     imperative Change Report lookup：<code>openApplicationReport</code> / <code>openContainerReport</code>；lazy
-                    點擊才查 <code>/api/v1/config_changes</code> 與 <code>/api/v1/code_changes</code>。
+                    點擊才查；同一節點開啟期間每端點最多 HTTP 一次（成功 promise 快取）。
                   </td>
                   <td>調整 REST 契約、loading / error 狀態機。</td>
                 </tr>
@@ -1480,10 +1480,10 @@ cy.batch(() => {
             <code>cronjob</code>）。還需節點實際帶有 <code>application</code> / <code>containers</code> 欄位——舊版 backend 缺欄位時區塊自動隱藏。
           </p>
           <ul>
-            <li><strong>Application 區塊</strong>：一列 ArgoCD application name + Change Report 按鈕。</li>
+            <li><strong>Application 區塊</strong>：InteractiveTable 欄位 Name / Change Report；一列 ArgoCD application name + lazy URL 按鈕。</li>
             <li>
-              <strong>Containers 區塊</strong>：每列 container name、image、Change Report 按鈕；controller 節點的 containers 由 normalize
-              自子 pod 聚合去重。
+              <strong>Containers 區塊</strong>：欄位 Name / Image / Change Report；name 單行不換行（<code>whiteSpace: nowrap</code>），image
+              以 <code>break-all</code> 折行；controller 的 containers 由 normalize 自子 pod 聚合去重。
             </li>
           </ul>
 
@@ -1503,23 +1503,41 @@ cy.batch(() => {
               <strong>查詢 input（右鍵當下凍結）</strong>
               <br />
               <code>{ application, kind, name, time }</code> — <code>time</code> 為右鍵當下 Unix 秒；pod 的 kind/name 取自
-              <code>owner</code>，controller 取自身。
+              <code>owner</code>，controller 取自身。request key = endpoint + 上述四欄位，用於快取與 stale 防護。
             </div>
             <div class="flow-step">
               <strong>Application 按鈕 → <code>GET …/api/v1/config_changes</code></strong>
               <br />
-              回傳 <code>{ "url": string }</code>；成功開 ArgoCD app detail 頁。
+              回傳 <code>{ "url": string }</code>；成功開 ArgoCD app detail 頁。同一節點、面板仍開啟時，此端點<strong>最多 HTTP 一次</strong>（見 §6.3.1）。
             </div>
             <div class="flow-step">
               <strong>Container 按鈕 → <code>GET …/api/v1/code_changes</code></strong>
               <br />
-              回傳 <code>{ [containerName]: { "url": string } }</code>；以 container name 查 map，缺 key 顯示 Not Found。
+              回傳整包 <code>{ [containerName]: { "url": string } }</code>；以 container name 查 map，缺 key 顯示 Not Found。所有 container
+              列<strong>共用同一次</strong> <code>code_changes</code> 呼叫（見 §6.3.1）。
             </div>
           </div>
           <p>
             所有 HTTP 必須走 <code>@grafana/runtime</code> 的 <code>getBackendSrv()</code>（Grafana proxy），panel 不直連外部 URL。
-            換選節點時 hook 重置為 idle 並 abort in-flight 請求。
+            換選節點、endpoint 變更或關閉 panel 時，狀態重置為 idle、abort in-flight 請求，並清除快取。
           </p>
+
+          <h4>6.3.1 成功回應快取（design D6）</h4>
+          <p>
+            backend 的 <code>code_changes</code> 一次回傳<strong>整包</strong> container→URL map，因此 hook 以 request key 為界快取<strong>成功</strong>回應的
+            promise（<code>appCacheRef</code> / <code>codeCacheRef</code>）：
+          </p>
+          <ul>
+            <li>第一次點某端點 → 建立 in-flight promise 並快取；後續點擊（含其他 container 列、連續快點）<strong>重用同一 promise</strong>，不再發新 HTTP。</li>
+            <li><strong>失敗不入快取</strong>（404、格式錯誤、網路錯誤）— <code>promise.catch</code> 清 slot，使用者可再點重試。</li>
+            <li>
+              已成功快取的 map 中<strong>缺某 container key</strong> → 該列確定性 Not Found（用快取結果，不重打 API）。
+            </li>
+            <li>成功開分頁後按鈕回到 <code>idle</code>（無 resting success 狀態）；彈窗被擋時顯示 <code>Pop-up blocked</code>。</li>
+          </ul>
+          <div class="callout good">
+            <strong>仍屬 lazy：</strong>快取只在使用者<strong>第一次點擊</strong>後生效；右鍵開面板本身 never fetch。快取生命週期 = 同一節點 + 面板仍開啟。
+          </div>
 
           <h3>6.4 元件分層</h3>
           <pre><code>features/node-detail/
@@ -1912,7 +1930,7 @@ npx jest -t "edge auto-hides"</code></pre>
                     <code>useNodeDetailUrls.test.ts</code> + <code>ApplicationTable.test.tsx</code> +
                     <code>ContainerTable.test.tsx</code> + <code>NodeDetailPanel.test.tsx</code>
                   </td>
-                  <td>lazy lookup 狀態機、endpoint 推導、右鍵 gating。</td>
+                  <td>lazy lookup 狀態機、endpoint 推導、右鍵 gating、每端點單次 HTTP 快取。</td>
                 </tr>
                 <tr>
                   <td>variable export</td>
@@ -2122,6 +2140,9 @@ npx jest -t "edge auto-hides"</code></pre>
           <ul>
             <li>左鍵 / 右鍵 view 分流保持互斥：alerts 與 Application/Containers 不要在同一 view 混排。</li>
             <li>Change Report 維持 lazy：右鍵開面板不 eager fetch；成功用 <code>window.open</code>，不在 panel 內嵌 URL。</li>
+            <li>
+              成功回應可快取至換節點 / 關 panel：<code>code_changes</code> 整包 map 只打一次；失敗不入快取以便重試。
+            </li>
             <li>表格元件 presentational，查詢狀態集中在 <code>useNodeDetailUrls</code>。</li>
           </ul>
 
@@ -2186,7 +2207,7 @@ npx jest -t "edge auto-hides"</code></pre>
                 </tr>
                 <tr>
                   <td><code>useNodeDetailUrls.test.ts</code></td>
-                  <td>lazy Change Report、abort、endpoint 空字串 idle、window.open 成功路徑。</td>
+                  <td>lazy Change Report、成功 promise 快取、失敗可重試、abort on node change。</td>
                 </tr>
                 <tr>
                   <td><code>NodeDetailPanel.test.tsx</code></td>
@@ -2228,6 +2249,10 @@ npx jest -t "edge auto-hides"</code></pre>
             <li>檢查 <code>detailEndpoint</code> option 或 datasource proxy 推導是否正確（DevTools Network）。</li>
             <li>節點需有 <code>application</code> 欄位且為右鍵觸發（左鍵不發查詢）。</li>
             <li>backend 未就緒時 lazy 模式不會在開面板時顯示 Not Found——需<strong>點擊</strong>按鈕才會看到錯誤。</li>
+            <li>
+              DevTools 中同一節點第二次點不同 container 的 Change Report<strong>不應</strong>再出現第二個
+              <code>code_changes</code> 請求（正常：共用快取）；換節點或關 panel 後才應重新 fetch。
+            </li>
           </ul>
 
           <h3>pod_list 變數沒有更新</h3>
@@ -2348,7 +2373,8 @@ npx jest -t "edge auto-hides"</code></pre>
                 <tr>
                   <td>Change Report</td>
                   <td>
-                    Node Detail 中 lazy 觸發的 REST lookup，經 Grafana proxy 查 config/code changes 並開新分頁報告。
+                    Node Detail 中 lazy 觸發的 REST lookup（<code>config_changes</code> / <code>code_changes</code>），經 Grafana proxy
+                    開新分頁；同一節點開啟期間每端點最多 HTTP 一次（成功 promise 快取）。
                   </td>
                 </tr>
                 <tr>
@@ -2370,9 +2396,9 @@ npx jest -t "edge auto-hides"</code></pre>
           <p>
             這份文件依據 <code>feat/node-detail-panel</code> 分支上的 <code>README.md</code>、<code>CLAUDE.md</code>、
             <code>src/**</code> 與 <code>openspec/specs/</code> 整理（含 application-detail-panel、pod-list-variable-export、
-            lazy-change-report-lookup 等變更）。若實作與 OpenSpec 發散，請以目前程式碼與測試為準，並回頭更新 spec。
+            lazy-change-report-lookup（含 D6 成功快取）等變更）。若實作與 OpenSpec 發散，請以目前程式碼與測試為準，並回頭更新 spec。
           </p>
-          <p class="muted">最後對照分支：<code>feat/node-detail-panel</code> · 2026-06-13</p>
+          <p class="muted">最後對照分支：<code>feat/node-detail-panel</code> · 2026-06-13（含 <code>73e75b8</code> Change Report cache）</p>
         </footer>
       </main>
     </div>
