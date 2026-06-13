@@ -1,6 +1,8 @@
 import { getBackendSrv } from '@grafana/runtime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { DETAIL_CODE_CHANGES_PATH, DETAIL_CONFIG_CHANGES_PATH } from '../detailPaths';
+
 // The shared input of BOTH detail-URL queries (design D2): the ArgoCD application
 // plus the pod-controller identity and the right-click time (Unix SECONDS). A pod
 // resolves kind/name from its owner, a controller from itself, a standalone pod
@@ -193,7 +195,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
       controllersRef.current.add(controller);
       const options = { abortSignal: controller.signal, showErrorAlert: false };
       const promise = getBackendSrv()
-        .get<unknown>(`${ctx.base}/api/v1/config_changes`, ctx.input, undefined, options)
+        .get<unknown>(`${ctx.base}${DETAIL_CONFIG_CHANGES_PATH}`, ctx.input, undefined, options)
         .then((res): string => {
           const url = parseApplicationUrl(res);
           if (url === undefined) {
@@ -243,7 +245,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
       controllersRef.current.add(controller);
       const options = { abortSignal: controller.signal, showErrorAlert: false };
       const promise = getBackendSrv()
-        .get<unknown>(`${ctx.base}/api/v1/code_changes`, ctx.input, undefined, options)
+        .get<unknown>(`${ctx.base}${DETAIL_CODE_CHANGES_PATH}`, ctx.input, undefined, options)
         .then((res): Record<string, string> => {
           const map = parseUrlByContainer(res);
           if (map === undefined) {
