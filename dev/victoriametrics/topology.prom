@@ -9,8 +9,11 @@
 # traces_service_graph_request_total counters (so rate(...[window]) > 0).
 #
 # Bucket A only — the backend has NO contract for the showcase's switch fabric,
-# per-node status/alerts, or app/version/role pod labels, so those are absent here
-# (hard backend limits, not omissions). Result: 20 nodes / 13 edges + 4 owners
+# per-node status/alerts, or generic pod labels (kube_pod_labels: app/version/role,
+# read by the hover tooltip), so those are absent here (hard backend limits). It DOES
+# derive each pod's ArgoCD `application` (from the argocd_tracking_id label on
+# kube_pod_owner, below) and `containers` (from kube_pod_container_info, below); both
+# surface in the node-detail panel. Result: 20 nodes / 13 edges + 4 owners
 # (the +1 over the 19-node base is the synthesised `prod/storageclass/fast-ssd` group).
 #
 #   prod > {worker-0 > gateway, mongo-0, mongo-2; worker-1 > mongo-1; mongo-svc; fast-ssd > data-mongo-0/1/2}
@@ -36,11 +39,24 @@ kube_pod_info{cluster="prod",namespace="prod",pod="mongo-1",uid="u-mongo-1",node
 kube_pod_info{cluster="prod",namespace="prod",pod="mongo-2",uid="u-mongo-2",node="worker-0"} 1
 
 # --- pod owners -> data.owner -> synthesized controllers (Deployment gateway,
-#     StatefulSet mongodb). owner_is_controller="true" required; kind verbatim. ---
-kube_pod_owner{cluster="prod",namespace="prod",pod="gateway",owner_kind="Deployment",owner_name="gateway",owner_is_controller="true"} 1
-kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-0",owner_kind="StatefulSet",owner_name="mongodb",owner_is_controller="true"} 1
-kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-1",owner_kind="StatefulSet",owner_name="mongodb",owner_is_controller="true"} 1
-kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-2",owner_kind="StatefulSet",owner_name="mongodb",owner_is_controller="true"} 1
+#     StatefulSet mongodb). owner_is_controller="true" required; kind verbatim.
+#     argocd_tracking_id -> data.application (segment before the first ":"). ---
+kube_pod_owner{cluster="prod",namespace="prod",pod="gateway",owner_kind="Deployment",owner_name="gateway",owner_is_controller="true",argocd_tracking_id="gateway:apps/Deployment:prod/gateway"} 1
+kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-0",owner_kind="StatefulSet",owner_name="mongodb",owner_is_controller="true",argocd_tracking_id="mongodb:apps/StatefulSet:prod/mongodb"} 1
+kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-1",owner_kind="StatefulSet",owner_name="mongodb",owner_is_controller="true",argocd_tracking_id="mongodb:apps/StatefulSet:prod/mongodb"} 1
+kube_pod_owner{cluster="prod",namespace="prod",pod="mongo-2",owner_kind="StatefulSet",owner_name="mongodb",owner_is_controller="true",argocd_tracking_id="mongodb:apps/StatefulSet:prod/mongodb"} 1
+
+# --- container images (kube_pod_container_info -> pod data.containers, {name,image}
+#     sorted by name in the panel). gateway = app + envoy sidecar; each mongo
+#     replica = mongod + a metrics exporter (2 containers). ---
+kube_pod_container_info{cluster="prod",namespace="prod",pod="gateway",container="gateway",image="ghcr.io/acme/gateway:1.4.2"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="gateway",container="envoy",image="envoyproxy/envoy:v1.31.0"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="mongo-0",container="mongod",image="mongo:7.0"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="mongo-0",container="metrics",image="bitnami/mongodb-exporter:0.40.0"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="mongo-1",container="mongod",image="mongo:7.0"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="mongo-1",container="metrics",image="bitnami/mongodb-exporter:0.40.0"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="mongo-2",container="mongod",image="mongo:7.0"} 1
+kube_pod_container_info{cluster="prod",namespace="prod",pod="mongo-2",container="metrics",image="bitnami/mongodb-exporter:0.40.0"} 1
 
 # --- PVCs (one per mongo replica) + pod-mounts-pvc. ---
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-0",persistentvolumeclaim="data-mongo-0",volume="data"} 1
@@ -79,11 +95,22 @@ kube_pod_info{cluster="dr",namespace="dr",pod="nats-0",uid="u-nats-0",node="work
 kube_pod_info{cluster="dr",namespace="dr",pod="nats-1",uid="u-nats-1",node="worker-2"} 1
 kube_pod_info{cluster="dr",namespace="dr",pod="nats-2",uid="u-nats-2",node="worker-2"} 1
 
-# --- pod owners -> Deployment consumer, StatefulSet nats. ---
-kube_pod_owner{cluster="dr",namespace="dr",pod="consumer",owner_kind="Deployment",owner_name="consumer",owner_is_controller="true"} 1
-kube_pod_owner{cluster="dr",namespace="dr",pod="nats-0",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true"} 1
-kube_pod_owner{cluster="dr",namespace="dr",pod="nats-1",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true"} 1
-kube_pod_owner{cluster="dr",namespace="dr",pod="nats-2",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true"} 1
+# --- pod owners -> Deployment consumer, StatefulSet nats.
+#     argocd_tracking_id -> data.application (segment before the first ":"). ---
+kube_pod_owner{cluster="dr",namespace="dr",pod="consumer",owner_kind="Deployment",owner_name="consumer",owner_is_controller="true",argocd_tracking_id="consumer:apps/Deployment:dr/consumer"} 1
+kube_pod_owner{cluster="dr",namespace="dr",pod="nats-0",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true",argocd_tracking_id="nats:apps/StatefulSet:dr/nats"} 1
+kube_pod_owner{cluster="dr",namespace="dr",pod="nats-1",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true",argocd_tracking_id="nats:apps/StatefulSet:dr/nats"} 1
+kube_pod_owner{cluster="dr",namespace="dr",pod="nats-2",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true",argocd_tracking_id="nats:apps/StatefulSet:dr/nats"} 1
+
+# --- container images. consumer = single container; each nats replica = server +
+#     a config-reloader sidecar (2 containers). ---
+kube_pod_container_info{cluster="dr",namespace="dr",pod="consumer",container="consumer",image="ghcr.io/acme/consumer:2.1.0"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-0",container="nats",image="nats:2.10-alpine"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-0",container="reloader",image="natsio/nats-server-config-reloader:0.16.0"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-1",container="nats",image="nats:2.10-alpine"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-1",container="reloader",image="natsio/nats-server-config-reloader:0.16.0"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-2",container="nats",image="nats:2.10-alpine"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-2",container="reloader",image="natsio/nats-server-config-reloader:0.16.0"} 1
 
 # --- nats-svc ClusterIP service + service-selects-pod fan-out to nats-*. ---
 kube_service_info{cluster="dr",namespace="dr",service="nats-svc",cluster_ip="10.96.0.50"} 1
