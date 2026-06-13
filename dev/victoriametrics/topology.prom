@@ -103,14 +103,17 @@ kube_pod_owner{cluster="dr",namespace="dr",pod="nats-1",owner_kind="StatefulSet"
 kube_pod_owner{cluster="dr",namespace="dr",pod="nats-2",owner_kind="StatefulSet",owner_name="nats",owner_is_controller="true",argocd_tracking_id="nats:apps/StatefulSet:dr/nats"} 1
 
 # --- container images. consumer = single container; each nats replica = server +
-#     a config-reloader sidecar (2 containers). ---
+#     a config-reloader sidecar (2 containers). The reloader sidecar carries a
+#     deliberately long, hyphenated name (`nats-server-config-reloader-sidecar`) so
+#     the node-detail Containers table exercises the long-name + long-image layout
+#     (the Name column must stay on one line — see ContainerTable name style). ---
 kube_pod_container_info{cluster="dr",namespace="dr",pod="consumer",container="consumer",image="ghcr.io/acme/consumer:2.1.0"} 1
 kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-0",container="nats",image="nats:2.10-alpine"} 1
-kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-0",container="reloader",image="natsio/nats-server-config-reloader:0.16.0"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-0",container="nats-server-config-reloader-sidecar",image="natsio/nats-server-config-reloader:0.16.0"} 1
 kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-1",container="nats",image="nats:2.10-alpine"} 1
-kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-1",container="reloader",image="natsio/nats-server-config-reloader:0.16.0"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-1",container="nats-server-config-reloader-sidecar",image="natsio/nats-server-config-reloader:0.16.0"} 1
 kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-2",container="nats",image="nats:2.10-alpine"} 1
-kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-2",container="reloader",image="natsio/nats-server-config-reloader:0.16.0"} 1
+kube_pod_container_info{cluster="dr",namespace="dr",pod="nats-2",container="nats-server-config-reloader-sidecar",image="natsio/nats-server-config-reloader:0.16.0"} 1
 
 # --- nats-svc ClusterIP service + service-selects-pod fan-out to nats-*. ---
 kube_service_info{cluster="dr",namespace="dr",service="nats-svc",cluster_ip="10.96.0.50"} 1

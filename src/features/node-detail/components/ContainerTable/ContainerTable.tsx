@@ -34,7 +34,12 @@ function getStyles(theme: GrafanaTheme2): ResultSlotStyles & {
     whiteSpace: 'nowrap',
   } as const;
   return {
-    name: css({ fontWeight: 600 }),
+    // nowrap: a container name is an identifier. disableGrow shrinks this column to
+    // its min-content width, and without nowrap the browser breaks the name at its
+    // hyphens (e.g. `nats-server-config-reloader`), wrapping it across lines. Pin it
+    // to one line so it stays readable; the Image column (break-all) still soaks up
+    // the remaining width.
+    name: css({ fontWeight: 600, whiteSpace: 'nowrap' }),
     // break-all instead of ellipsis: registry/repo@tag strings have no spaces, so
     // an unwrapped image would stretch its column and push the table past the
     // panel edge; wrapping keeps the columns aligned and the full image readable.
