@@ -453,10 +453,10 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 
 **查詢契約**:兩個查詢 MUST 共用同一組 input——ArgoCD application name、pod-controller kind、pod-controller name、current time(查詢當下時間,Unix 秒)。pod 節點的 controller kind/name 取自其 owner(`data.owner`);controller 節點取自身 kind/name;無 owner 的 standalone pod 以自身 kind(`pod`)與 name 帶入。回傳:
 
-- **application-detail 查詢**(`GET <endpoint>/api/v1/config_changes`):回 `{ "url": string }`——**單一 URL**(該 ArgoCD application 的外部詳情頁)。
-- **image-detail 查詢**(`GET <endpoint>/api/v1/code_changes`):回 `{ [containerName]: { "url": string } }`——**map(container name → URL)**,UI 端以攤平後的 map 查值;input MUST NOT 含 image 參數,一次右鍵一次呼叫涵蓋該節點所有 containers。
+- **application-detail 查詢**(`GET <base>/config_changes`,`base` 見下「查詢傳輸」):回 `{ "url": string }`——**單一 URL**(該 ArgoCD application 的外部詳情頁)。
+- **image-detail 查詢**(`GET <base>/code_changes`):回 `{ [containerName]: { "url": string } }`——**map(container name → URL)**,UI 端以攤平後的 map 查值;input MUST NOT 含 image 參數,一次右鍵一次呼叫涵蓋該節點所有 containers。
 
-**查詢傳輸**:查詢 MUST 透過 Grafana runtime(`@grafana/runtime` `getBackendSrv()`)發往**同一個 graph API backend**;MUST NOT 自 `src/**` 直接以 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend(與 graph-data-integration「Datasource 整合策略」之「Panel 不直接 fetch 外部 URL」一致)。查詢端點(base path)MUST 依下列順序解析:(1)panel option 非空時以其為準(**覆寫**);(2)否則 SHALL 自面板查詢請求(`data.request.targets`)**自動推導**——依序檢視非隱藏(`hide` ≠ true)且帶 datasource ref 的 targets,經 Grafana runtime 的 datasource instance settings 解析其 proxied base path(`access: proxy` 的 datasource 其 instance settings `url` 即 `/api/datasources/proxy/uid/<uid>`),取**第一個解析出非空 base path** 者(隱藏 target 或解析不出 url 的 ref——如 expression——跳過續查,不視為終點);(3)兩者皆無(option 空且無任一 target 可解析出非空 base path)時,兩區塊照資料渲染但 URL 按鈕 MUST 停用,且 MUST NOT 發出任何查詢。查詢 MUST 可中止(unmount / 換節點),MUST NOT 在 unmount 後 setState,並於 React StrictMode 雙掛載下冪等。
+**查詢傳輸**:查詢 MUST 透過 Grafana runtime(`@grafana/runtime` `getBackendSrv()`)發往**同一個 graph API backend**;MUST NOT 自 `src/**` 直接以 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend(與 graph-data-integration「Datasource 整合策略」之「Panel 不直接 fetch 外部 URL」一致)。查詢端點(base path)MUST 依下列順序解析:(1)panel option 非空時以其為準(**覆寫**);(2)否則 SHALL 自面板查詢請求(`data.request.targets`)**自動推導**,使 detail 端點成為 graph query 的 **sibling**——依序檢視非隱藏(`hide` ≠ true)且帶 datasource ref 的 targets,取**第一個**經 Grafana runtime datasource instance settings 解析出非空 proxied base path 者(`access: proxy` 的 datasource 其 instance settings `url` 即 `/api/datasources/proxy/uid/<uid>`,datasource 真實 base url 對 panel 不可見;隱藏 target 或解析不出 url 的 ref——如 expression——跳過續查,不視為終點),再於其後串接該 target graph query 路徑的**目錄**(target `url` 去 query string 後再去最後一段;單段或無 `url` 時為空、base 即裸 proxy mount)——如 graph query 為 `…/api/v1/graph/service_graph`,則 base 為 `<proxy mount>/api/v1/graph`,append `/config_changes`、`/code_changes` 後與 graph query 同目錄;(3)兩者皆無(option 空且無任一 target 可解析出非空 base path)時,兩區塊照資料渲染但 URL 按鈕 MUST 停用,且 MUST NOT 發出任何查詢。查詢 MUST 可中止(unmount / 換節點),MUST NOT 在 unmount 後 setState,並於 React StrictMode 雙掛載下冪等。
 
 **呈現**:
 
@@ -546,13 +546,13 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 
 #### Scenario: endpoint 自 panel datasource 自動推導
 
-- **WHEN** panel option 未設定查詢 endpoint,且面板查詢 target 帶 datasource ref(如 uid `ksg-default`、`access: proxy`)
-- **THEN** 右鍵觸發後,兩查詢發往該 datasource 的 proxied base path 下的固定子路徑(`/api/datasources/proxy/uid/ksg-default/api/v1/config_changes` 與 `/api/datasources/proxy/uid/ksg-default/api/v1/code_changes`)
+- **WHEN** panel option 未設定查詢 endpoint,且面板查詢 target 帶 datasource ref(如 uid `ksg-default`、`access: proxy`)、其 graph query 路徑為 `/api/v1/graph/service_graph`
+- **THEN** 右鍵觸發後,兩查詢發往與 graph query **同目錄的 sibling 段**(`/api/datasources/proxy/uid/ksg-default/api/v1/graph/config_changes` 與 `…/api/v1/graph/code_changes`),經 proxy 轉發即 `<backend>/api/v1/graph/{config_changes,code_changes}`
 
 #### Scenario: panel option 覆寫自動推導
 
 - **WHEN** panel option 設定 endpoint 為 `/foo`,且面板查詢 target 亦帶 datasource ref
-- **THEN** 兩查詢發往 `/foo/api/v1/config_changes` 與 `/foo/api/v1/code_changes`(option 優先,不使用推導值)
+- **THEN** 兩查詢發往 `/foo/config_changes` 與 `/foo/code_changes`(option 優先,不使用推導值與 graph query 目錄)
 
 #### Scenario: 未設定 endpoint 且無法推導時停用
 

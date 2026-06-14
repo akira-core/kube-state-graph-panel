@@ -46,6 +46,42 @@ describe('resolveDetailEndpoint', () => {
     expect(getInstanceSettingsMock).toHaveBeenCalledWith(refTarget.datasource);
   });
 
+  it("appends the graph query's directory to the proxy mount (detail endpoints are siblings of the query)", () => {
+    getInstanceSettingsMock.mockReturnValue({ url: '/api/datasources/proxy/uid/ksg-default' });
+    const target = { ...refTarget, url: '/api/v1/graph/service_graph?start=1&end=2' };
+    expect(resolveDetailEndpoint({ option: '', request: requestWith([target]) })).toBe(
+      '/api/datasources/proxy/uid/ksg-default/api/v1/graph'
+    );
+  });
+
+  it('strips the query string off the target url before taking its directory', () => {
+    getInstanceSettingsMock.mockReturnValue({ url: '/proxy' });
+    const target = { ...refTarget, url: '/api/v1/graph/service_graph?cluster=prod&cluster=dr' };
+    expect(resolveDetailEndpoint({ option: '', request: requestWith([target]) })).toBe('/proxy/api/v1/graph');
+  });
+
+  it('keeps the bare proxy mount when the target url is a single segment (no directory to inherit)', () => {
+    getInstanceSettingsMock.mockReturnValue({ url: '/api/datasources/proxy/uid/ksg-default' });
+    const target = { ...refTarget, url: '/service_graph?start=1' };
+    expect(resolveDetailEndpoint({ option: '', request: requestWith([target]) })).toBe(
+      '/api/datasources/proxy/uid/ksg-default'
+    );
+  });
+
+  it('keeps the bare proxy mount when the target url is absolute (its host is unreachable through the proxy)', () => {
+    getInstanceSettingsMock.mockReturnValue({ url: '/api/datasources/proxy/uid/ksg-default' });
+    const target = { ...refTarget, url: 'http://backend:8081/api/v1/graph/service_graph?start=1' };
+    expect(resolveDetailEndpoint({ option: '', request: requestWith([target]) })).toBe(
+      '/api/datasources/proxy/uid/ksg-default'
+    );
+  });
+
+  it('keeps the bare proxy mount when the target url is protocol-relative', () => {
+    getInstanceSettingsMock.mockReturnValue({ url: '/proxy' });
+    const target = { ...refTarget, url: '//backend:8081/api/v1/graph/service_graph' };
+    expect(resolveDetailEndpoint({ option: '', request: requestWith([target]) })).toBe('/proxy');
+  });
+
   it('returns empty when the runtime knows no such datasource', () => {
     getInstanceSettingsMock.mockReturnValue(undefined);
     expect(resolveDetailEndpoint({ option: '', request: requestWith([refTarget]) })).toBe('');

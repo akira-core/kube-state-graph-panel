@@ -68,10 +68,11 @@ export function buildKsgPanelOptions(
       path: 'detailEndpoint',
       name: 'Detail URL endpoint',
       description:
-        'Overrides the endpoint of the node-detail Application/Containers URL lookups. ' +
-        "Leave empty to derive it from the dashboard query's datasource " +
-        '(its Grafana proxy path /api/datasources/proxy/uid/<uid>). Shared by both queries ' +
-        'under fixed sub-paths (/api/v1/config_changes and /api/v1/code_changes). ' +
+        'Overrides the base the node-detail Application/Containers URL lookups append their ' +
+        '/config_changes and /code_changes segments to. Leave empty to derive it from the dashboard ' +
+        'query so the detail endpoints resolve as siblings of the graph query (the datasource ' +
+        'proxy path /api/datasources/proxy/uid/<uid> plus the graph query directory, e.g. a query ' +
+        'at .../api/v1/graph/service_graph yields .../api/v1/graph/config_changes). ' +
         'If neither resolves, the URL buttons stay disabled and no lookup is issued.',
       defaultValue: defaultOptions.detailEndpoint,
     })

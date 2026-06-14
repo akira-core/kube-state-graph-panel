@@ -855,16 +855,11 @@ describe('KsgPanel', () => {
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
       fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith(
-          '/proxy/api/v1/config_changes',
-          params,
-          undefined,
-          expect.anything()
-        );
+        expect(detailGetMock).toHaveBeenCalledWith('/proxy/config_changes', params, undefined, expect.anything());
       });
       fireEvent.click(screen.getByTestId('container-url-button'));
       await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith('/proxy/api/v1/code_changes', params, undefined, expect.anything());
+        expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
       });
     });
 
@@ -877,7 +872,7 @@ describe('KsgPanel', () => {
       fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
-          '/proxy/api/v1/config_changes',
+          '/proxy/config_changes',
           { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 },
           undefined,
           expect.anything()
@@ -939,7 +934,7 @@ describe('KsgPanel', () => {
       fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
-          '/api/datasources/proxy/uid/ksg-default/api/v1/config_changes',
+          '/api/datasources/proxy/uid/ksg-default/config_changes',
           params,
           undefined,
           expect.anything()
@@ -948,7 +943,47 @@ describe('KsgPanel', () => {
       fireEvent.click(screen.getByTestId('container-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
-          '/api/datasources/proxy/uid/ksg-default/api/v1/code_changes',
+          '/api/datasources/proxy/uid/ksg-default/code_changes',
+          params,
+          undefined,
+          expect.anything()
+        );
+      });
+    });
+
+    it('derives the detail endpoints as siblings of the graph query path (proxy mount + query directory)', async () => {
+      getInstanceSettingsMock.mockReturnValue({ url: '/api/datasources/proxy/uid/ksg-default' });
+      // The graph query target carries the real backend path; the detail lookups
+      // must resolve next to it (same directory, last segment swapped), so post-
+      // proxy they hit http://backend/api/v1/graph/{config_changes,code_changes}.
+      const requestWithGraphUrl = {
+        targets: [
+          {
+            refId: 'A',
+            datasource: { uid: 'ksg-default', type: 'yesoreyeram-infinity-datasource' },
+            url: '/api/v1/graph/service_graph?start=1&end=2',
+          },
+        ],
+      } as unknown as NonNullable<PanelData['request']>;
+      renderPanel(defaultOptions, requestWithGraphUrl);
+      expandAll();
+      act(() => {
+        lastCanvasProps().onContextSelect?.('demo/p1');
+      });
+      const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
+      fireEvent.click(screen.getByTestId('application-url-button'));
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledWith(
+          '/api/datasources/proxy/uid/ksg-default/api/v1/graph/config_changes',
+          params,
+          undefined,
+          expect.anything()
+        );
+      });
+      fireEvent.click(screen.getByTestId('container-url-button'));
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledWith(
+          '/api/datasources/proxy/uid/ksg-default/api/v1/graph/code_changes',
           params,
           undefined,
           expect.anything()
@@ -966,16 +1001,11 @@ describe('KsgPanel', () => {
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
       fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith(
-          '/proxy/api/v1/config_changes',
-          params,
-          undefined,
-          expect.anything()
-        );
+        expect(detailGetMock).toHaveBeenCalledWith('/proxy/config_changes', params, undefined, expect.anything());
       });
       fireEvent.click(screen.getByTestId('container-url-button'));
       await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith('/proxy/api/v1/code_changes', params, undefined, expect.anything());
+        expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
       });
       // The option short-circuits derivation — the registry is never consulted.
       expect(getInstanceSettingsMock).not.toHaveBeenCalled();

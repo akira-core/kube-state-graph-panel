@@ -8,13 +8,15 @@ export interface KsgPanelOptions {
   showLegend: boolean;
   visibleKinds: NodeKind[];
   visibleEdgeTypes: EdgeType[];
-  // Override for the base path of the graph API backend serving the node-detail
-  // URL lookups. Both queries share it under fixed sub-paths
-  // (/api/v1/config_changes + /api/v1/code_changes). Empty (default) derives the
-  // endpoint from the dashboard query's datasource instead — its Grafana proxy
-  // path /api/datasources/proxy/uid/<uid>; when neither resolves, the lookups
-  // are disabled: the Application/Containers URL buttons stay inert and no
-  // query is ever issued.
+  // Override for the base the node-detail URL lookups append their fixed
+  // segments (/config_changes + /code_changes) to. Empty (default) DERIVES the
+  // base from the dashboard query so the detail endpoints resolve as SIBLINGS of
+  // the graph query: the datasource's Grafana proxy path
+  // /api/datasources/proxy/uid/<uid> plus the graph query's own directory (a
+  // query at …/api/v1/graph/service_graph → …/api/v1/graph/config_changes). When
+  // neither an option nor a derivable datasource resolves, the lookups are
+  // disabled: the Application/Containers URL buttons stay inert and no query is
+  // ever issued.
   detailEndpoint: string;
   // Name of an EXISTING dashboard variable to export the graph's pod names
   // into (multi-value, via var-<name> URL sync) — e.g. for an ES logs panel

@@ -60,7 +60,7 @@ describe('useNodeDetailUrls (lazy, click-triggered)', () => {
 
     expect(mockGet).toHaveBeenCalledTimes(1);
     expect(mockGet).toHaveBeenCalledWith(
-      '/api/ds/proxy/1/api/v1/config_changes',
+      '/api/ds/proxy/1/config_changes',
       params,
       undefined,
       expect.objectContaining({ abortSignal: expect.any(AbortSignal) as AbortSignal })
@@ -77,7 +77,7 @@ describe('useNodeDetailUrls (lazy, click-triggered)', () => {
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalled();
     });
-    expect(mockGet).toHaveBeenCalledWith('/api/ds/proxy/1/api/v1/config_changes', params, undefined, expect.anything());
+    expect(mockGet).toHaveBeenCalledWith('/api/ds/proxy/1/config_changes', params, undefined, expect.anything());
   });
 
   it('openContainerReport fires code_changes and opens that container’s URL', async () => {
@@ -91,7 +91,7 @@ describe('useNodeDetailUrls (lazy, click-triggered)', () => {
       expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
     });
     expect(mockGet).toHaveBeenCalledTimes(1);
-    expect(mockGet).toHaveBeenCalledWith('/proxy/api/v1/code_changes', params, undefined, expect.anything());
+    expect(mockGet).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
     expect(result.current.containers.app).toEqual({ status: 'idle' });
   });
 
