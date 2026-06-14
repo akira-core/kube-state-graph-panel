@@ -10,6 +10,7 @@
 - 元件 `ApplicationTable` / `ContainerTable` 的 `LinkButton`(`<a href>`)改為 `Button` + `onClick`;移除成功時的 inline URL 結果槽(改為開新分頁);`data-testid` 維持不變。
 - `useNodeDetailUrls` 由 effect-驅動的 eager 查詢改為 **imperative hook**:回傳每目標狀態 + `openApplicationReport()` / `openContainerReport(name)` 觸發函式;換節點時重置狀態並中止 in-flight 查詢。
 - 涵蓋範圍:**Application 區塊與 Containers 區塊兩者皆改**。
+- **URL 解析(sibling 推導,隨本變更一併調整)**:`resolveDetailEndpoint` 由「推導時只回 datasource proxy mount」改為「proxy mount + graph query 路徑的**目錄**」,使 detail 端點成為 graph query 的 sibling;detail 子路徑常數由固定全路徑 `/api/v1/config_changes`、`/api/v1/code_changes` 降為 bare segment `/config_changes`、`/code_changes`(前綴改由 graph query 目錄供給)。端點名稱與回傳格式不變;絕對 / protocol-relative 的 `target.url` 安全退回裸 mount。
 
 ## Capabilities
 
@@ -27,4 +28,6 @@
 - `src/features/node-detail/components/ApplicationTable/`、`.../ContainerTable/`(按鈕由 `LinkButton` 改 `Button` + `onClick`、移除 inline 結果槽、loading/error 呈現調整)及其測試。
 - `src/features/node-detail/components/NodeDetailPanel/`(改接新 prop 形狀)及其測試。
 - `src/panels/KsgPanel/KsgPanel.tsx`(改接 hook 新回傳形狀並下傳觸發函式)。
-- 不變:endpoint 解析(`resolveDetailEndpoint`)、查詢契約(`config_changes` / `code_changes` 路徑與回傳格式)、查詢必經 `getBackendSrv()`、右鍵抑制原生選單、左鍵不查詢、區塊 gating(kind / 資料存在性)。
+- `src/features/node-detail/resolveDetailEndpoint.ts`(推導改為 proxy mount + graph query 目錄的 sibling,含絕對 / protocol-relative URL guard)及其測試。
+- `src/features/node-detail/detailPaths.ts`(子路徑常數由 `/api/v1/config_changes`、`/api/v1/code_changes` 降為 bare segment `/config_changes`、`/code_changes`)。
+- 不變:查詢契約之**端點名稱**(`config_changes` / `code_changes`)與**回傳格式**、查詢必經 `getBackendSrv()`、右鍵抑制原生選單、左鍵不查詢、區塊 gating(kind / 資料存在性)。(endpoint base 解析改為 sibling 推導,見上。)

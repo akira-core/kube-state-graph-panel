@@ -4,7 +4,7 @@
 
 問題:backend 未實作該兩端點(404)時,右鍵一開面板,Change Report 欄即全部變「Not Found」。使用者預期預設只見可點按鈕,點擊才查、非 200 才顯示 Not Found。本變更把「右鍵即發」改為「點擊才發」(lazy),設計上反轉既有 D5。
 
-約束(不變):查詢必經 `getBackendSrv()`(不直連外部);endpoint 解析沿用 `resolveDetailEndpoint`(option 覆寫 → datasource proxy 推導 → 空則停用);查詢契約(路徑、回傳格式、共用 input)不變;右鍵抑制原生選單、左鍵不查詢、區塊 gating(kind + 資料存在性)不變。
+約束(不變):查詢必經 `getBackendSrv()`(不直連外部);查詢契約之**端點名稱**(`config_changes` / `code_changes`)、**回傳格式**、共用 input 不變;右鍵抑制原生選單、左鍵不查詢、區塊 gating(kind + 資料存在性)不變。**endpoint base 解析改為 graph query 的 sibling 推導(見 D7),不再是固定 proxy mount + 全路徑。**
 
 ## Goals / Non-Goals
 
@@ -18,7 +18,7 @@
 
 **Non-Goals:**
 
-- 不改 endpoint 解析、查詢契約、傳輸層(`getBackendSrv()`)。
+- 不改傳輸層(`getBackendSrv()`)、端點名稱(`config_changes` / `code_changes`)與回傳格式。(endpoint base 解析改為 sibling 推導——見 D7——隨本變更一併調整。)
 - 不快取**失敗**結果(非 200 / 格式錯誤不入快取,仍可重試)。
 - 不改右鍵/左鍵 gating、區塊顯示條件、Alerts view。
 - 不在面板內 inline 呈現成功 URL(成功即開新分頁)。
@@ -74,6 +74,12 @@ URL 在點擊查詢回來前未知,無法再用預解析連結。成功時 `wind
 ### D4:按鈕由 `LinkButton` 改 `Button` + `onClick`
 
 無 `href` 可言(點擊才查),改用 `@grafana/ui` `Button`(`size=sm` `fill=outline` `variant=secondary` `icon=external-link-alt`),`onClick` 呼叫對應觸發函式;`enabled` 為 false 或 `status==='loading'` 時 `disabled`。`data-testid`(`application-url-button` / `container-url-button`)維持,既有測試之 `href`/`target`/`rel` 斷言改為點擊行為斷言。移除成功 inline 結果槽(`*-url-result`)。
+
+### D7:detail 端點改為 graph query 的 sibling(`resolveDetailEndpoint` 加 query 目錄推導)
+
+原 `resolveDetailEndpoint` 推導時只回 datasource 的 proxy mount(`/api/datasources/proxy/uid/<uid>`),detail 子路徑常數為固定全路徑 `/api/v1/config_changes`、`/api/v1/code_changes`,隱含假設 detail 端點掛在 datasource 根的 `/api/v1/` 下。改為:推導出 proxy mount 後再串接**該 graph query target 路徑的目錄**(`queryDir`:`target.url` 去 query string 再去最後一段;絕對 / protocol-relative URL,或單段 / 無 url 時回空、退回裸 mount),子路徑常數降為 bare segment `/config_changes`、`/code_changes`。如此 graph query `…/api/v1/graph/service_graph` 與 detail `…/api/v1/graph/{config_changes,code_changes}` 恆為同 host 同前綴的 siblings。目錄取自第一個能解析出 datasource 的 target(本 panel 僅一條 graph query,即該 query);option 覆寫與「皆不可解析 → 停用」行為不變。
+
+**為何**:detail 端點與 graph query 同源,把前綴寫死在常數會在後端路徑(如 `/api/v1/graph/...`)與假設不符時打錯路徑;由 graph query 目錄推導使「graph 能載入 ⇒ detail URL 結構必正確」,且後端改版只需改 query 路徑。`target.url` 非 `@grafana/data` `DataQuery` 標準欄位,需 narrow off `unknown`;絕對 / protocol-relative URL 其 host 經 proxy 不可達,故安全退回裸 mount 而非把 host 黏進路徑。
 
 ## Risks / Trade-offs
 
