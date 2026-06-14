@@ -15,17 +15,20 @@ interface ContainerRow {
 function getStyles(theme: GrafanaTheme2): {
   name: string;
   image: string;
-  reportHeader: string;
+  tableWrap: string;
   urlCell: string;
   pending: string;
   resultError: string;
 } {
   const colors = themeColors(theme);
   return {
-    // Right-align the header to the column's right edge — same edge the buttons pin
-    // to — so the "Change Report" label lines up with the Application section's even
-    // when a hint widens this column leftward.
-    reportHeader: css({ textAlign: 'right' }),
+    // A plain-string header (required for Grafana 11.4, whose InteractiveTable types
+    // `Column.header` as `string`, not a renderer) can't carry a className, so the
+    // "Change Report" header — always the last column — is right-aligned by targeting
+    // its <th> from the table wrapper. Keeps the label on the same right edge the
+    // buttons pin to, lined up with the Application section's, even when a hint widens
+    // this column leftward.
+    tableWrap: css({ '& th:last-child': { textAlign: 'right' } }),
     // nowrap: a container name is an identifier. disableGrow shrinks this column to
     // its min-content width, and without nowrap the browser breaks the name at its
     // hyphens (e.g. `nats-server-config-reloader`), wrapping it across lines. Pin it
@@ -112,7 +115,7 @@ export function ContainerTable({
       },
       {
         id: 'url',
-        header: () => <div className={styles.reportHeader}>Change Report</div>,
+        header: 'Change Report',
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => {
           const name = row.original.name;
@@ -151,7 +154,7 @@ export function ContainerTable({
   );
 
   return (
-    <div data-testid="container-table">
+    <div data-testid="container-table" className={styles.tableWrap}>
       <InteractiveTable columns={columns} data={data} getRowId={rowId} />
     </div>
   );

@@ -13,7 +13,7 @@ interface ApplicationRow {
 
 function getStyles(theme: GrafanaTheme2): {
   name: string;
-  reportHeader: string;
+  tableWrap: string;
   urlCell: string;
   pending: string;
   resultError: string;
@@ -21,10 +21,13 @@ function getStyles(theme: GrafanaTheme2): {
   const colors = themeColors(theme);
   return {
     name: css({ fontWeight: 600 }),
-    // Right-align the header to the column's right edge — same edge the buttons pin
-    // to — so the "Change Report" label lines up with the Containers section's even
-    // when a hint widens this column leftward.
-    reportHeader: css({ textAlign: 'right' }),
+    // A plain-string header (required for Grafana 11.4, whose InteractiveTable types
+    // `Column.header` as `string`, not a renderer) can't carry a className, so the
+    // "Change Report" header — always the last column — is right-aligned by targeting
+    // its <th> from the table wrapper. Keeps the label on the same right edge the
+    // buttons pin to, lined up with the Containers section's, even when a hint widens
+    // this column leftward.
+    tableWrap: css({ '& th:last-child': { textAlign: 'right' } }),
     // flex-end pins the button to the column's right edge so it lines up with the
     // Containers section's button column — and stays put when a loading/error hint
     // (rendered to its LEFT) widens the cell. A left-anchored button would drift as
@@ -73,9 +76,10 @@ export function ApplicationTable({
 }: Readonly<ApplicationTableProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
 
-  // List-shaped on purpose: today the panel resolves a single application, but the
-  // table already iterates so this can grow to several without re-plumbing.
-  // columns + data must be memoized (InteractiveTable / react-table requirement).
+  // Always exactly one row: a pod/controller maps to at most ONE ArgoCD app, so this
+  // never grows beyond a single application (and never needs to scroll). It stays a
+  // headered InteractiveTable purely to match the Containers section's column layout
+  // (D8). columns + data must be memoized (InteractiveTable / react-table requirement).
   const data = useMemo<ApplicationRow[]>(() => [{ application }], [application]);
 
   const columns = useMemo<Array<Column<ApplicationRow>>>(
@@ -87,7 +91,7 @@ export function ApplicationTable({
       },
       {
         id: 'url',
-        header: () => <div className={styles.reportHeader}>Change Report</div>,
+        header: 'Change Report',
         // disableGrow: the Name column takes the remaining width, so this column
         // hugs the right edge at the same position as ContainerTable's (the two
         // stacked sections' button columns align).
@@ -123,7 +127,7 @@ export function ApplicationTable({
   );
 
   return (
-    <div data-testid="application-table">
+    <div data-testid="application-table" className={styles.tableWrap}>
       <InteractiveTable columns={columns} data={data} getRowId={rowId} />
     </div>
   );
