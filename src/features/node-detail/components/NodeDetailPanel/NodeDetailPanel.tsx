@@ -1,4 +1,4 @@
-import { css } from '@emotion/css';
+import { css, cx } from '@emotion/css';
 import type { GrafanaTheme2 } from '@grafana/data';
 import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
@@ -16,14 +16,17 @@ import type { NodeDetailPanelProps } from './NodeDetailPanel.types';
 function getStyles(theme: GrafanaTheme2): {
   root: string;
   header: string;
-  scroll: string;
+  body: string;
   title: string;
   badges: string;
   badge: string;
   statusBadge: string;
   section: string;
+  sectionFixed: string;
+  sectionFill: string;
   sectionTitle: string;
-  sectionBody: string;
+  slot: string;
+  staticBody: string;
 } {
   const colors = themeColors(theme);
   return {
@@ -37,8 +40,10 @@ function getStyles(theme: GrafanaTheme2): {
     // and closes the instant you touch it, so alert links can never be reached.
     //
     // The panel is a flex column capped at maxHeight: the header is flex-none and
-    // pinned, only the inner `scroll` body overflows. So a long alert list scrolls
-    // WITHOUT carrying the title + close button out of view.
+    // pinned, the body below fills the rest WITHOUT scrolling itself. The Application
+    // section is fixed-height (pinned); the Containers/Alerts section fills the
+    // remaining space and scrolls INSIDE its own table area, so the Application table
+    // never scrolls along with it and the title + close button stay in view.
     root: css({
       position: 'absolute',
       left: 8,
@@ -72,9 +77,10 @@ function getStyles(theme: GrafanaTheme2): {
       borderBottom: `2px solid ${colors.border.strong}`,
       flexShrink: 0,
     }),
-    // The only scrolling region: takes the remaining height under the pinned header
-    // (flex:1 + minHeight:0 lets it shrink below content size so overflow kicks in).
-    scroll: css({ flex: 1, minHeight: 0, overflowY: 'auto' }),
+    // The non-scrolling flex column under the pinned header (flex:1 + minHeight:0 lets
+    // it shrink so its filling child can take over the scroll). Itself never scrolls,
+    // so the fixed Application section above the Containers list never moves.
+    body: css({ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
     title: css({
       fontWeight: 600,
       flex: 1,
@@ -104,36 +110,59 @@ function getStyles(theme: GrafanaTheme2): {
       letterSpacing: 0.4,
     }),
     // Adjacent sections separate with a divider DISTINCT from the header's thin
-    // rule: a thicker strong-colour bar plus breathing room on both sides, so
-    // the boundary between two tables cannot be mistaken for a table row line.
+    // rule: a thicker strong-colour bar plus breathing room on both sides, so the
+    // boundary between two tables cannot be mistaken for a table row line. Each
+    // section is its own flex column (title above its table area).
     section: css({
+      display: 'flex',
+      flexDirection: 'column',
       '& + &': {
         marginTop: 12,
         paddingTop: 10,
         borderTop: `2px solid ${colors.border.strong}`,
       },
     }),
-    // Section titles stick to the top of the scroll body, so the "Alerts" label
-    // stays visible while its rows scroll under it (the opaque background hides the
-    // rows passing behind). With multiple sections each title pins in turn.
-    // Titles outrank the table text below them: 13px uppercase vs the body's
-    // bodySmall (set on sectionBody) — the old 10px label read SMALLER than the
-    // table content, inverting the visual hierarchy.
+    // Application: fixed to its content height (always a single row — a pod/controller
+    // maps to at most one ArgoCD app), so it stays PINNED and never scrolls with the
+    // Containers list below it.
+    sectionFixed: css({ flex: '0 0 auto' }),
+    // Containers / Alerts: fill the height left under the fixed Application + header,
+    // and scroll INSIDE their table area. flex-basis auto (NOT 0) + minHeight:0 is
+    // deliberate — basis 0 collapses to nothing under the panel's maxHeight (its
+    // height is indefinite until clamped), which made the table vanish; basis auto
+    // sizes to content, then shrinks-and-scrolls only once the panel hits its cap.
+    sectionFill: css({ flex: '1 1 auto', minHeight: 0 }),
+    // Section title: fixed above its table area, so it stays put while the table's
+    // rows scroll under it. Capitalised, NOT uppercased: a heading, not a shouty tag.
     sectionTitle: css({
-      position: 'sticky',
-      top: 0,
-      zIndex: 1,
-      background: colors.background.secondary,
+      flexShrink: 0,
       fontSize: 13,
       fontWeight: 600,
       letterSpacing: 0.6,
-      textTransform: 'uppercase',
       color: colors.text.secondary,
       paddingBottom: 6,
     }),
-    // Table content renders one step below the section titles (bodySmall —
-    // InteractiveTable cells inherit), keeping the title > body size hierarchy.
-    sectionBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
+    // The scrolling table area (Containers / Alerts). ONLY the tbody rows scroll:
+    //  • flex 1 1 auto + minHeight:0 lets it shrink below content so overflowY here
+    //    (not the body) handles the scroll — keeping the Application section pinned.
+    //  • `& thead th` sticky pins the InteractiveTable column header to the top of
+    //    THIS scroll area so it never scrolls out of view.
+    //  • InteractiveTable wraps its <table> in a div with `overflowX: auto`, which
+    //    would otherwise be the scroll context that traps the sticky header. We set
+    //    that inner container's horizontal overflow back to visible so the sticky
+    //    header resolves to this area instead. ContainerTable nests the table one
+    //    level deeper than AlertTable, hence both `& > div` and `& > div > div`.
+    //    (Image / alert-name columns wrap, so no horizontal scroll is lost.)
+    slot: css({
+      flex: '1 1 auto',
+      minHeight: 24,
+      overflowY: 'auto',
+      fontSize: theme.typography.bodySmall.fontSize,
+      '& > div, & > div > div': { overflowX: 'visible' },
+      '& thead th': { position: 'sticky', top: 0, zIndex: 1, background: colors.background.secondary },
+    }),
+    // The Application table area never scrolls: always a single row (see sectionFixed).
+    staticBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
   };
 }
 
@@ -183,11 +212,11 @@ export function NodeDetailPanel({
         </span>
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
-      <div className={styles.scroll} data-testid="node-detail-scroll">
+      <div className={styles.body} data-testid="node-detail-scroll">
         {showApplication && node.application !== undefined && (
-          <div className={styles.section} data-testid="node-detail-section-application">
+          <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
             <div className={styles.sectionTitle}>Application</div>
-            <div className={styles.sectionBody}>
+            <div className={styles.staticBody}>
               <ApplicationTable
                 application={node.application}
                 state={lookupsState.application}
@@ -198,9 +227,9 @@ export function NodeDetailPanel({
           </div>
         )}
         {showContainers && node.containers !== undefined && (
-          <div className={styles.section} data-testid="node-detail-section-containers">
+          <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-containers">
             <div className={styles.sectionTitle}>Containers</div>
-            <div className={styles.sectionBody}>
+            <div className={styles.slot}>
               <ContainerTable
                 containers={node.containers}
                 stateByContainer={lookupsState.containers}
@@ -211,9 +240,9 @@ export function NodeDetailPanel({
           </div>
         )}
         {view === 'alerts' && (
-          <div className={styles.section} data-testid="node-detail-section-alerts">
+          <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-alerts">
             <div className={styles.sectionTitle}>Alerts</div>
-            <div className={styles.sectionBody}>
+            <div className={styles.slot}>
               <AlertTable
                 alerts={node.alerts ?? []}
                 onAlertTimeClick={onAlertTimeClick}
