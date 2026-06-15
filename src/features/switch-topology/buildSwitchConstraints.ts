@@ -3,8 +3,8 @@ import type { SwitchConstraints, SwitchFixedNode } from './types';
 // Vertical spacing (px) between adjacent switch levels, and horizontal spacing
 // between switches sharing a level. Sensible defaults; tune visually on the demo
 // (see design Open Questions).
-const TIER_GAP = 180;
-const COL_GAP = 180;
+const TIER_GAP = 120;
+const COL_GAP = 120;
 
 // Group switch ids by level, ids sorted within each level and levels ascending.
 // Determinism keeps the pinned positions (and thus the layout) stable for
