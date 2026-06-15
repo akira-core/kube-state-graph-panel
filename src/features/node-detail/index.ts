@@ -7,7 +7,7 @@ export {
   IDLE_NODE_DETAIL_LOOKUPS,
   type NodeDetailQueryInput,
   type NodeDetailLookups,
-  type ChangeReportState,
+  type DetailLookup,
 } from './hooks/useNodeDetailUrls';
 export { DETAIL_URL_KINDS } from './detailUrlKinds';
 export { resolveDetailEndpoint, type ResolveDetailEndpointInput } from './resolveDetailEndpoint';

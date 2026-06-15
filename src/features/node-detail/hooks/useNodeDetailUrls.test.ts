@@ -20,224 +20,194 @@ function routeGet(appResult: Promise<unknown>, codeResult: Promise<unknown>): vo
   mockGet.mockImplementation((url: string) => (url.includes('config_changes') ? appResult : codeResult));
 }
 
-describe('useNodeDetailUrls (lazy, click-triggered)', () => {
-  let openSpy: jest.SpyInstance;
+function configCalls(): unknown[][] {
+  return (mockGet.mock.calls as unknown[][]).filter((c) => String(c[0]).includes('config_changes'));
+}
 
+function codeCalls(): unknown[][] {
+  return (mockGet.mock.calls as unknown[][]).filter((c) => String(c[0]).includes('code_changes'));
+}
+
+describe('useNodeDetailUrls (eager prefetch, no click triggers)', () => {
   beforeEach(() => {
     mockGet.mockReset();
-    // jsdom's window.open is a no-op returning null; default to a truthy window so
-    // "success opens a tab" is the default (the pop-up-blocked test overrides it).
-    openSpy = jest.spyOn(window, 'open').mockReturnValue({} as Window);
   });
 
-  afterEach(() => {
-    openSpy.mockRestore();
-  });
-
-  it('does not query on mount or input change — idle until a button is triggered', () => {
-    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
-      initialProps: { i: input },
-    });
-    expect(mockGet).not.toHaveBeenCalled();
-    expect(result.current.enabled).toBe(true);
-    expect(result.current.application).toEqual({ status: 'idle' });
-    expect(result.current.containers).toEqual({});
-
-    rerender({ i: { ...input, name: 'other' } });
-    expect(mockGet).not.toHaveBeenCalled();
-  });
-
-  it('openApplicationReport fires config_changes and opens the resolved URL in a new tab', async () => {
+  it('prefetches BOTH endpoints on mount when enabled, with no click', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/api/ds/proxy/1'));
 
-    act(() => {
-      result.current.openApplicationReport();
-    });
     await waitFor(() => {
-      expect(result.current.application.status).toBe('idle');
+      expect(result.current.application.status).toBe('ready');
     });
 
-    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(mockGet).toHaveBeenCalledTimes(2);
     expect(mockGet).toHaveBeenCalledWith(
       '/api/ds/proxy/1/config_changes',
       params,
       undefined,
-      expect.objectContaining({ abortSignal: expect.any(AbortSignal) as AbortSignal })
+      expect.objectContaining({ abortSignal: expect.any(AbortSignal) as AbortSignal, showErrorAlert: false })
     );
-    expect(openSpy).toHaveBeenCalledWith('https://argo/app/checkout', '_blank', 'noopener,noreferrer');
+    expect(mockGet).toHaveBeenCalledWith(
+      '/api/ds/proxy/1/code_changes',
+      params,
+      undefined,
+      expect.objectContaining({ abortSignal: expect.any(AbortSignal) as AbortSignal, showErrorAlert: false })
+    );
+    expect(result.current.enabled).toBe(true);
   });
 
   it('strips trailing slashes off the endpoint before appending the sub-path', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/api/ds/proxy/1//'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalled();
+      expect(result.current.application.status).toBe('ready');
     });
     expect(mockGet).toHaveBeenCalledWith('/api/ds/proxy/1/config_changes', params, undefined, expect.anything());
+    expect(mockGet).toHaveBeenCalledWith('/api/ds/proxy/1/code_changes', params, undefined, expect.anything());
   });
 
-  it('openContainerReport fires code_changes and opens that container’s URL', async () => {
+  it('exposes the resolved application URL and container map on success', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
 
-    act(() => {
-      result.current.openContainerReport('app');
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/checkout' });
     });
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
+      expect(result.current.containers.phase).toBe('settled');
     });
-    expect(mockGet).toHaveBeenCalledTimes(1);
-    expect(mockGet).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
-    expect(result.current.containers.app).toEqual({ status: 'idle' });
+    expect(result.current.containers.byName['app']).toEqual({ status: 'ready', url: 'https://x/app' });
+    expect(result.current.containers.byName['sidecar']).toEqual({ status: 'ready', url: 'https://x/sc' });
   });
 
-  it('shows loading on the triggered target while the query is in flight', () => {
+  it('shows loading on both targets immediately after mount while the queries are in flight', () => {
     routeGet(new Promise(() => undefined), new Promise(() => undefined)); // never settles
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
     expect(result.current.application).toEqual({ status: 'loading' });
+    expect(result.current.containers.phase).toBe('loading');
   });
 
-  it('marks the container "Not Found" when its name is absent from the map (no tab opened)', async () => {
+  it('leaves a container absent from the resolved map undefined (settled)', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openContainerReport('missing');
-    });
     await waitFor(() => {
-      expect(result.current.containers.missing).toEqual({ status: 'error', error: 'Not Found' });
+      expect(result.current.containers.phase).toBe('settled');
     });
-    expect(openSpy).not.toHaveBeenCalled();
+    expect(result.current.containers.byName['missing']).toBeUndefined();
   });
 
-  it('surfaces a failed (non-200) application query as an error and opens no tab', async () => {
+  it('surfaces a failed (non-200) application query as unavailable with the backend message', async () => {
     routeGet(
       // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
       Promise.reject({ statusText: 'Not Found' }),
       Promise.resolve(codeOk)
     );
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
     await waitFor(() => {
-      expect(result.current.application).toEqual({ status: 'error', error: 'Not Found' });
+      expect(result.current.application).toEqual({ status: 'unavailable', error: 'Not Found' });
     });
-    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it('falls back to "Not Found" on a malformed (200 but shapeless) application response', async () => {
     routeGet(Promise.resolve('not-an-object'), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
     await waitFor(() => {
-      expect(result.current.application).toEqual({ status: 'error', error: 'Not Found' });
+      expect(result.current.application).toEqual({ status: 'unavailable', error: 'Not Found' });
     });
   });
 
-  it('reports "Pop-up blocked" when the browser blocks the new tab (window.open → null)', async () => {
-    openSpy.mockReturnValue(null);
-    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+  it('settles containers with an empty map when code_changes fails', async () => {
+    routeGet(
+      Promise.resolve(appOk),
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
+      Promise.reject({ statusText: 'Not Found' })
+    );
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
     await waitFor(() => {
-      expect(result.current.application).toEqual({ status: 'error', error: 'Pop-up blocked' });
+      expect(result.current.containers.phase).toBe('settled');
     });
+    expect(result.current.containers.byName['app']).toBeUndefined();
   });
 
   it('is disabled and never queries when input is undefined', () => {
     const { result } = renderHook(() => useNodeDetailUrls(undefined, '/proxy'));
     expect(result.current.enabled).toBe(false);
-    act(() => {
-      result.current.openApplicationReport();
-      result.current.openContainerReport('app');
-    });
+    expect(result.current.application).toEqual({ status: 'unavailable' });
+    expect(result.current.containers).toEqual({ phase: 'settled', byName: {} });
     expect(mockGet).not.toHaveBeenCalled();
   });
 
   it('is disabled and never queries when the endpoint is blank', () => {
     const { result } = renderHook(() => useNodeDetailUrls(input, '  '));
     expect(result.current.enabled).toBe(false);
-    act(() => {
-      result.current.openApplicationReport();
-    });
+    expect(result.current.application).toEqual({ status: 'unavailable' });
+    expect(result.current.containers).toEqual({ phase: 'settled', byName: {} });
     expect(mockGet).not.toHaveBeenCalled();
   });
 
-  it('resets every button back to idle when the selected node changes', async () => {
-    routeGet(
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
-      Promise.reject({ statusText: 'Not Found' }),
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped plain object is the realistic BackendSrv rejection
-      Promise.reject({ statusText: 'Not Found' })
-    );
+  it('re-prefetches and replaces stale state when the selected node changes', async () => {
+    // First node resolves to the shared fixtures.
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
       initialProps: { i: input },
     });
-    act(() => {
-      result.current.openApplicationReport();
-      result.current.openContainerReport('app');
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/checkout' });
+    });
+
+    // Switch the route to the second node's payloads before rerendering.
+    const appOk2 = { url: 'https://argo/app/other' };
+    const codeOk2 = { worker: { url: 'https://y/worker' } };
+    routeGet(Promise.resolve(appOk2), Promise.resolve(codeOk2));
+    rerender({ i: { ...input, name: 'other' } });
+
+    // The new key re-prefetches: get fires again for both endpoints.
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/other' });
     });
     await waitFor(() => {
-      expect(result.current.application.status).toBe('error');
+      expect(result.current.containers.byName['worker']).toEqual({ status: 'ready', url: 'https://y/worker' });
     });
-
-    rerender({ i: { ...input, name: 'other' } });
-    expect(result.current.application).toEqual({ status: 'idle' });
-    expect(result.current.containers).toEqual({});
+    // Old container entries are gone.
+    expect(result.current.containers.byName['app']).toBeUndefined();
+    expect(result.current.containers.byName['sidecar']).toBeUndefined();
+    expect(configCalls()).toHaveLength(2);
+    expect(codeCalls()).toHaveLength(2);
   });
 
-  it('fetches code_changes once for multiple container clicks, sharing the cached map', async () => {
+  it('fetches each endpoint exactly once per open node (no clicks, shared cache)', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openContainerReport('app');
+    await waitFor(() => {
+      expect(result.current.application.status).toBe('ready');
     });
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
+      expect(result.current.containers.phase).toBe('settled');
     });
-    act(() => {
-      result.current.openContainerReport('sidecar');
-    });
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://x/sc', '_blank', 'noopener,noreferrer');
-    });
-    // Both rows opened, but only ONE code_changes request fired (shared cache).
-    const codeCalls = mockGet.mock.calls.filter((c: unknown[]) => String(c[0]).includes('code_changes'));
-    expect(codeCalls).toHaveLength(1);
+    expect(configCalls()).toHaveLength(1);
+    expect(codeCalls()).toHaveLength(1);
   });
 
-  it('refetches code_changes after the selected node changes (cache cleared on close)', async () => {
+  it('re-prefetches code_changes after the selected node changes (cache cleared on key change)', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
       initialProps: { i: input },
     });
-    act(() => {
-      result.current.openContainerReport('app');
-    });
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledTimes(1);
+      expect(codeCalls()).toHaveLength(1);
     });
     rerender({ i: { ...input, name: 'other' } });
-    act(() => {
-      result.current.openContainerReport('app');
-    });
     await waitFor(() => {
-      expect(mockGet.mock.calls.filter((c: unknown[]) => String(c[0]).includes('code_changes'))).toHaveLength(2);
+      expect(codeCalls()).toHaveLength(2);
+    });
+    // settle the second pass so no act warning trails after the test
+    await waitFor(() => {
+      expect(result.current.containers.phase).toBe('settled');
     });
   });
 
-  it('does not cache a failed code_changes lookup — a retry refetches', async () => {
+  it('does not cache a failed prefetch — a remount of the same key refetches', async () => {
     let codeCall = 0;
     mockGet.mockImplementation((url: string) => {
       if (url.includes('config_changes')) {
@@ -247,50 +217,78 @@ describe('useNodeDetailUrls (lazy, click-triggered)', () => {
       // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- FetchError-shaped rejection
       return codeCall === 1 ? Promise.reject({ statusText: 'Not Found' }) : Promise.resolve(codeOk);
     });
-    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openContainerReport('app');
-    });
+    const first = renderHook(() => useNodeDetailUrls(input, '/proxy'));
     await waitFor(() => {
-      expect(result.current.containers.app).toEqual({ status: 'error', error: 'Not Found' });
+      expect(first.result.current.containers.phase).toBe('settled');
     });
-    act(() => {
-      result.current.openContainerReport('app');
-    });
+    expect(first.result.current.containers.byName['app']).toBeUndefined();
+    first.unmount();
+
+    // Remount the SAME key: the failed slot was cleared, so a second fetch fires.
+    const second = renderHook(() => useNodeDetailUrls(input, '/proxy'));
     await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://x/app', '_blank', 'noopener,noreferrer');
+      expect(second.result.current.containers.byName['app']).toEqual({ status: 'ready', url: 'https://x/app' });
     });
     expect(codeCall).toBe(2);
   });
 
-  it('fetches config_changes once across application re-clicks (cached), reopening from cache', async () => {
-    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
-    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledTimes(1);
-    });
-    act(() => {
-      result.current.openApplicationReport();
-    });
-    await waitFor(() => {
-      expect(openSpy).toHaveBeenCalledTimes(2); // reopened from the cached URL
-    });
-    expect(mockGet.mock.calls.filter((c: unknown[]) => String(c[0]).includes('config_changes'))).toHaveLength(1);
-  });
-
   it('aborts an in-flight request on unmount (signal flips, no late state write)', () => {
     routeGet(new Promise(() => undefined), new Promise(() => undefined)); // never settles
-    const { result, unmount } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
-    act(() => {
-      result.current.openApplicationReport();
-    });
+    const { unmount } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
     const firstCall = mockGet.mock.calls[0] as unknown[];
     const options = firstCall[3] as { abortSignal: AbortSignal };
     expect(options.abortSignal.aborted).toBe(false);
     unmount();
     expect(options.abortSignal.aborted).toBe(true);
+  });
+
+  it('aborts the previous key’s in-flight request when the selected node changes', () => {
+    routeGet(new Promise(() => undefined), new Promise(() => undefined)); // never settles
+    const { rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
+      initialProps: { i: input },
+    });
+    const firstCall = mockGet.mock.calls[0] as unknown[];
+    const options = firstCall[3] as { abortSignal: AbortSignal };
+    expect(options.abortSignal.aborted).toBe(false);
+    rerender({ i: { ...input, name: 'other' } });
+    expect(options.abortSignal.aborted).toBe(true);
+  });
+
+  it('does not write the old node’s result after a node change aborts it', async () => {
+    // Hold the first key's resolvers so we can settle them AFTER rerendering away.
+    let resolveOldApp!: (v: unknown) => void;
+    let resolveOldCode!: (v: unknown) => void;
+    const oldApp = new Promise((res) => {
+      resolveOldApp = res;
+    });
+    const oldCode = new Promise((res) => {
+      resolveOldCode = res;
+    });
+    routeGet(oldApp, oldCode);
+    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
+      initialProps: { i: input },
+    });
+    // First pass in flight (loading).
+    expect(result.current.application).toEqual({ status: 'loading' });
+
+    // Switch to a new node; the new key resolves cleanly.
+    const appOk2 = { url: 'https://argo/app/other' };
+    const codeOk2 = { worker: { url: 'https://y/worker' } };
+    routeGet(Promise.resolve(appOk2), Promise.resolve(codeOk2));
+    rerender({ i: { ...input, name: 'other' } });
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/other' });
+    });
+
+    // Now settle the OLD (aborted) promises — they must NOT clobber the new state.
+    await act(async () => {
+      resolveOldApp(appOk);
+      resolveOldCode(codeOk);
+      await Promise.resolve();
+    });
+    expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/other' });
+    expect(result.current.containers.byName['app']).toBeUndefined();
+    expect(result.current.containers.byName['sidecar']).toBeUndefined();
+    expect(result.current.containers.byName['worker']).toEqual({ status: 'ready', url: 'https://y/worker' });
   });
 });

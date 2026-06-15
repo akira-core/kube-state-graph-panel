@@ -1,5 +1,5 @@
 import { getBackendSrv } from '@grafana/runtime';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { DETAIL_CODE_CHANGES_PATH, DETAIL_CONFIG_CHANGES_PATH } from '../detailPaths';
 
@@ -14,38 +14,46 @@ export interface NodeDetailQueryInput {
   time: number;
 }
 
-// Per-button lookup state. Each Change Report button is **lazy**: idle until the
-// user clicks it. A click goes loading; on HTTP 200 + valid URL the report opens
-// in a new tab and the button returns to idle (re-clickable); a non-200 / malformed
-// response / missing-URL leaves an error beside the button (retryable). There is no
-// resting "success" state — success is a side effect (window.open), not rendered.
-export interface ChangeReportState {
-  status: 'idle' | 'loading' | 'error';
-  error?: string;
-}
+// Three rendered states per Change Report target. Eager prefetch starts each at
+// 'loading'; on resolve it becomes 'ready' (URL pre-resolved → the table renders a
+// real <a href> anchor) or 'unavailable' (failure / not-found / no-url → a muted
+// "No change report" hint, full error message in title). A discriminated union (not
+// one interface with optional url?/error?) so exactOptionalPropertyTypes cannot
+// admit a 'ready' state without a url.
+export type DetailLookup =
+  | { status: 'loading' }
+  | { status: 'ready'; url: string }
+  | { status: 'unavailable'; error?: string };
 
-const IDLE: ChangeReportState = { status: 'idle' };
+const LOADING: DetailLookup = { status: 'loading' };
+const UNAVAILABLE: DetailLookup = { status: 'unavailable' };
 
-// The imperative controller the detail panel renders against: per-target state plus
-// the click triggers. `enabled` is false when nothing is requested (no right-click)
-// or no endpoint is configured — buttons render disabled and the triggers no-op
-// (spec「未設定 endpoint 時停用」).
+// The resolved per-target lookup state the detail panel renders directly (eager
+// prefetch — there are no click triggers). `enabled` is false when nothing is
+// requested (no right-click input) or no endpoint is configured: every target then
+// reads 'unavailable' (the muted hint), no spinner, no anchor, and the hook fires
+// no query.
 export interface NodeDetailLookups {
   enabled: boolean;
-  application: ChangeReportState;
-  containers: Record<string, ChangeReportState>; // by container name; missing key = idle
-  openApplicationReport: () => void;
-  openContainerReport: (container: string) => void;
+  application: DetailLookup;
+  // The shared code_changes phase + the per-name resolved map. `phase: 'loading'` =
+  // the whole-map request is in flight (every row shows a spinner). When 'settled',
+  // a name PRESENT in byName is ready (anchor) and a name ABSENT is unavailable (the
+  // container exists in node.containers but the backend returned no URL for it). The
+  // container LIST comes from node.containers, not this map — so byName-missing is
+  // the not-found rule, which a flat Record could not distinguish from "still loading".
+  containers: {
+    phase: 'loading' | 'settled';
+    byName: Record<string, DetailLookup>; // only 'ready' entries
+  };
 }
 
-// The no-lookup controller: nothing requested / no endpoint. Buttons render disabled
-// off it and the triggers are no-ops.
+// The no-lookup controller: nothing requested / no endpoint. Tables render every
+// target as the muted "No change report" hint off it (no spinner, no anchor).
 export const IDLE_NODE_DETAIL_LOOKUPS: NodeDetailLookups = {
   enabled: false,
-  application: IDLE,
-  containers: {},
-  openApplicationReport: () => undefined,
-  openContainerReport: () => undefined,
+  application: UNAVAILABLE,
+  containers: { phase: 'settled', byName: {} },
 };
 
 // K8s names and URLs are NUL-free, so the joined form is unambiguous.
@@ -58,7 +66,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 // application-detail (`config_changes`) contract: `{ "url": string }`. undefined =
-// shape mismatch (surfaced as that side's error).
+// shape mismatch (surfaced as that side's unavailable).
 function parseApplicationUrl(res: unknown): string | undefined {
   if (isPlainObject(res) && typeof res.url === 'string' && res.url.length > 0) {
     return res.url;
@@ -75,7 +83,7 @@ function parseUrlByContainer(res: unknown): Record<string, string> | undefined {
   }
   // Null prototype: container names are arbitrary backend strings, and a name like
   // 'constructor' must read back undefined when absent — on a prototype-ful object
-  // it would resolve to the inherited Function and defeat the UI's !== undefined guard.
+  // it would resolve to the inherited Function and defeat the UI's ?? fallback.
   const flat: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [container, entry] of Object.entries(res)) {
     if (isPlainObject(entry) && typeof entry.url === 'string' && entry.url.length > 0) {
@@ -87,7 +95,7 @@ function parseUrlByContainer(res: unknown): Record<string, string> | undefined {
 
 // Best-effort human message from a BackendSrv rejection (FetchError carries
 // data.message / statusText) without trusting its shape. Defaults to "Not Found"
-// (a non-200 / no-result lookup is the common case the UI surfaces).
+// (a non-200 / no-result lookup is the common case the UI surfaces in title).
 function errorMessage(reason: unknown): string {
   if (reason instanceof Error && reason.message.length > 0) {
     return reason.message;
@@ -104,98 +112,96 @@ function errorMessage(reason: unknown): string {
   return 'Not Found';
 }
 
-type ContainerResult = { key: string; states: Record<string, ChangeReportState> } | null;
-
-// Merge one container's next state into the per-node container result; a key change
-// (new node) starts a fresh map so a previous node's rows never leak through.
-function mergeContainer(
-  prev: ContainerResult,
+// The application target for the current key: its resolved value, or 'loading'
+// while the prefetch is pending (enabled), or 'unavailable' when disabled. Showing
+// 'loading' rather than 'unavailable' for a not-yet-resolved enabled key avoids a
+// "No change report" flash on the frame before the effect's setState lands.
+function deriveApplication(
+  appResult: { key: string; value: DetailLookup } | null,
   key: string,
-  container: string,
-  state: ChangeReportState
-): { key: string; states: Record<string, ChangeReportState> } {
-  const base = prev !== null && prev.key === key ? prev.states : {};
-  return { key, states: { ...base, [container]: state } };
+  enabled: boolean
+): DetailLookup {
+  if (appResult !== null && appResult.key === key && enabled) {
+    return appResult.value;
+  }
+  return enabled ? LOADING : UNAVAILABLE;
 }
 
 /**
- * Lazy detail-URL lookups for a right-clicked pod/controller. The right-click only
- * builds the query input; NOTHING is fetched until the user clicks a Change Report
- * button. `openApplicationReport()` / `openContainerReport(name)` fire their query
- * through the Grafana backend proxy (`getBackendSrv()` — the panel never fetches
- * external URLs directly); on HTTP 200 + valid URL they open the report in a new
- * tab (`window.open(..., '_blank', 'noopener,noreferrer')`); otherwise they leave a
- * retryable error on that target.
+ * Eager detail-URL prefetch for a right-clicked pod/controller. The right-click
+ * builds the query input; as soon as it (and an endpoint) is available the hook
+ * IMMEDIATELY fires BOTH queries in parallel through the Grafana backend proxy
+ * (`getBackendSrv()` — the panel never fetches external URLs directly). No click is
+ * needed: the resolved URL is exposed as per-target state so the tables render a
+ * real `<a href target="_blank" rel="noopener noreferrer">` anchor on success, a
+ * spinner while loading, and a muted "No change report" hint on failure / no-url.
  *
- * Each endpoint fires AT MOST ONCE per open node: the `code_changes` response is the
- * whole container→URL map, so every container row shares one cached call (later
- * clicks reuse the resolved promise — no new request), and `config_changes` is cached
- * the same way. Only successes cache; a failure clears its slot so a retry refetches.
- *
- * State (and the caches) are keyed by the request context: the derived getters return
- * idle for any key but the current one, so changing the selected node resets every
- * button with no stale render frame. The caches and any in-flight request clear/abort
- * on node/endpoint change and on unmount (panel close); an aborted pass never writes
- * state.
+ * Each endpoint fires AT MOST ONCE per open node: the `config_changes` /
+ * `code_changes` responses are cached by request key (the code_changes map is the
+ * whole container→URL set, shared by every row). Only successes cache; a failure
+ * clears its slot so a remount refetches. State (and the caches) are keyed by the
+ * request context: the derived getters read back idle/loading for any key but the
+ * current one, so changing the selected node resets every target with no stale
+ * frame. The caches and any in-flight request clear/abort on node/endpoint change
+ * and on unmount (panel close); an aborted pass never writes state.
  */
 export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpoint: string): NodeDetailLookups {
   const base = endpoint.trim().replace(/\/+$/, '');
   const enabled = input !== undefined && base !== '';
   const key = enabled && input !== undefined ? requestKeyFor(base, input) : '';
 
-  const [appResult, setAppResult] = useState<{ key: string; state: ChangeReportState } | null>(null);
-  const [containerResult, setContainerResult] = useState<ContainerResult>(null);
+  // Application target state, and the resolved container→URL map, each tagged with
+  // the key they belong to so a node change reads back as fresh prefetch (no stale
+  // frame). codeResult: map=null + failed=false ⇒ loading; map set ⇒ settled-ready;
+  // failed ⇒ settled with no map (every row reads unavailable).
+  const [appResult, setAppResult] = useState<{ key: string; value: DetailLookup } | null>(null);
+  const [codeResult, setCodeResult] = useState<{
+    key: string;
+    map: Record<string, string> | null;
+    failed: boolean;
+  } | null>(null);
 
-  // Latest request context for the (stable) triggers to read at click time. Synced
-  // in an effect (not written during render) so the click handlers always see the
-  // current node without touching the ref mid-render (react-hooks/refs).
-  const ctxRef = useRef<{ input: NodeDetailQueryInput | undefined; base: string; enabled: boolean; key: string }>({
-    input,
-    base,
-    enabled,
-    key,
-  });
-  useEffect(() => {
-    ctxRef.current = { input, base, enabled, key };
-  });
-
-  // In-flight requests, aborted on node/endpoint change (the [key] effect) and on
+  // In-flight requests, aborted on node/endpoint change (the keyed effect) and on
   // unmount. The same Set instance is mutated (never reassigned), so the cleanup
   // sees every controller registered during this key's lifetime.
   const controllersRef = useRef<Set<AbortController>>(new Set());
   // Per-node response cache so each endpoint fires AT MOST ONCE while the panel
-  // stays open: the first click stores the in-flight/resolved promise, later clicks
-  // (any container shares the one `code_changes` map) reuse it — no new call. Only
-  // SUCCESSES are cached; a failure clears its slot so a later click retries. Both
-  // slots clear on node/endpoint change + unmount (panel close), below.
+  // stays open: the effect stores the in-flight/resolved promise, and a re-run for
+  // the same key reuses it — no new call. Only SUCCESSES are cached; a failure
+  // clears its slot so a remount refetches. Both clear on key change + unmount, below.
   const appCacheRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
   const codeCacheRef = useRef<{ key: string; promise: Promise<Record<string, string>> } | null>(null);
+
   useEffect(() => {
     const controllers = controllersRef.current;
-    return (): void => {
-      for (const controller of controllers) {
-        controller.abort();
+    // Cleanup aborts every in-flight controller and clears both caches — on key
+    // change AND on unmount (panel close). The resolve/reject handlers below early-
+    // out on `controller.signal.aborted`, so an aborted pass never setState (no
+    // stale write, no setState-after-unmount). React 18 StrictMode double-mounts in
+    // dev (mount→cleanup→mount) so each endpoint may fire twice in DEV; production
+    // and the non-StrictMode test renderer fetch once. We do NOT weaken the abort/
+    // clear-on-close correctness (a spec requirement) to suppress the dev double-fetch.
+    const cleanup = (): void => {
+      for (const c of controllers) {
+        c.abort();
       }
       controllers.clear();
       appCacheRef.current = null;
       codeCacheRef.current = null;
     };
-  }, [key]);
-
-  const openApplicationReport = useCallback(() => {
-    const ctx = ctxRef.current;
-    if (!ctx.enabled || ctx.input === undefined) {
-      return;
+    if (!enabled || input === undefined) {
+      return cleanup;
     }
-    const k = ctx.key;
-    setAppResult({ key: k, state: { status: 'loading' } });
-    let entry = appCacheRef.current;
-    if (entry === null || entry.key !== k) {
+    const k = key;
+
+    // --- config_changes (application) — at most once per key (success cached) ---
+    if (appCacheRef.current === null || appCacheRef.current.key !== k) {
+      setAppResult({ key: k, value: LOADING });
       const controller = new AbortController();
-      controllersRef.current.add(controller);
+      controllers.add(controller);
       const options = { abortSignal: controller.signal, showErrorAlert: false };
       const promise = getBackendSrv()
-        .get<unknown>(`${ctx.base}${DETAIL_CONFIG_CHANGES_PATH}`, ctx.input, undefined, options)
+        .get<unknown>(`${base}${DETAIL_CONFIG_CHANGES_PATH}`, input, undefined, options)
         .then((res): string => {
           const url = parseApplicationUrl(res);
           if (url === undefined) {
@@ -203,49 +209,38 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
           }
           return url;
         })
-        .finally(() => controllersRef.current.delete(controller));
-      entry = { key: k, promise };
-      appCacheRef.current = entry;
-      const created = entry;
+        .finally(() => controllers.delete(controller));
+      const created = { key: k, promise };
+      appCacheRef.current = created;
       promise.catch(() => {
         if (appCacheRef.current === created) {
-          appCacheRef.current = null; // don't cache failures — allow retry
+          appCacheRef.current = null; // don't cache failures — a remount refetches
         }
       });
+      void promise.then(
+        (url) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setAppResult({ key: k, value: { status: 'ready', url } });
+        },
+        (reason: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setAppResult({ key: k, value: { status: 'unavailable', error: errorMessage(reason) } });
+        }
+      );
     }
-    void entry.promise.then(
-      (url) => {
-        if (ctxRef.current.key !== k) {
-          return; // node changed while awaiting — never write stale state
-        }
-        const opened = window.open(url, '_blank', 'noopener,noreferrer');
-        setAppResult({ key: k, state: opened === null ? { status: 'error', error: 'Pop-up blocked' } : IDLE });
-      },
-      (reason: unknown) => {
-        if (ctxRef.current.key === k) {
-          setAppResult({ key: k, state: { status: 'error', error: errorMessage(reason) } });
-        }
-      }
-    );
-  }, []);
 
-  const openContainerReport = useCallback((container: string) => {
-    const ctx = ctxRef.current;
-    if (!ctx.enabled || ctx.input === undefined) {
-      return;
-    }
-    const k = ctx.key;
-    setContainerResult((prev) => mergeContainer(prev, k, container, { status: 'loading' }));
-    // The backend returns the WHOLE container→URL map in one call, so every row
-    // shares a single `code_changes` request: fetch once, then look the clicked
-    // container up in the cached map.
-    let entry = codeCacheRef.current;
-    if (entry === null || entry.key !== k) {
+    // --- code_changes (containers) — at most once per key (success cached) ---
+    if (codeCacheRef.current === null || codeCacheRef.current.key !== k) {
+      setCodeResult({ key: k, map: null, failed: false }); // null map + not-failed = loading
       const controller = new AbortController();
-      controllersRef.current.add(controller);
+      controllers.add(controller);
       const options = { abortSignal: controller.signal, showErrorAlert: false };
       const promise = getBackendSrv()
-        .get<unknown>(`${ctx.base}${DETAIL_CODE_CHANGES_PATH}`, ctx.input, undefined, options)
+        .get<unknown>(`${base}${DETAIL_CODE_CHANGES_PATH}`, input, undefined, options)
         .then((res): Record<string, string> => {
           const map = parseUrlByContainer(res);
           if (map === undefined) {
@@ -253,47 +248,52 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
           }
           return map;
         })
-        .finally(() => controllersRef.current.delete(controller));
-      entry = { key: k, promise };
-      codeCacheRef.current = entry;
-      const created = entry;
+        .finally(() => controllers.delete(controller));
+      const created = { key: k, promise };
+      codeCacheRef.current = created;
       promise.catch(() => {
         if (codeCacheRef.current === created) {
-          codeCacheRef.current = null; // don't cache failures — allow retry
+          codeCacheRef.current = null;
         }
       });
+      void promise.then(
+        (map) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setCodeResult({ key: k, map, failed: false });
+        },
+        () => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setCodeResult({ key: k, map: null, failed: true });
+        }
+      );
     }
-    void entry.promise.then(
-      (map) => {
-        if (ctxRef.current.key !== k) {
-          return;
-        }
-        // A valid map missing this container = definitive "Not Found" (cached, no refetch).
-        const url = map[container];
-        if (url === undefined) {
-          setContainerResult((prev) => mergeContainer(prev, k, container, { status: 'error', error: 'Not Found' }));
-          return;
-        }
-        const opened = window.open(url, '_blank', 'noopener,noreferrer');
-        setContainerResult((prev) =>
-          mergeContainer(prev, k, container, opened === null ? { status: 'error', error: 'Pop-up blocked' } : IDLE)
-        );
-      },
-      (reason: unknown) => {
-        if (ctxRef.current.key === k) {
-          setContainerResult((prev) =>
-            mergeContainer(prev, k, container, { status: 'error', error: errorMessage(reason) })
-          );
-        }
-      }
-    );
-  }, []);
+    return cleanup;
+  }, [key, enabled, base, input]);
 
-  // Results count only for the CURRENT request key; a node/endpoint change reads
-  // back as idle without a reset effect.
-  const application = appResult !== null && appResult.key === key && key !== '' ? appResult.state : IDLE;
-  const containers =
-    containerResult !== null && containerResult.key === key && key !== '' ? containerResult.states : {};
+  const application = deriveApplication(appResult, key, enabled);
 
-  return { enabled, application, containers, openApplicationReport, openContainerReport };
+  // Container phase + per-name ready map for the current key. byName holds only
+  // resolved URLs; a settled map missing a name ⇒ that row is unavailable (the
+  // ?? fallback in the table). 'loading' covers both pre-effect (enabled, no result
+  // yet) and the in-flight map, so rows never flash "No change report" mid-fetch.
+  const containers = useMemo<NodeDetailLookups['containers']>(() => {
+    const empty: NodeDetailLookups['containers'] = { phase: 'settled', byName: {} };
+    if (codeResult === null || codeResult.key !== key || !enabled) {
+      return enabled ? { phase: 'loading', byName: {} } : empty;
+    }
+    if (codeResult.map === null) {
+      return codeResult.failed ? empty : { phase: 'loading', byName: {} };
+    }
+    const byName: Record<string, DetailLookup> = Object.create(null) as Record<string, DetailLookup>;
+    for (const [name, url] of Object.entries(codeResult.map)) {
+      byName[name] = { status: 'ready', url };
+    }
+    return { phase: 'settled', byName };
+  }, [codeResult, key, enabled]);
+
+  return { enabled, application, containers };
 }

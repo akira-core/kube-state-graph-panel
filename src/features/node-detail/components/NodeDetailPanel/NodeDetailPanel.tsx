@@ -22,6 +22,7 @@ function getStyles(theme: GrafanaTheme2): {
   badge: string;
   statusBadge: string;
   section: string;
+  sectionDivider: string;
   sectionFixed: string;
   sectionFill: string;
   sectionTitle: string;
@@ -109,18 +110,22 @@ function getStyles(theme: GrafanaTheme2): {
       textTransform: 'uppercase',
       letterSpacing: 0.4,
     }),
-    // Adjacent sections separate with a divider DISTINCT from the header's thin
-    // rule: a thicker strong-colour bar plus breathing room on both sides, so the
-    // boundary between two tables cannot be mistaken for a table row line. Each
-    // section is its own flex column (title above its table area).
-    section: css({
-      display: 'flex',
-      flexDirection: 'column',
-      '& + &': {
-        marginTop: 12,
-        paddingTop: 10,
-        borderTop: `2px solid ${colors.border.strong}`,
-      },
+    // Each section is its own flex column (title above its table area).
+    section: css({ display: 'flex', flexDirection: 'column' }),
+    // The divider between stacked sections (Application → Containers): the SAME 2px
+    // strong-colour rule as the header divider, with breathing room on both sides, so
+    // the boundary between two tables cannot be mistaken for a table row line. Applied
+    // to a section only when another section precedes it (see JSX).
+    //
+    // NOTE: this previously lived in `section` as a self-referential `'& + &'` rule,
+    // but `cx(styles.section, …)` COMPOSES emotion styles into one merged class, so the
+    // literal `section` class the `&` selector targets is gone after composition and
+    // the rule never matched — the divider silently never rendered. A plain declaration
+    // applied via cx composes correctly.
+    sectionDivider: css({
+      marginTop: 12,
+      paddingTop: 10,
+      borderTop: `2px solid ${colors.border.strong}`,
     }),
     // Application: fixed to its content height (always a single row — a pod/controller
     // maps to at most one ArgoCD app), so it stays PINNED and never scrolls with the
@@ -183,8 +188,9 @@ export function NodeDetailPanel({
   // only. Within the detail view the sections gate twice, independently: kind ∈
   // DETAIL_URL_KINDS (pod + workload controllers — every other kind never shows
   // them, even with stray data) AND the node actually carrying that field.
-  // lookups defaults to idle/disabled: sections render their data with the
-  // Change Report buttons disabled (no endpoint / left-click selection).
+  // lookups defaults to idle/disabled: sections render their data with every
+  // Change Report target as the muted "No change report" hint (no endpoint /
+  // left-click selection — no prefetch fired).
   const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
   const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
@@ -217,25 +223,18 @@ export function NodeDetailPanel({
           <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
             <div className={styles.sectionTitle}>Application</div>
             <div className={styles.staticBody}>
-              <ApplicationTable
-                application={node.application}
-                state={lookupsState.application}
-                enabled={lookupsState.enabled}
-                onOpen={lookupsState.openApplicationReport}
-              />
+              <ApplicationTable application={node.application} state={lookupsState.application} />
             </div>
           </div>
         )}
         {showContainers && node.containers !== undefined && (
-          <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-containers">
+          <div
+            className={cx(styles.section, styles.sectionFill, showApplication && styles.sectionDivider)}
+            data-testid="node-detail-section-containers"
+          >
             <div className={styles.sectionTitle}>Containers</div>
             <div className={styles.slot}>
-              <ContainerTable
-                containers={node.containers}
-                stateByContainer={lookupsState.containers}
-                enabled={lookupsState.enabled}
-                onOpen={lookupsState.openContainerReport}
-              />
+              <ContainerTable containers={node.containers} lookups={lookupsState.containers} />
             </div>
           </div>
         )}

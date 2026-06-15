@@ -1,64 +1,54 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 
-import type { ChangeReportState } from '../../hooks/useNodeDetailUrls';
+import type { DetailLookup } from '../../hooks/useNodeDetailUrls';
 
 import { ApplicationTable } from './ApplicationTable';
 
-const idle: ChangeReportState = { status: 'idle' };
-
-describe('ApplicationTable (lazy Change Report)', () => {
-  it('renders a headered table (Name / Change Report) with the application name and a clickable button', () => {
-    render(<ApplicationTable application="checkout" state={idle} enabled onOpen={jest.fn()} />);
+describe('ApplicationTable (eager-prefetch Change Report)', () => {
+  it('renders a headered table (Name / Change Report) with the application name', () => {
+    const state: DetailLookup = { status: 'ready', url: 'https://x' };
+    render(<ApplicationTable application="checkout" state={state} />);
     expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Change Report' })).toBeInTheDocument();
     expect(screen.getByText('checkout')).toBeInTheDocument();
-    const button = screen.getByTestId('application-url-button');
-    expect(button).toBeEnabled();
-    // Idle: no error, no loading, no pre-resolved href (lazy — fetch on click).
-    expect(button).not.toHaveAttribute('href');
-    expect(screen.queryByTestId('application-url-error')).not.toBeInTheDocument();
+  });
+
+  it('renders a real anchor (href / target / rel) on a ready URL — never a button', () => {
+    const state: DetailLookup = { status: 'ready', url: 'https://x' };
+    render(<ApplicationTable application="checkout" state={state} />);
+    // Assert anchor ATTRIBUTES — do NOT click it (jsdom does not navigate).
+    const link = screen.getByTestId('application-url-link');
+    expect(link).toHaveAttribute('href', 'https://x');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    // Exactly one of the three states renders — no pending, no unavailable.
+    expect(screen.queryByTestId('application-url-pending')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('application-url-unavailable')).not.toBeInTheDocument();
+  });
+
+  it('shows the muted "No change report" hint when unavailable (no link)', () => {
+    const state: DetailLookup = { status: 'unavailable' };
+    render(<ApplicationTable application="checkout" state={state} />);
+    const unavailable = screen.getByTestId('application-url-unavailable');
+    expect(unavailable).toHaveTextContent('No change report');
+    expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
     expect(screen.queryByTestId('application-url-pending')).not.toBeInTheDocument();
   });
 
-  it('fires onOpen when the button is clicked', () => {
-    const onOpen = jest.fn();
-    render(<ApplicationTable application="checkout" state={idle} enabled onOpen={onOpen} />);
-    fireEvent.click(screen.getByTestId('application-url-button'));
-    expect(onOpen).toHaveBeenCalledTimes(1);
-  });
-
-  it('disables the button when no endpoint is configured (enabled=false)', () => {
-    render(<ApplicationTable application="checkout" state={idle} enabled={false} onOpen={jest.fn()} />);
-    expect(screen.getByTestId('application-url-button')).toBeDisabled();
-  });
-
-  it('shows a pending hint and disables the button while the lookup is in flight', () => {
-    render(<ApplicationTable application="checkout" state={{ status: 'loading' }} enabled onOpen={jest.fn()} />);
+  it('shows a spinner hint while the lookup is in flight (no link, no unavailable)', () => {
+    const state: DetailLookup = { status: 'loading' };
+    render(<ApplicationTable application="checkout" state={state} />);
     expect(screen.getByTestId('application-url-pending')).toHaveTextContent('Looking up…');
-    expect(screen.getByTestId('application-url-button')).toBeDisabled();
+    expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('application-url-unavailable')).not.toBeInTheDocument();
   });
 
-  it('shows the failure message beside the still-clickable button (retryable)', () => {
-    const onOpen = jest.fn();
-    render(
-      <ApplicationTable
-        application="checkout"
-        state={{ status: 'error', error: 'Not Found' }}
-        enabled
-        onOpen={onOpen}
-      />
-    );
-    const error = screen.getByTestId('application-url-error');
-    expect(error).toHaveTextContent('Not Found');
-    expect(error).toHaveAttribute('title', 'Not Found');
-    // The button is NOT removed — it stays live so the user can retry.
-    const button = screen.getByTestId('application-url-button');
-    expect(button).toBeEnabled();
-    fireEvent.click(button);
-    expect(onOpen).toHaveBeenCalledTimes(1);
-    // The hint renders BEFORE the button so the button stays pinned to the column's
-    // right edge (flex-end) — keeping it aligned with the Containers section.
-    expect(error.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it('carries the full error message in title on an unavailable lookup (no link)', () => {
+    const state: DetailLookup = { status: 'unavailable', error: 'Not Found' };
+    render(<ApplicationTable application="checkout" state={state} />);
+    const unavailable = screen.getByTestId('application-url-unavailable');
+    expect(unavailable).toHaveAttribute('title', 'Not Found');
+    expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
   });
 });

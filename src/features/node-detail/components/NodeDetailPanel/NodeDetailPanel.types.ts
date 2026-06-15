@@ -25,9 +25,10 @@ export interface NodeDetailPanelProps {
   // dashboard time range to a fixed ±5m window around it.
   onAlertTimeClick: (timeSec: number) => void;
   timeZone?: string; // for formatting alert times in the table
-  // Lazy Change Report controller behind the Application / Containers buttons:
-  // per-target state + the click triggers. Omitted → idle/disabled (no endpoint /
-  // left-click selection): sections still render their data, buttons disabled.
+  // Eager-prefetched Change Report state behind the Application / Containers
+  // sections: resolved per-target lookup state (loading / ready anchor /
+  // unavailable hint). Omitted → idle/disabled (no endpoint / left-click
+  // selection): sections still render their data, every target shows the hint.
   lookups?: NodeDetailLookups;
   // Which sections to render — the two click paths show disjoint content:
   //   'alerts' (default; left-click selection) → Alerts table only

@@ -837,39 +837,50 @@ describe('KsgPanel', () => {
       jest.restoreAllMocks();
     });
 
-    it('pod right-click opens the panel WITHOUT querying; clicking the buttons fires the queries (owner kind/name + click time)', async () => {
+    it('pod right-click EAGER-prefetches both endpoints WITHOUT any click; resolved URLs render as anchors (owner kind/name + right-click time)', async () => {
+      // The eager prefetch resolves the application URL and the container→URL map.
+      detailGetMock.mockImplementation((path: string) =>
+        path.endsWith('/config_changes')
+          ? Promise.resolve({ url: 'https://argo/app/checkout' })
+          : Promise.resolve({ app: { url: 'https://gh/repo/app' } })
+      );
       renderPanel(withEndpoint);
       expandAll();
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
-      // Panel + both sections open in sync with the selection — but nothing is
-      // fetched yet (lazy: right-click only builds the query input).
+      // Panel + both sections open in sync with the selection — and the right-click
+      // IMMEDIATELY fires BOTH endpoints in parallel (eager prefetch, no click).
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
-      expect(detailGetMock).not.toHaveBeenCalled();
-
-      // Clicking each Change Report button fires its query with the owner-derived
-      // controller kind/name and the right-click time.
+      // Both queries fire with the owner-derived controller kind/name + the
+      // right-click time — no anchor click triggers them.
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
-      fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith('/proxy/config_changes', params, undefined, expect.anything());
       });
-      fireEvent.click(screen.getByTestId('container-url-button'));
-      await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
-      });
+      expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
+      expect(detailGetMock).toHaveBeenCalledTimes(2);
+
+      // Once the prefetch resolves, both Change Report cells render real anchors —
+      // assert their attributes (never .click() — jsdom would not navigate).
+      const appLink = await screen.findByTestId('application-url-link');
+      expect(appLink.getAttribute('href')).toBe('https://argo/app/checkout');
+      expect(appLink.getAttribute('target')).toBe('_blank');
+      expect(appLink.getAttribute('rel')).toBe('noopener noreferrer');
+      const containerLink = await screen.findByTestId('container-url-link');
+      expect(containerLink.getAttribute('href')).toBe('https://gh/repo/app');
+      expect(containerLink.getAttribute('target')).toBe('_blank');
+      expect(containerLink.getAttribute('rel')).toBe('noopener noreferrer');
     });
 
-    it('controller button click queries with its own kind/name (aggregated application)', async () => {
+    it('controller right-click prefetches with its own kind/name (aggregated application), no click', async () => {
       renderPanel(withEndpoint);
       act(() => {
         lastCanvasProps().onContextSelect?.(controllerId);
       });
-      expect(detailGetMock).not.toHaveBeenCalled();
-      fireEvent.click(screen.getByTestId('application-url-button'));
+      // Right-click alone fires the prefetch with the controller's own kind/name.
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
           '/proxy/config_changes',
@@ -878,6 +889,12 @@ describe('KsgPanel', () => {
           expect.anything()
         );
       });
+      expect(detailGetMock).toHaveBeenCalledWith(
+        '/proxy/code_changes',
+        { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 },
+        undefined,
+        expect.anything()
+      );
     });
 
     it('left-click opens the alerts view and never queries (no detail sections)', () => {
@@ -906,7 +923,7 @@ describe('KsgPanel', () => {
       expect(detailGetMock).not.toHaveBeenCalled();
     });
 
-    it('never queries while the endpoint resolves to nothing (sections render, buttons disabled)', () => {
+    it('never queries while the endpoint resolves to nothing (sections render, "No change report" shown)', () => {
       // No option AND no derivable datasource ref (the fixture carries no request).
       renderPanel(defaultOptions);
       expandAll();
@@ -914,12 +931,12 @@ describe('KsgPanel', () => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      // No endpoint → the hook is disabled: it fires no query and the Change Report
+      // cell shows the muted "No change report" hint (not a disabled button).
       expect(detailGetMock).not.toHaveBeenCalled();
-      // No endpoint → the button renders disabled, so a click can never query.
-      const button = screen.getByTestId('application-url-button');
-      expect(button).toBeDisabled();
-      fireEvent.click(button);
-      expect(detailGetMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
+      expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('application-url-pending')).not.toBeInTheDocument();
     });
 
     it('derives the endpoint from the query datasource proxy path when the option is empty', async () => {
@@ -929,9 +946,8 @@ describe('KsgPanel', () => {
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
-      expect(detailGetMock).not.toHaveBeenCalled();
+      // Right-click eager-prefetches both endpoints at the derived proxy path.
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
-      fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
           '/api/datasources/proxy/uid/ksg-default/config_changes',
@@ -940,15 +956,12 @@ describe('KsgPanel', () => {
           expect.anything()
         );
       });
-      fireEvent.click(screen.getByTestId('container-url-button'));
-      await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith(
-          '/api/datasources/proxy/uid/ksg-default/code_changes',
-          params,
-          undefined,
-          expect.anything()
-        );
-      });
+      expect(detailGetMock).toHaveBeenCalledWith(
+        '/api/datasources/proxy/uid/ksg-default/code_changes',
+        params,
+        undefined,
+        expect.anything()
+      );
     });
 
     it('derives the detail endpoints as siblings of the graph query path (proxy mount + query directory)', async () => {
@@ -970,8 +983,9 @@ describe('KsgPanel', () => {
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
+      // Right-click (not a button click) fires the prefetch at the sibling paths
+      // derived from the graph query's own directory.
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
-      fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
           '/api/datasources/proxy/uid/ksg-default/api/v1/graph/config_changes',
@@ -980,15 +994,12 @@ describe('KsgPanel', () => {
           expect.anything()
         );
       });
-      fireEvent.click(screen.getByTestId('container-url-button'));
-      await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith(
-          '/api/datasources/proxy/uid/ksg-default/api/v1/graph/code_changes',
-          params,
-          undefined,
-          expect.anything()
-        );
-      });
+      expect(detailGetMock).toHaveBeenCalledWith(
+        '/api/datasources/proxy/uid/ksg-default/api/v1/graph/code_changes',
+        params,
+        undefined,
+        expect.anything()
+      );
     });
 
     it('a configured detailEndpoint option overrides the datasource derivation', async () => {
@@ -998,15 +1009,12 @@ describe('KsgPanel', () => {
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
+      // Right-click eager-prefetches at the configured option path, not the derived one.
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
-      fireEvent.click(screen.getByTestId('application-url-button'));
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith('/proxy/config_changes', params, undefined, expect.anything());
       });
-      fireEvent.click(screen.getByTestId('container-url-button'));
-      await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
-      });
+      expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
       // The option short-circuits derivation — the registry is never consulted.
       expect(getInstanceSettingsMock).not.toHaveBeenCalled();
     });
@@ -1020,30 +1028,33 @@ describe('KsgPanel', () => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      // No resolvable endpoint → the hook is disabled: no query, and the cell shows
+      // the muted "No change report" hint (not a disabled button).
       expect(detailGetMock).not.toHaveBeenCalled();
-      const button = screen.getByTestId('application-url-button');
-      expect(button).toBeDisabled();
-      fireEvent.click(button);
-      expect(detailGetMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
+      expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
     });
 
-    it('a left-click after a right-click shows the alerts view and never queries', async () => {
+    it('a left-click after a right-click shows the alerts view and never queries (count stays at 2)', async () => {
       renderPanel(withEndpoint);
       expandAll();
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
-      fireEvent.click(screen.getByTestId('application-url-button'));
+      // The right-click eager-prefetches both endpoints: exactly two calls.
       await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledTimes(1);
+        expect(detailGetMock).toHaveBeenCalledTimes(2);
       });
-      // Left-click switches to the alerts view (no Change Report buttons) and never
-      // queries — the count stays put.
+      // Left-click switches to the alerts view (no Change Report cells) and clears
+      // the request input → the hook disables, aborts in flight, and clears its
+      // caches; there is no detail view to refetch into, so the count stays at 2.
       act(() => {
         lastCanvasProps().onSelect?.(controllerId);
       });
-      expect(screen.queryByTestId('application-url-button')).not.toBeInTheDocument();
-      expect(detailGetMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('application-url-unavailable')).not.toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
+      expect(detailGetMock).toHaveBeenCalledTimes(2);
     });
 
     it('collapsing the selected pod away closes the detail panel (off-canvas node never described)', () => {

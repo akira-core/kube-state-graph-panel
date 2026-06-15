@@ -6,7 +6,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 // its own inline shape. This is the single place that load-bearing cast lives;
 // callers do `themeColors(theme).border.weak` instead of re-declaring it.
 export interface ThemeColors {
-  text: { primary: string; secondary: string };
+  text: { primary: string; secondary: string; link: string };
   background: { secondary: string };
   border: { weak: string; medium: string; strong: string };
   primary: { main: string };

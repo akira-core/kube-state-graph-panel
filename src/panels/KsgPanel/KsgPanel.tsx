@@ -23,6 +23,7 @@ import {
   resolveDetailEndpoint,
   useNodeDetailUrls,
   type NodeDetailData,
+  type NodeDetailQueryInput,
 } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
@@ -320,19 +321,27 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     () => resolveDetailEndpoint({ option: detailEndpointOption, request: data.request }),
     [detailEndpointOption, data.request]
   );
-  const detailQueryInput =
-    detailRequest !== null &&
-    selectedNode !== null &&
-    detailRequest.nodeId === selectedNode.id &&
-    selectedNode.application !== undefined &&
-    selectedNode.queryTarget !== undefined
-      ? {
-          application: selectedNode.application,
-          kind: selectedNode.queryTarget.kind,
-          name: selectedNode.queryTarget.name,
-          time: detailRequest.time,
-        }
-      : undefined;
+  // Memoized so its identity is stable across re-renders of the same selection:
+  // useNodeDetailUrls now EAGER-prefetches in an effect keyed by this input, so an
+  // unstable (re-created-every-render) object would re-fire and re-abort the
+  // prefetch on every render (D7). `time` is captured once at right-click, so the
+  // memo is stable for a given (selectedNode, detailRequest).
+  const detailQueryInput = useMemo<NodeDetailQueryInput | undefined>(
+    () =>
+      detailRequest !== null &&
+      selectedNode !== null &&
+      detailRequest.nodeId === selectedNode.id &&
+      selectedNode.application !== undefined &&
+      selectedNode.queryTarget !== undefined
+        ? {
+            application: selectedNode.application,
+            kind: selectedNode.queryTarget.kind,
+            name: selectedNode.queryTarget.name,
+            time: detailRequest.time,
+          }
+        : undefined,
+    [detailRequest, selectedNode]
+  );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
   // Cluster swatches are derived from the backend's compound (cluster) container

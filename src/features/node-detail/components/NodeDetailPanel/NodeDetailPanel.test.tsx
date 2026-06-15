@@ -81,8 +81,20 @@ describe('NodeDetailPanel', () => {
       containers: [{ name: 'app', image: 'repo/app:1.2' }],
     };
 
-    it('renders both sections for a pod carrying application and containers', () => {
-      render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+    it('renders both sections for a pod carrying application and containers (valid lookups)', () => {
+      render(
+        <NodeDetailPanel
+          node={podWithBoth}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+          lookups={{
+            enabled: true,
+            application: { status: 'ready', url: 'https://app.example/checkout' },
+            containers: { phase: 'settled', byName: { app: { status: 'ready', url: 'https://img.example/app' } } },
+          }}
+        />
+      );
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
       expect(screen.getByText('checkout')).toBeInTheDocument();
@@ -155,25 +167,25 @@ describe('NodeDetailPanel', () => {
           view="detail"
           lookups={{
             enabled: true,
-            application: { status: 'error', error: 'app lookup failed' },
-            containers: { app: { status: 'error', error: 'image lookup failed' } },
-            openApplicationReport: jest.fn(),
-            openContainerReport: jest.fn(),
+            application: { status: 'unavailable', error: 'app lookup failed' },
+            containers: { phase: 'settled', byName: {} },
           }}
         />
       );
-      // Both lookup errors show beside their own sections' Change Report buttons…
-      expect(screen.getByTestId('application-url-error')).toHaveTextContent('app lookup failed');
-      expect(screen.getByTestId('container-url-error')).toHaveTextContent('image lookup failed');
+      // Each section independently renders the muted "No change report" hint beside
+      // its own Change Report column — the application failure does not suppress the
+      // containers section, and vice versa.
+      expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
+      expect(screen.getByTestId('container-url-unavailable')).toBeInTheDocument();
+      // The full error message is recoverable via the hint's title attribute.
+      expect(screen.getByTestId('application-url-unavailable')).toHaveAttribute('title', 'app lookup failed');
       // …while the header stays untouched and the Alerts table (left-click view
       // content) is not rendered in the detail view, even though alerts exist.
       expect(screen.getByText('mongo-0')).toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
     });
 
-    it('threads the lookup controller down: section buttons call the open triggers', () => {
-      const openApplicationReport = jest.fn();
-      const openContainerReport = jest.fn();
+    it('threads resolved lookup state down: sections render real anchors with the prefetched URLs', () => {
       render(
         <NodeDetailPanel
           node={podWithBoth}
@@ -182,23 +194,31 @@ describe('NodeDetailPanel', () => {
           view="detail"
           lookups={{
             enabled: true,
-            application: { status: 'idle' },
-            containers: {},
-            openApplicationReport,
-            openContainerReport,
+            application: { status: 'ready', url: 'u1' },
+            containers: { phase: 'settled', byName: { app: { status: 'ready', url: 'u2' } } },
           }}
         />
       );
-      fireEvent.click(screen.getByTestId('application-url-button'));
-      expect(openApplicationReport).toHaveBeenCalledTimes(1);
-      fireEvent.click(screen.getByTestId('container-url-button'));
-      expect(openContainerReport).toHaveBeenCalledWith('app');
+      // The Change Report cells render plain <a href> anchors (eager prefetch — no
+      // window.open, no click trigger). Assert their attributes; never .click() them
+      // (jsdom does not navigate, and clicking would only log noise).
+      const appLink = screen.getByTestId('application-url-link');
+      expect(appLink).toHaveAttribute('href', 'u1');
+      expect(appLink).toHaveAttribute('target', '_blank');
+      expect(appLink).toHaveAttribute('rel', 'noopener noreferrer');
+
+      const containerLink = screen.getByTestId('container-url-link');
+      expect(containerLink).toHaveAttribute('href', 'u2');
+      expect(containerLink).toHaveAttribute('target', '_blank');
+      expect(containerLink).toHaveAttribute('rel', 'noopener noreferrer');
     });
 
-    it('disables the Change Report buttons when lookups is omitted (idle: left-click / endpoint unset)', () => {
+    it('shows the muted "No change report" hint and no links when lookups is omitted (idle default)', () => {
       render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.getByTestId('application-url-button')).toBeDisabled();
-      expect(screen.getByTestId('container-url-button')).toBeDisabled();
+      expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
+      expect(screen.getByTestId('container-url-unavailable')).toBeInTheDocument();
+      expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('container-url-link')).not.toBeInTheDocument();
     });
   });
 });
