@@ -189,6 +189,30 @@ describe('useNodeDetailUrls (eager prefetch, no click triggers)', () => {
     expect(codeCalls()).toHaveLength(1);
   });
 
+  it('does not refetch when the same node re-renders with a fresh-identity, same-value input', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {
+      initialProps: { i: input },
+    });
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/checkout' });
+    });
+    expect(configCalls()).toHaveLength(1);
+    expect(codeCalls()).toHaveLength(1);
+
+    // A data refresh rebuilds detailQueryInput: a NEW object identity with identical
+    // values (same request key). The effect is keyed on the request-key STRING, so it
+    // MUST NOT re-run, re-fire the queries, or flash the resolved anchors back to loading.
+    rerender({ i: { ...input } });
+    rerender({ i: { ...input } });
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/checkout' });
+    });
+    expect(configCalls()).toHaveLength(1);
+    expect(codeCalls()).toHaveLength(1);
+    expect(result.current.containers.byName['app']).toEqual({ status: 'ready', url: 'https://x/app' });
+  });
+
   it('re-prefetches code_changes after the selected node changes (cache cleared on key change)', async () => {
     routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
     const { result, rerender } = renderHook(({ i }: { i: NodeDetailQueryInput }) => useNodeDetailUrls(i, '/proxy'), {

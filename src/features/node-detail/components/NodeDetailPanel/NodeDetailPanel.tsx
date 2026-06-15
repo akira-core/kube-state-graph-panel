@@ -22,7 +22,6 @@ function getStyles(theme: GrafanaTheme2): {
   badge: string;
   statusBadge: string;
   section: string;
-  sectionDivider: string;
   sectionFixed: string;
   sectionFill: string;
   sectionTitle: string;
@@ -81,7 +80,27 @@ function getStyles(theme: GrafanaTheme2): {
     // The non-scrolling flex column under the pinned header (flex:1 + minHeight:0 lets
     // it shrink so its filling child can take over the scroll). Itself never scrolls,
     // so the fixed Application section above the Containers list never moves.
-    body: css({ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
+    //
+    // The divider between stacked sections (Application → Containers) lives HERE as a
+    // parent-scoped `& > div + div` rule — a 2px strong-colour bar with breathing room,
+    // identical to the header divider, on every section after the first. This mirrors
+    // the legend's pattern (KsgPanel) and is self-maintaining for any number of
+    // sections. It must NOT live on the section class as `& + &`: `cx(styles.section, …)`
+    // composes emotion styles into one merged class, so the literal `section` class the
+    // `&` selector targets is gone after composition and the rule never matches (the
+    // divider silently never renders). `body` is applied alone (no cx), so `&` resolves.
+    body: css({
+      flex: '1 1 auto',
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      '& > div + div': {
+        marginTop: 12,
+        paddingTop: 10,
+        borderTop: `2px solid ${colors.border.strong}`,
+      },
+    }),
     title: css({
       fontWeight: 600,
       flex: 1,
@@ -110,23 +129,10 @@ function getStyles(theme: GrafanaTheme2): {
       textTransform: 'uppercase',
       letterSpacing: 0.4,
     }),
-    // Each section is its own flex column (title above its table area).
+    // Each section is its own flex column (title above its table area). The divider
+    // between stacked sections is a parent-scoped rule on `body` (above), not a
+    // per-section class — that survives emotion `cx` composition and needs no per-child flag.
     section: css({ display: 'flex', flexDirection: 'column' }),
-    // The divider between stacked sections (Application → Containers): the SAME 2px
-    // strong-colour rule as the header divider, with breathing room on both sides, so
-    // the boundary between two tables cannot be mistaken for a table row line. Applied
-    // to a section only when another section precedes it (see JSX).
-    //
-    // NOTE: this previously lived in `section` as a self-referential `'& + &'` rule,
-    // but `cx(styles.section, …)` COMPOSES emotion styles into one merged class, so the
-    // literal `section` class the `&` selector targets is gone after composition and
-    // the rule never matched — the divider silently never rendered. A plain declaration
-    // applied via cx composes correctly.
-    sectionDivider: css({
-      marginTop: 12,
-      paddingTop: 10,
-      borderTop: `2px solid ${colors.border.strong}`,
-    }),
     // Application: fixed to its content height (always a single row — a pod/controller
     // maps to at most one ArgoCD app), so it stays PINNED and never scrolls with the
     // Containers list below it.
@@ -228,10 +234,7 @@ export function NodeDetailPanel({
           </div>
         )}
         {showContainers && node.containers !== undefined && (
-          <div
-            className={cx(styles.section, styles.sectionFill, showApplication && styles.sectionDivider)}
-            data-testid="node-detail-section-containers"
-          >
+          <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-containers">
             <div className={styles.sectionTitle}>Containers</div>
             <div className={styles.slot}>
               <ContainerTable containers={node.containers} lookups={lookupsState.containers} />

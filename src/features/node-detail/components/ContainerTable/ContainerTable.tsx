@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
 import type { GrafanaTheme2 } from '@grafana/data';
-import { type CellProps, type Column, Icon, InteractiveTable, Spinner, useStyles2 } from '@grafana/ui';
+import { type CellProps, type Column, InteractiveTable, useStyles2 } from '@grafana/ui';
 import React, { useMemo } from 'react';
 
 import { themeColors } from '../../../../shared/theme/themeColors';
 import type { DetailLookup } from '../../hooks/useNodeDetailUrls';
+import { ChangeReportCell } from '../ChangeReportCell';
 
 import type { ContainerTableProps } from './ContainerTable.types';
 
@@ -13,15 +14,7 @@ interface ContainerRow {
   image: string;
 }
 
-function getStyles(theme: GrafanaTheme2): {
-  name: string;
-  image: string;
-  tableWrap: string;
-  urlCell: string;
-  pending: string;
-  link: string;
-  unavailable: string;
-} {
+function getStyles(theme: GrafanaTheme2): { name: string; image: string; tableWrap: string } {
   const colors = themeColors(theme);
   return {
     // A plain-string header (required for Grafana 11.4, whose InteractiveTable types
@@ -46,40 +39,6 @@ function getStyles(theme: GrafanaTheme2): {
       fontSize: theme.typography.bodySmall.fontSize,
       wordBreak: 'break-all',
     }),
-    // flex-end pins the Change Report content to the column's right edge so every
-    // row's content — and the Application section's — line up vertically, and stay
-    // put across the loading / ready / unavailable states (spinner, anchor, hint).
-    urlCell: css({ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }),
-    pending: css({
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 4,
-      color: colors.text.secondary,
-      fontSize: theme.typography.bodySmall.fontSize,
-      whiteSpace: 'nowrap',
-    }),
-    // The success state is a REAL anchor (URL pre-resolved by the eager prefetch):
-    // a normal user-gesture navigation — no window.open, so no blank-tab/popup issues,
-    // and middle/Ctrl-click + copy-link work.
-    link: css({
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 4,
-      whiteSpace: 'nowrap',
-      color: colors.text.link,
-      '&:hover': { textDecoration: 'underline' },
-    }),
-    // The unavailable hint (failed / map-miss / no URL) is MUTED, not error-red: it
-    // reads as "no change report", not "broken". Long messages truncate with the
-    // full value in title to keep error detail recoverable.
-    unavailable: css({
-      maxWidth: '40ch',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-      color: colors.text.secondary,
-      fontSize: theme.typography.bodySmall.fontSize,
-    }),
   };
 }
 
@@ -90,14 +49,27 @@ function rowId(row: ContainerRow, index: number): string {
   return `${row.name}/${row.image}-${String(index)}`;
 }
 
+// Per-row Change Report state from the shared code_changes lookup: phase 'loading'
+// → spinner on every row; 'settled' → the row's resolved entry if the map has this
+// container (Object.hasOwn, NOT a `??` fallback, so a container literally named
+// `toString` / `constructor` can't pick up an inherited Object.prototype member),
+// else the "No change report" hint.
+function rowLookup(lookups: ContainerTableProps['lookups'], name: string): DetailLookup {
+  if (lookups.phase === 'loading') {
+    return { status: 'loading' };
+  }
+  if (Object.hasOwn(lookups.byName, name)) {
+    return lookups.byName[name] ?? { status: 'unavailable' };
+  }
+  return { status: 'unavailable' };
+}
+
 // The containers table: a headered InteractiveTable (same component and column
 // layout as the Alerts table — D8) with Name / Image / Change Report columns, one
 // row per container. Each Change Report is EAGER-prefetched (the shared code_changes
-// map resolves when the panel opens): while loading every row shows a spinner; a row
-// whose container is in the map renders a real `<a href target="_blank"
-// rel="noopener noreferrer">` anchor (no window.open); a row absent from the settled
-// map shows a muted "No change report" hint. The header and rows always render; each
-// row's state is independent.
+// map resolves when the panel opens); the shared ChangeReportCell renders the row's
+// DetailLookup as a Spinner / `<a href>` anchor / muted "No change report" hint. The
+// header and rows always render; each row's state is independent.
 export function ContainerTable({ containers, lookups }: Readonly<ContainerTableProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
 
@@ -124,42 +96,9 @@ export function ContainerTable({ containers, lookups }: Readonly<ContainerTableP
         id: 'url',
         header: 'Change Report',
         disableGrow: true,
-        cell: ({ row }: CellProps<ContainerRow>) => {
-          const name = row.original.name;
-          // phase 'loading' → spinner on every row; 'settled' → anchor if the map has
-          // this container, else the muted hint (the ?? fallback IS the not-found rule).
-          const state: DetailLookup =
-            lookups.phase === 'loading' ? { status: 'loading' } : (lookups.byName[name] ?? { status: 'unavailable' });
-          return (
-            <div className={styles.urlCell}>
-              {state.status === 'loading' && (
-                <span className={styles.pending} data-testid="container-url-pending">
-                  <Spinner inline size="sm" /> Looking up…
-                </span>
-              )}
-              {state.status === 'ready' && (
-                <a
-                  className={styles.link}
-                  href={state.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-testid="container-url-link"
-                >
-                  <Icon name="external-link-alt" /> URL
-                </a>
-              )}
-              {state.status === 'unavailable' && (
-                <span
-                  className={styles.unavailable}
-                  data-testid="container-url-unavailable"
-                  {...(state.error !== undefined ? { title: state.error } : {})}
-                >
-                  No change report
-                </span>
-              )}
-            </div>
-          );
-        },
+        cell: ({ row }: CellProps<ContainerRow>) => (
+          <ChangeReportCell state={rowLookup(lookups, row.original.name)} idPrefix="container" />
+        ),
       },
     ],
     [styles, lookups]

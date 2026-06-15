@@ -76,23 +76,23 @@ container **清單**來自 `node.containers`(node data),非 `code_changes` map;�
 
 **為何**:扁平 `Record<string, DetailLookup>`(缺 key = unavailable)無法表達「整包尚在載入」——會在 loading 期間誤顯「No change report」。
 
-### D5:快取機制不變(沿用 lazy D6)
+### D5:at-most-once per open(effect 只鍵在 request-key 字串,不用 ref 快取)
 
-沿用 `appCacheRef` / `codeCacheRef`(以 request key 為界,快取**成功** promise):effect 內若 cache slot 的 key 不符即(清舊、)發新;`promise.catch` 在失敗時清該 slot(以便 remount 重取);成功 map 缺某 container = 該列確定性 unavailable(用快取、不重發)。`[key]` cleanup 連同 in-flight abort 一併清兩快取。換節點 / 換 endpoint / 關閉 panel(unmount)即清快取並中止。
+預取 effect **只依賴 `key` 字串**(`requestKeyFor`,涵蓋 endpoint + 每個 input 欄位);live 的 `input`/`base` 經一個 ref(`argsRef`,每次 commit 更新)讀取,不列入 deps。如此:同一節點的資料 refresh 給出**新 identity、同值**的 `input` 物件時,`key` 不變 → effect 不重跑 → 不重發、已解析的 anchor 不閃回 loading;換節點(新 key)才重跑一次。`controllersRef` 在 cleanup(換 key / unmount)abort in-flight,resolve/reject 以 `aborted` 早退;remount 因元件重建必重發(失敗不會被「快取」住,符合「remount 重取」)。成功 map 缺某 container = 該列確定性 unavailable(ContainerTable 以 `Object.hasOwn` 判定,不重發)。
 
-**為何**:後端整包回傳,逐次重打浪費;eager 下 cache 主要防 effect 因非-key 依賴變動而重跑時重複發查詢(故 D7 需穩定 input identity)。
+**為何**:後端整包回傳,逐次重打浪費;at-most-once 由「effect 不為同 key 重跑」直接保證即可。原 lazy 的 `appCacheRef`/`codeCacheRef` 在 eager 下是**死碼**——`[key]` cleanup 會在任何重跑前先把兩 ref 清成 null(React 先 cleanup 再跑 body),故快取永遠命中不到、`promise.catch` 清 slot 也永不生效;移除之,改以 effect 鍵化達成等價且真實的 at-most-once。
 
 ### D6:stale-write 防護與 StrictMode 取捨
 
 resolve / reject handler 以 `controller.signal.aborted` 早退(cleanup 在換節點 / unmount 時 abort 該 key 所有 controller),外加最終衍生狀態以 `key` 比對過濾——雙重保證舊節點的延遲回應 MUST NOT 寫入新節點。移除 lazy 的 `ctxRef`(僅為點擊時讀 context 而存在)。
 
-cleanup 一律 abort + 清快取(滿足規格「換節點 / 關閉 panel 清快取並中止 in-flight」)。**取捨**:React 18 StrictMode dev 雙掛載(mount→cleanup→mount,同 key)因 cleanup 清快取,第二次掛載會重取 → **dev 環境每端點可能發 2 次**。此為 dev-only:Grafana production 不以 StrictMode 包裹 panel、預設 `renderHook` 亦無 StrictMode,故 production 與單元測試皆每端點一次。不為消除 dev 雙取而犧牲「關閉即清快取 + 中止」的正確性(該正確性是規格要求);故不加「StrictMode 只取一次」測試。
+cleanup 一律 abort in-flight(滿足規格「換節點 / 關閉 panel 中止 in-flight」)。**取捨**:React 18 StrictMode dev 雙掛載(mount→cleanup→mount,同 key)會在第二次掛載重跑 effect → **dev 環境每端點可能發 2 次**。此為 dev-only:Grafana production 不以 StrictMode 包裹 panel、預設 `renderHook` 亦無 StrictMode,故 production 與單元測試皆每端點一次。不為消除 dev 雙取而犧牲「換節點 / 關閉即中止 in-flight」的正確性(該正確性是規格要求);故不加「StrictMode 只取一次」測試。
 
-### D7:`KsgPanel` 的 `detailQueryInput` 必須 `useMemo`(load-bearing)
+### D7:`KsgPanel` 的 `detailQueryInput` 以 `useMemo` 穩定(cheap stabilization)
 
-`KsgPanel` 目前每 render inline 重建 `detailQueryInput` 物件。eager effect 依 `[key, enabled, base, input]`;若 `input` identity 每 render 變動,effect 會每 render 重跑並 abort 預取。故 `detailQueryInput` MUST `useMemo`(keyed by `[selectedNode, detailRequest]`),使同一選取期間 identity 穩定。`time` 取自 `detailRequest.time`(右鍵當下設一次),memo 穩定。
+`KsgPanel` 的 `detailQueryInput` 以 `useMemo`(keyed by `[selectedNode, detailRequest]`)建立。`time` 取自 `detailRequest.time`(右鍵當下設一次),故同一選取期間值穩定。
 
-**為何**:不 memoize 會讓 eager 預取在每次面板 re-render 被中止重發,既違「最多一次」也造成抖動。
+**為何**:D5 把預取 effect 鍵在 `key` **字串**並經 ref 讀 input 後,「同 key、新 identity 的 input」已不會觸發重跑,故此 memo **不再是防重發的必要條件**;保留它僅為避免每 render 配置新物件(`selectedNode` 隨資料 refresh 重建,inline 物件會跟著換 identity)的廉價穩定化。先前版本(effect 把 `input` 列入 deps)時它才是 load-bearing;那是本次 code review 修掉的 bug。
 
 ## Risks / Trade-offs
 

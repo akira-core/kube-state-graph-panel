@@ -5,6 +5,7 @@ import React, { useMemo } from 'react';
 
 import { severityColor } from '../../../../shared/constants/colorBySeverity';
 import type { NodeAlert } from '../../../../shared/constants/types';
+import { themeColors } from '../../../../shared/theme/themeColors';
 
 import type { AlertTableProps } from './AlertTable.types';
 
@@ -17,9 +18,7 @@ function getStyles(theme: GrafanaTheme2): {
   occurrenceList: string;
   timeButton: string;
 } {
-  const colors = theme.colors as unknown as {
-    text: { secondary: string; link: string };
-  };
+  const colors = themeColors(theme);
   return {
     empty: css({ color: colors.text.secondary, fontStyle: 'italic', padding: '4px 0' }),
     severityBadge: css({
