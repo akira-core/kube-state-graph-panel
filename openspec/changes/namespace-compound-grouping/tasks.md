@@ -75,7 +75,7 @@
 ## 12. 模式切換:加深巢狀下整批重建 + 恰一次 relayout(驗證)
 
 - [x] 12.1 確認模式切換沿用既有「`cy.elements().remove()` + `cy.add(elements)` 整批重建 → bump layout run token → `useGraphLayout` 恰一次 relayout」機制(D7)——切到 controller 出現 namespace 盒(加深一階)、切回 node `applyNamespaceGrouping` no-op 不產生 namespace 盒;**不**引入動態 `cy.move()` / `data('parent')` re-parent
-- [ ] 12.2 確認加深巢狀(`cluster>namespace>controller>pod` / `cluster>namespace>storageclass>pvc`)未觸發 commit `2945553` 的 fcose 退化成 overlap(模式切換目視 / e2e 驗證,於 17.x demo 驗收)
+- [x] 12.2 確認加深巢狀(`cluster>namespace>controller>pod` / `cluster>namespace>storageclass>pvc`)未觸發 commit `2945553` 的 fcose 退化成 overlap(模式切換目視 / e2e 驗證,於 17.x demo 驗收)
 
 ## 13. 規格同步
 
@@ -99,10 +99,10 @@
 
 ## 16. demo 目視驗收(controller / node 雙模)
 
-- [ ] 16.1 controller 模式:namespace 色帶 / 階層目視——`cluster→namespace→controller→pod`、`cluster→namespace→service`、`cluster→namespace→storageclass→pvc` 與無 sc 的 `cluster→namespace→pvc` 各就位;同名 namespace 跨 cluster 同色;namespace 盒不預設摺疊、controller 仍預設摺疊;namespace 盒可手動 / 經 `NamespaceLegend` collapse-all 摺疊;收合態仍維持 namespace 邊框色
-- [ ] 16.2 node 模式:確認**完全無** namespace 盒、無 namespace 色、無 `NamespaceLegend` section,維持 `cluster→node→pod` 與既有 service / pvc / storageclass 掛點
+- [x] 16.1 controller 模式:namespace 色帶 / 階層目視——`cluster→namespace→controller→pod`、`cluster→namespace→service`、`cluster→namespace→storageclass→pvc` 與無 sc 的 `cluster→namespace→pvc` 各就位;同名 namespace 跨 cluster 同色;namespace 盒不預設摺疊、controller 仍預設摺疊;namespace 盒可手動 / 經 `NamespaceLegend` collapse-all 摺疊;收合態仍維持 namespace 邊框色
+- [x] 16.2 node 模式:確認**完全無** namespace 盒、無 namespace 色、無 `NamespaceLegend` section,維持 `cluster→node→pod` 與既有 service / pvc / storageclass 掛點
 
 ## 17. 風險驗收(布局 / 配色定稿)
 
-- [ ] 17.1 多 namespace cluster 的 fcose compound 佈局目視:盒「數」偏高情境下無退化成 overlap(對照 commit `2945553` 病灶);模式切換後 relayout 穩定
+- [x] 17.1 多 namespace cluster 的 fcose compound 佈局目視:盒「數」偏高情境下無退化成 overlap(對照 commit `2945553` 病灶);模式切換後 relayout 穩定
 - [ ] 17.2 雙主題(light / dark)+ colorblind(deuteranopia / protanopia)模擬:確認 namespace 邊框 / cluster 邊框 / status 三色三者可區分,namespace tint 對主題背景與內部資源高對比;據此確認 `NAMESPACE_PALETTE` hex 定稿(回填 5.5)無需再調

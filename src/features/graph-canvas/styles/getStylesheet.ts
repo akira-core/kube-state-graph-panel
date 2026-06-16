@@ -176,7 +176,7 @@ export function getStylesheet({
         // distinction falls straight out of the selector.
         color: ((ele: cytoscape.NodeSingular): string =>
           resolveParentClusterColor(ele, textColor)) as unknown as string,
-        'font-size': 11,
+        'font-size': 13,
         'text-valign': 'top',
         'text-halign': 'center',
         'text-margin-y': -3,
@@ -204,7 +204,7 @@ export function getStylesheet({
         'border-opacity': 0.5,
         label: 'data(label)',
         color: 'data(clusterColor)',
-        'font-size': 12,
+        'font-size': 14,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
@@ -232,7 +232,7 @@ export function getStylesheet({
         'border-opacity': 0.7,
         label: 'data(label)',
         color: 'data(namespaceColor)',
-        'font-size': 11,
+        'font-size': 13,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
