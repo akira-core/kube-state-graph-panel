@@ -16,7 +16,7 @@ function getStyles(theme: GrafanaTheme2): { time: string; muted: string } {
     // even when digit widths differ; nowrap so a timestamp never wraps mid-value.
     time: css({ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }),
     // Absent / unparseable time renders a MUTED em-dash, not error-red: it reads as
-    // "no value", matching the Change Report column's muted "No change report" hint.
+    // "no value", matching the Change Report column's muted "Not found" hint.
     muted: css({ color: colors.text.secondary }),
   };
 }

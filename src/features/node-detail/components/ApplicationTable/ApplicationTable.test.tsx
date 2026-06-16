@@ -10,7 +10,7 @@ describe('ApplicationTable (eager-prefetch Change Report)', () => {
     const state: DetailLookup = { status: 'ready', url: 'https://x' };
     render(<ApplicationTable application="checkout" state={state} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Name', 'Current', 'Previous', 'Deployment Changes']);
+    expect(headers).toEqual(['Name', 'Current Change Time', 'Previous Change Time', 'Deployment Changes']);
     expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();
     expect(screen.getByText('checkout')).toBeInTheDocument();
   });
@@ -28,11 +28,11 @@ describe('ApplicationTable (eager-prefetch Change Report)', () => {
     expect(screen.queryByTestId('application-url-unavailable')).not.toBeInTheDocument();
   });
 
-  it('shows the muted "No change report" hint when unavailable (no link)', () => {
+  it('shows the muted "Not found" hint when unavailable (no link)', () => {
     const state: DetailLookup = { status: 'unavailable' };
     render(<ApplicationTable application="checkout" state={state} />);
     const unavailable = screen.getByTestId('application-url-unavailable');
-    expect(unavailable).toHaveTextContent('No change report');
+    expect(unavailable).toHaveTextContent('Not found');
     expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
     expect(screen.queryByTestId('application-url-pending')).not.toBeInTheDocument();
   });

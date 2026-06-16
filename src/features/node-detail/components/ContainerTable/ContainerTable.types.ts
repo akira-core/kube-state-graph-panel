@@ -7,7 +7,7 @@ export interface ContainerTableProps {
   // Eager-prefetched Change Report state for the containers: the shared code_changes
   // phase + the per-name resolved map. phase 'loading' → every row shows a spinner;
   // 'settled' → a name in byName is ready (a real <a href> anchor) and a name ABSENT
-  // is unavailable (muted "No change report"). The container LIST is `containers`
+  // is unavailable (muted "Not found"). The container LIST is `containers`
   // above, not byName. See useNodeDetailUrls.
   lookups: NodeDetailLookups['containers'];
   // Panel timeZone, forwarded to formatChangeTime for the Current / Previous diff

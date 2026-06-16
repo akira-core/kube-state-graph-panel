@@ -55,7 +55,7 @@ function rowId(row: ContainerRow, index: number): string {
 // → spinner on every row; 'settled' → the row's resolved entry if the map has this
 // container (Object.hasOwn, NOT a `??` fallback, so a container literally named
 // `toString` / `constructor` can't pick up an inherited Object.prototype member),
-// else the "No change report" hint.
+// else the "Not found" hint.
 function rowLookup(lookups: ContainerTableProps['lookups'], name: string): DetailLookup {
   if (lookups.phase === 'loading') {
     return { status: 'loading' };
@@ -71,7 +71,7 @@ function rowLookup(lookups: ContainerTableProps['lookups'], name: string): Detai
 // Changes columns, one row per container. The Code Changes (link) column is EAGER-
 // prefetched (the shared code_changes map resolves when the panel opens); the shared
 // ChangeReportCell renders the row's DetailLookup as a Spinner / `<a href>` anchor /
-// muted "No change report" hint. Current / Previous render the row's diff timestamps
+// muted "Not found" hint. Current / Previous render the row's diff timestamps
 // off its ready lookup (localized via the panel timeZone, muted "—" when absent). The
 // header and rows always render; each row's state is independent.
 export function ContainerTable({ containers, lookups, timeZone }: Readonly<ContainerTableProps>): React.JSX.Element {
@@ -98,7 +98,7 @@ export function ContainerTable({ containers, lookups, timeZone }: Readonly<Conta
       },
       {
         id: 'current',
-        header: 'Current',
+        header: 'Current Change Time',
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => {
           const lk = rowLookup(lookups, row.original.name);
@@ -114,7 +114,7 @@ export function ContainerTable({ containers, lookups, timeZone }: Readonly<Conta
       },
       {
         id: 'previous',
-        header: 'Previous',
+        header: 'Previous Change Time',
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => {
           const lk = rowLookup(lookups, row.original.name);

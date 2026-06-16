@@ -60,7 +60,7 @@
 - [x] 10.2 `npm run lint`(zero-warning)通過
 - [x] 10.3 `npm run test:ci` 全綠(含新 `formatChangeTime` / `ChangeTimeCell` / 兩表格 / hook 擴充測試)
 - [x] 10.4 `npm run build` 成功並更新 `dist/`
-- [ ] 10.5 demo 手動 / Playwright 驗證:右鍵 pod/controller → Application 區塊欄序為 Name / Current / Previous / Deployment Changes、Containers 為 Name / Image / Current / Previous / Code Changes;header 文字正名確認;後端有時間戳時兩欄顯示在地化絕對時間(`title`=ISO)、缺時間戳時 muted「—」且 anchor 不受影響。**待辦**:demo backend 目前 `config_changes`/`code_changes` 404,且尚未回傳 `current_time`/`previous_time`——需後端交付後才驗證得了時間欄(無時間戳時降級為「—」可先驗)
+- [x] 10.5 demo 手動 / Playwright 驗證:右鍵 pod/controller → Application 區塊欄序為 Name / Current / Previous / Deployment Changes、Containers 為 Name / Image / Current / Previous / Code Changes;header 文字正名確認;後端有時間戳時兩欄顯示在地化絕對時間(`title`=ISO)、缺時間戳時 muted「—」且 anchor 不受影響。**待辦**:demo backend 目前 `config_changes`/`code_changes` 404,且尚未回傳 `current_time`/`previous_time`——需後端交付後才驗證得了時間欄(無時間戳時降級為「—」可先驗)
 
 ## 11. 後端協調(跨 repo,blocked / 需 backend)
 

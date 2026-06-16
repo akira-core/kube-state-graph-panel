@@ -6,7 +6,7 @@ export interface ApplicationTableProps {
   application: string;
   // Eager-prefetched Change Report state for the (single) application: loading
   // (spinner) → ready (a real <a href> anchor, URL pre-resolved) / unavailable
-  // (muted "No change report" hint, full error in title). No click trigger.
+  // (muted "Not found" hint, full error in title). No click trigger.
   state: DetailLookup;
   // Panel timeZone, forwarded to formatChangeTime for the Current / Previous diff
   // timestamp columns (omitted → Grafana's default zone).

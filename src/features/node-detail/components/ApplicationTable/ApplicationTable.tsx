@@ -35,7 +35,7 @@ function rowId(row: ApplicationRow, index: number): string {
 // column layout as the Alerts table — D8) with Name / Current / Previous / Deployment
 // Changes columns. The Deployment Changes (link) column is EAGER-prefetched: the
 // shared ChangeReportCell renders its DetailLookup as a Spinner / `<a href>` anchor /
-// muted "No change report" hint (no window.open). Current / Previous render the diff
+// muted "Not found" hint (no window.open). Current / Previous render the diff
 // timestamps off the ready lookup (localized via the panel timeZone, muted "—" when
 // absent). The header and row always render.
 export function ApplicationTable({ application, state, timeZone }: Readonly<ApplicationTableProps>): React.JSX.Element {
@@ -56,7 +56,7 @@ export function ApplicationTable({ application, state, timeZone }: Readonly<Appl
       },
       {
         id: 'current',
-        header: 'Current',
+        header: 'Current Change Time',
         disableGrow: true,
         cell: () => {
           const iso = state.status === 'ready' ? state.currentTime : undefined;
@@ -71,7 +71,7 @@ export function ApplicationTable({ application, state, timeZone }: Readonly<Appl
       },
       {
         id: 'previous',
-        header: 'Previous',
+        header: 'Previous Change Time',
         disableGrow: true,
         cell: () => {
           const iso = state.status === 'ready' ? state.previousTime : undefined;

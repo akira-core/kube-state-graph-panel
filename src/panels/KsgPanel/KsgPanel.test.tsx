@@ -972,7 +972,7 @@ describe('KsgPanel', () => {
       expect(detailGetMock).not.toHaveBeenCalled();
     });
 
-    it('never queries while the endpoint resolves to nothing (sections render, "No change report" shown)', () => {
+    it('never queries while the endpoint resolves to nothing (sections render, "Not found" shown)', () => {
       // No option AND no derivable datasource ref (the fixture carries no request).
       renderPanel(defaultOptions);
       expandAll();
@@ -981,7 +981,7 @@ describe('KsgPanel', () => {
       });
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       // No endpoint → the hook is disabled: it fires no query and the Change Report
-      // cell shows the muted "No change report" hint (not a disabled button).
+      // cell shows the muted "Not found" hint (not a disabled button).
       expect(detailGetMock).not.toHaveBeenCalled();
       expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
@@ -1078,7 +1078,7 @@ describe('KsgPanel', () => {
       });
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       // No resolvable endpoint → the hook is disabled: no query, and the cell shows
-      // the muted "No change report" hint (not a disabled button).
+      // the muted "Not found" hint (not a disabled button).
       expect(detailGetMock).not.toHaveBeenCalled();
       expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();

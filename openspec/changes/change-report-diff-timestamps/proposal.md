@@ -9,9 +9,9 @@ node-detail 面板的 Change Report 欄目前只給「一個外部連結」,使�
   - `code_changes`(image-detail)每個 container entry 由 `{ "url": string }` 擴充為 `{ "url": string, "current_time": string, "previous_time": string }`。
   - `current_time` / `previous_time` 為 **RFC 3339 / ISO 8601(UTC)** 字串(如 `2026-06-16T10:30:00Z`)——自描述時區、無秒/毫秒歧義、`@grafana/data` 可直接解析、與後端既有 `start`/`end` 接受 RFC 3339 一致。
   - 兩時間戳為 **best-effort**:缺漏 / 非字串 / 解析失敗時該欄顯示 muted「—」,**MUST NOT** 影響 url anchor 與其餘欄(沿用既有 anti-corruption 解析:格式不符即丟棄該欄)。
-- **新增欄位(兩表格皆加)**:Application 與 Containers 兩表格各新增 **Current** 與 **Previous** 兩欄,呈現該 change diff 的 current → prev 時間戳。
+- **新增欄位(兩表格皆加)**:Application 與 Containers 兩表格各新增 **Current Change Time** 與 **Previous Change Time** 兩欄,呈現該 change diff 的 current → prev 時間戳。
 - **呈現**:時間以 Grafana `dateTimeFormat`(依面板 `timeZone`)格式化為**在地化絕對時間**(如 `2026-06-16 10:30:00`),完整 ISO 字串入 `title`;無值 / 解析失敗顯示 muted「—」。
-- **Header 正名**:Application 區塊原 Change Report header → **「Deployment Changes」**;Containers 區塊原 Change Report header → **「Code Changes」**。連結欄的 eager 預取、`<a href target="_blank" rel="noopener noreferrer">` anchor、unavailable muted「No change report」提示等行為不變,僅 header 文字改變。
+- **Header 正名**:Application 區塊原 Change Report header → **「Deployment Changes」**;Containers 區塊原 Change Report header → **「Code Changes」**。連結欄的 eager 預取、`<a href target="_blank" rel="noopener noreferrer">` anchor、unavailable muted「Not found」提示等行為不變,僅 header 文字改變。
 - **不變**:查詢時機(eager 預取,右鍵開啟即併發)、傳輸(`getBackendSrv()`)、端點名稱(`config_changes` / `code_changes`)、sibling 推導(`resolveDetailEndpoint` / `detailPaths`)、快取語意(每端點每次開啟最多一次、僅快取成功、換節點/關閉清快取並中止 in-flight)、區塊 gating(kind + 資料存在性)、右鍵/左鍵行為、`InteractiveTable` 帶 header 版型與失敗隔離。
 
 ## Capabilities

@@ -172,7 +172,7 @@ describe('NodeDetailPanel', () => {
           }}
         />
       );
-      // Each section independently renders the muted "No change report" hint beside
+      // Each section independently renders the muted "Not found" hint beside
       // its own Change Report column — the application failure does not suppress the
       // containers section, and vice versa.
       expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
@@ -213,7 +213,7 @@ describe('NodeDetailPanel', () => {
       expect(containerLink).toHaveAttribute('rel', 'noopener noreferrer');
     });
 
-    it('shows the muted "No change report" hint and no links when lookups is omitted (idle default)', () => {
+    it('shows the muted "Not found" hint and no links when lookups is omitted (idle default)', () => {
       render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
       expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
       expect(screen.getByTestId('container-url-unavailable')).toBeInTheDocument();

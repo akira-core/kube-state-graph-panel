@@ -14,9 +14,9 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - **image-detail 查詢**(`GET <base>/code_changes`):回 `{ [containerName]: { "url": string, "current_time": string, "previous_time": string } }`——**map(container name → entry)**,每個 entry 含該 container 的 `url`(code diff 外部詳情頁)與 `current_time` / `previous_time`(該 code diff 的兩個時間戳,current → prev);UI 端以攤平後的 map 查值;input MUST NOT 含 image 參數,一次呼叫即涵蓋該節點所有 containers。
 - **時間戳契約**:`current_time` / `previous_time` MUST 為 **RFC 3339 / ISO 8601(UTC)** 字串(如 `2026-06-16T10:30:00Z`)。兩時間戳為 **best-effort**:缺漏 / 非字串 / 解析失敗時,對應時間欄 MUST 顯示 muted(`theme.colors.text.secondary`)「—」,並 MUST NOT 影響同列的 `url` anchor、其餘欄、或其餘列(沿用既有 anti-corruption 解析:格式不符即丟棄該欄;`url` 仍是「該 entry 是否可用」的唯一判準,兩時間戳缺失不影響 url anchor 的渲染與狀態)。
 
-**呼叫快取**:panel 開啟期間,`code_changes` 與 `config_changes` 各 MUST **最多呼叫一次**——eager 預取於 detail view 開啟時各發一次,`code_changes` 回的整包 map 由所有 container 列**共用**。僅快取**成功**回應:失敗(非 200 / 回應格式錯誤)MUST NOT 入快取(其 slot 清除,以便 remount 重取);成功 map 中查無某 container = 該列確定性「No change report」(用快取、不重發)。**換節點 / 換 endpoint / 關閉 panel(unmount / 清除選取)MUST 清除快取**(連同中止 in-flight),下次開啟重新呼叫。
+**呼叫快取**:panel 開啟期間,`code_changes` 與 `config_changes` 各 MUST **最多呼叫一次**——eager 預取於 detail view 開啟時各發一次,`code_changes` 回的整包 map 由所有 container 列**共用**。僅快取**成功**回應:失敗(非 200 / 回應格式錯誤)MUST NOT 入快取(其 slot 清除,以便 remount 重取);成功 map 中查無某 container = 該列確定性「Not found」(用快取、不重發)。**換節點 / 換 endpoint / 關閉 panel(unmount / 清除選取)MUST 清除快取**(連同中止 in-flight),下次開啟重新呼叫。
 
-**查詢傳輸**:查詢 MUST 透過 Grafana runtime(`@grafana/runtime` `getBackendSrv()`)發往**同一個 graph API backend**;MUST NOT 自 `src/**` 直接以 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend(與 graph-data-integration「Datasource 整合策略」之「Panel 不直接 fetch 外部 URL」一致)。查詢端點(base path)MUST 依下列順序解析:(1)panel option 非空時以其為準(**覆寫**);(2)否則 SHALL 自面板查詢請求(`data.request.targets`)**自動推導**,使 detail 端點成為 graph query 的 **sibling**——依序檢視非隱藏(`hide` ≠ true)且帶 datasource ref 的 targets,取**第一個**經 Grafana runtime datasource instance settings 解析出非空 proxied base path 者(`access: proxy` 的 datasource 其 instance settings `url` 即 `/api/datasources/proxy/uid/<uid>`,datasource 真實 base url 對 panel 不可見;隱藏 target 或解析不出 url 的 ref——如 expression——跳過續查,不視為終點),再於其後串接該 target graph query 路徑的**目錄**(target `url` 去 query string 後再去最後一段;單段或無 `url` 時為空、base 即裸 proxy mount)——如 graph query 為 `…/api/v1/graph/service_graph`,則 base 為 `<proxy mount>/api/v1/graph`,append `/config_changes`、`/code_changes` 後與 graph query 同目錄;(3)兩者皆無(option 空且無任一 target 可解析出非空 base path)時,兩區塊照資料渲染但連結欄 MUST 顯示「No change report」提示(`enabled` 為 false → 不發查詢、無 spinner、無 anchor),且 MUST NOT 發出任何查詢。預取查詢 MUST 可中止(unmount / 換節點 / 換 endpoint),MUST NOT 在 unmount 後 setState。
+**查詢傳輸**:查詢 MUST 透過 Grafana runtime(`@grafana/runtime` `getBackendSrv()`)發往**同一個 graph API backend**;MUST NOT 自 `src/**` 直接以 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend(與 graph-data-integration「Datasource 整合策略」之「Panel 不直接 fetch 外部 URL」一致)。查詢端點(base path)MUST 依下列順序解析:(1)panel option 非空時以其為準(**覆寫**);(2)否則 SHALL 自面板查詢請求(`data.request.targets`)**自動推導**,使 detail 端點成為 graph query 的 **sibling**——依序檢視非隱藏(`hide` ≠ true)且帶 datasource ref 的 targets,取**第一個**經 Grafana runtime datasource instance settings 解析出非空 proxied base path 者(`access: proxy` 的 datasource 其 instance settings `url` 即 `/api/datasources/proxy/uid/<uid>`,datasource 真實 base url 對 panel 不可見;隱藏 target 或解析不出 url 的 ref——如 expression——跳過續查,不視為終點),再於其後串接該 target graph query 路徑的**目錄**(target `url` 去 query string 後再去最後一段;單段或無 `url` 時為空、base 即裸 proxy mount)——如 graph query 為 `…/api/v1/graph/service_graph`,則 base 為 `<proxy mount>/api/v1/graph`,append `/config_changes`、`/code_changes` 後與 graph query 同目錄;(3)兩者皆無(option 空且無任一 target 可解析出非空 base path)時,兩區塊照資料渲染但連結欄 MUST 顯示「Not found」提示(`enabled` 為 false → 不發查詢、無 spinner、無 anchor),且 MUST NOT 發出任何查詢。預取查詢 MUST 可中止(unmount / 換節點 / 換 endpoint),MUST NOT 在 unmount 後 setState。
 
 **呈現**(每個連結欄目標——Application 一個、Containers 每列一個——各自獨立狀態;eager 預取下每個目標在三態之一:**loading / ready / unavailable**):
 
@@ -25,12 +25,12 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
   - **Application 區塊**:`config_changes` 回 HTTP 200 + 有效 `url` 時,連結欄(header「Deployment Changes」)MUST 渲染一個**真實 anchor**——`<a href={url} target="_blank" rel="noopener noreferrer">`(預解析 URL,故點擊為一般使用者手勢導頁,MUST NOT 以 `window.open` 程式導頁)。
   - **Containers 區塊**:某 container 列 MUST 渲染 anchor **若且唯若** `code_changes` 成功**且**該 container name 於回傳 map 有有效 URL;anchor 同為 `<a href={url} target="_blank" rel="noopener noreferrer">`(連結欄 header「Code Changes」)。
 - **unavailable(失敗 / 查無 / 無 URL)**:
-  - **Application**:`config_changes` 失敗(非 200 / 回應格式錯誤 / 無有效 url)時,連結欄 MUST 以次要(muted)文字顯示「No change report」提示(MUST NOT 渲染 anchor / 按鈕;過長截斷、完整失敗訊息入 `title` 以保留錯誤可見性)。
-  - **Containers**:`code_changes` 失敗,或成功但該 container name 不在 map(或該 name 無有效 URL)時,該列 MUST 顯示「No change report」提示(同上;name/image 仍照常顯示)。
+  - **Application**:`config_changes` 失敗(非 200 / 回應格式錯誤 / 無有效 url)時,連結欄 MUST 以次要(muted)文字顯示「Not found」提示(MUST NOT 渲染 anchor / 按鈕;過長截斷、完整失敗訊息入 `title` 以保留錯誤可見性)。
+  - **Containers**:`code_changes` 失敗,或成功但該 container name 不在 map(或該 name 無有效 URL)時,該列 MUST 顯示「Not found」提示(同上;name/image 仍照常顯示)。
 - **失敗隔離**:任一目標 unavailable MUST NOT 影響 header、另一區塊、或同區塊其他列;header 與表格列照常渲染。
-- **時間欄呈現(Current / Previous)**:Application 與 Containers 兩區塊各新增 **Current** 與 **Previous** 兩欄,呈現該 change diff 的 current → prev 時間戳。每格 MUST 以 `@grafana/data` `dateTimeFormat` 依**面板 `timeZone`** 將 RFC 3339 原字串格式化為**在地化絕對時間**(如 `2026-06-16 10:30:00`),並把**完整 ISO 原字串**入該 cell 的 `title`;`timeZone` 缺省時採 Grafana 預設時區(沿用 Alerts 表格時間欄之 `dateTimeFormat` 慣例與傳遞路徑:`KsgPanel` → `NodeDetailPanel` → 表格)。無值(缺漏 / 非字串)或 `dateTimeFormat` 判定為非法日期時,該格 MUST 顯示 muted(`theme.colors.text.secondary`)「—」且 MUST NOT 設 `title`,MUST NOT 顯示 `Invalid date`。時間欄 MUST NOT 影響同列連結欄狀態與 anchor;反之連結欄失敗亦 MUST NOT 影響時間欄(同列三欄——Current / Previous / 連結欄——各自獨立 best-effort 降級)。
+- **時間欄呈現(Current / Previous)**:Application 與 Containers 兩區塊各新增 **Current Change Time** 與 **Previous Change Time** 兩欄,呈現該 change diff 的 current → prev 時間戳。每格 MUST 以 `@grafana/data` `dateTimeFormat` 依**面板 `timeZone`** 將 RFC 3339 原字串格式化為**在地化絕對時間**(如 `2026-06-16 10:30:00`),並把**完整 ISO 原字串**入該 cell 的 `title`;`timeZone` 缺省時採 Grafana 預設時區(沿用 Alerts 表格時間欄之 `dateTimeFormat` 慣例與傳遞路徑:`KsgPanel` → `NodeDetailPanel` → 表格)。無值(缺漏 / 非字串)或 `dateTimeFormat` 判定為非法日期時,該格 MUST 顯示 muted(`theme.colors.text.secondary`)「—」且 MUST NOT 設 `title`,MUST NOT 顯示 `Invalid date`。時間欄 MUST NOT 影響同列連結欄狀態與 anchor;反之連結欄失敗亦 MUST NOT 影響時間欄(同列三欄——Current / Previous / 連結欄——各自獨立 best-effort 降級)。
 - **對齊**:連結欄內容(spinner / anchor / 提示)MUST 釘於該欄**右緣**(`disableGrow` 欄 + `justifyContent: flex-end`),使 Application 與 Containers 兩區塊各列的連結欄在 loading / ready / unavailable 任一(含混合)狀態下皆**上下對齊、不左右漂移**。
-- **表格版型**:兩區塊 MUST 比照 Alerts 表格以**帶 column header 的表格版型**渲染(同一 `@grafana/ui` `InteractiveTable` 元件)——Application 區塊欄位依序為 **Name / Current / Previous / Deployment Changes**,Containers 區塊欄位依序為 **Name / Image / Current / Previous / Code Changes**;每欄 MUST 有 header、各列內容 MUST 沿欄整齊對齊,MUST NOT 以無 header 的自由 flex 列呈現。連結欄(Application 為「Deployment Changes」、Containers 為「Code Changes」)MUST 維持為最右欄、MUST 不隨內容成長(`disableGrow`);新增的 `Current` / `Previous` 兩欄亦 MUST `disableGrow`(時間字串寬度固定、不撐表);由 Application 的 Name 欄 / Containers 的 Image 欄填滿剩餘寬度,使**兩區塊的連結欄同樣靠右、上下對齊**。連結欄維持為最右(last-child),既有右對齊規則對連結欄 header 持續成立。header 與列的渲染不受查詢狀態影響。
+- **表格版型**:兩區塊 MUST 比照 Alerts 表格以**帶 column header 的表格版型**渲染(同一 `@grafana/ui` `InteractiveTable` 元件)——Application 區塊欄位依序為 **Name / Current Change Time / Previous Change Time / Deployment Changes**,Containers 區塊欄位依序為 **Name / Image / Current Change Time / Previous Change Time / Code Changes**;每欄 MUST 有 header、各列內容 MUST 沿欄整齊對齊,MUST NOT 以無 header 的自由 flex 列呈現。連結欄(Application 為「Deployment Changes」、Containers 為「Code Changes」)MUST 維持為最右欄、MUST 不隨內容成長(`disableGrow`);新增的 `Current` / `Previous` 兩欄亦 MUST `disableGrow`(時間字串寬度固定、不撐表);由 Application 的 Name 欄 / Containers 的 Image 欄填滿剩餘寬度,使**兩區塊的連結欄同樣靠右、上下對齊**。連結欄維持為最右(last-child),既有右對齊規則對連結欄 header 持續成立。header 與列的渲染不受查詢狀態影響。
 - 兩區塊 MUST 以 `@grafana/ui` + emotion `useStyles2` 樣式實作,元件(ApplicationTable / ContainerTable)共置於 `node-detail` feature 並 MUST 經其 `index.ts` barrel 匯出(不跨 feature 越界 import 對方內部檔案)。Application 區塊現行為單列,介面 MUST 預留可成長為多列。
 
 #### Scenario: 右鍵 pod/controller 選取並立即併發預取兩查詢
@@ -88,12 +88,12 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 #### Scenario: Application 區塊以帶 header 表格渲染
 
 - **WHEN** 右鍵開啟的 detail view 渲染 Application 區塊(節點帶 `data.application`)
-- **THEN** 區塊以 `InteractiveTable` 依序呈現 column headers **Name** / **Current** / **Previous** / **Deployment Changes**,application name 落於 Name 欄、兩時間戳落於 Current / Previous 欄、連結欄內容(spinner / anchor / 提示)落於最右的 Deployment Changes 欄
+- **THEN** 區塊以 `InteractiveTable` 依序呈現 column headers **Name** / **Current Change Time** / **Previous Change Time** / **Deployment Changes**,application name 落於 Name 欄、兩時間戳落於 Current / Previous 欄、連結欄內容(spinner / anchor / 提示)落於最右的 Deployment Changes 欄
 
 #### Scenario: Containers 區塊以帶 header 表格渲染且沿欄對齊
 
 - **WHEN** 右鍵開啟的 detail view 渲染 Containers 區塊(節點帶兩個以上、name 長度不一的 containers)
-- **THEN** 區塊以 `InteractiveTable` 依序呈現 column headers **Name** / **Image** / **Current** / **Previous** / **Code Changes**,每列的 container name / image / 兩時間戳 / 連結欄內容分別落於對應欄、沿欄對齊(欄界不隨 name 長度漂移)
+- **THEN** 區塊以 `InteractiveTable` 依序呈現 column headers **Name** / **Image** / **Current Change Time** / **Previous Change Time** / **Code Changes**,每列的 container name / image / 兩時間戳 / 連結欄內容分別落於對應欄、沿欄對齊(欄界不隨 name 長度漂移)
 
 #### Scenario: 連結欄 header 正名
 
@@ -132,15 +132,15 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - **WHEN** detail view 同時顯示 Application 與 Containers 區塊,且部分目標為 loading、部分為 ready(anchor)、部分為 unavailable(提示)(混合狀態)
 - **THEN** 兩區塊每列的連結欄內容皆釘於欄右緣、彼此上下對齊(位置不因提示 / anchor / spinner 寬度差異而左右漂移)
 
-#### Scenario: map 缺 container key 時顯示「No change report」
+#### Scenario: map 缺 container key 時顯示「Not found」
 
 - **WHEN** `code_changes` 成功,但某 container name 不存在於回傳 map(或該 name 無有效 URL)
-- **THEN** 該列連結欄顯示「No change report」提示(無 anchor),name 與 image 仍照常顯示
+- **THEN** 該列連結欄顯示「Not found」提示(無 anchor),name 與 image 仍照常顯示
 
-#### Scenario: 查詢失敗顯示「No change report」且不波及其餘
+#### Scenario: 查詢失敗顯示「Not found」且不波及其餘
 
 - **WHEN** `config_changes`(或 `code_changes`)查詢失敗(非 200 / 網路錯誤 / 回應格式錯誤)
-- **THEN** 對應目標連結欄以次要色顯示「No change report」提示(無 anchor;過長截斷、完整失敗訊息入 `title` 以保留錯誤可見性)
+- **THEN** 對應目標連結欄以次要色顯示「Not found」提示(無 anchor;過長截斷、完整失敗訊息入 `title` 以保留錯誤可見性)
 - **AND** 面板 header 與另一區塊 / 其他列仍正常顯示
 
 #### Scenario: endpoint 自 panel datasource 自動推導(預取發往 sibling 段)
@@ -153,10 +153,10 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - **WHEN** panel option 設定 endpoint 為 `/foo`,且面板查詢 target 亦帶 datasource ref,使用者右鍵開啟 detail view
 - **THEN** 預取查詢發往 `/foo/config_changes` 與 `/foo/code_changes`(option 優先,不使用推導值與 graph query 目錄)
 
-#### Scenario: 未設定 endpoint 且無法推導時不查詢並顯示「No change report」
+#### Scenario: 未設定 endpoint 且無法推導時不查詢並顯示「Not found」
 
 - **WHEN** panel option 未設定查詢 endpoint,且自查詢 targets 推導不出 datasource proxy path(無 targets / 無 datasource ref / 所有 ref 查無 instance settings 或其 `url` 為空)
-- **THEN** 右鍵開啟的 detail view 中兩區塊照資料渲染,連結欄顯示「No change report」提示(`enabled` 為 false),且 MUST NOT 發出任何查詢
+- **THEN** 右鍵開啟的 detail view 中兩區塊照資料渲染,連結欄顯示「Not found」提示(`enabled` 為 false),且 MUST NOT 發出任何查詢
 
 #### Scenario: 左鍵選取不觸發查詢
 

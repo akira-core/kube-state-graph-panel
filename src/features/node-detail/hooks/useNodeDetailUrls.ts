@@ -29,7 +29,7 @@ export interface ChangeReportDetail {
 // Three rendered states per Change Report target. Eager prefetch starts each at
 // 'loading'; on resolve it becomes 'ready' (URL pre-resolved → the table renders a
 // real <a href> anchor, and the Current/Previous columns render the diff timestamps)
-// or 'unavailable' (failure / not-found / no-url → a muted "No change report" hint,
+// or 'unavailable' (failure / not-found / no-url → a muted "Not found" hint,
 // full error message in title). A discriminated union (not one interface with optional
 // url?/error?) so exactOptionalPropertyTypes cannot admit a 'ready' state without a
 // url; the two diff timestamps ride on the 'ready' variant (only a resolved entry can
@@ -69,7 +69,7 @@ export interface NodeDetailLookups {
 }
 
 // The no-lookup controller: nothing requested / no endpoint. Tables render every
-// target as the muted "No change report" hint off it (no spinner, no anchor).
+// target as the muted "Not found" hint off it (no spinner, no anchor).
 export const IDLE_NODE_DETAIL_LOOKUPS: NodeDetailLookups = {
   enabled: false,
   application: UNAVAILABLE,
@@ -148,7 +148,7 @@ function errorMessage(reason: unknown): string {
 // The application target for the current key: its resolved value, or 'loading' while
 // the prefetch is pending (enabled), or 'unavailable' when disabled. Showing
 // 'loading' rather than 'unavailable' for a not-yet-resolved enabled key avoids a
-// "No change report" flash on the frame before the effect's setState lands.
+// "Not found" flash on the frame before the effect's setState lands.
 function deriveApplication(
   appResult: { key: string; value: DetailLookup } | null,
   key: string,
@@ -167,7 +167,7 @@ function deriveApplication(
  * (`getBackendSrv()` — the panel never fetches external URLs directly). No click is
  * needed: the resolved URL is exposed as per-target state so the tables render a
  * real `<a href target="_blank" rel="noopener noreferrer">` anchor on success, a
- * spinner while loading, and a muted "No change report" hint on failure / no-url.
+ * spinner while loading, and a muted "Not found" hint on failure / no-url.
  *
  * At-most-once per open node falls out of the effect being keyed on the request-key
  * STRING (`requestKeyFor`, which fingerprints the endpoint + every input field): a
@@ -298,7 +298,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
   // Container phase + per-name ready map for the current key. byName holds only
   // resolved URLs (null-proto); a settled map missing a name ⇒ that row is
   // unavailable (the table's hasOwn check). 'loading' covers both pre-effect (enabled,
-  // no result yet) and the in-flight map, so rows never flash "No change report".
+  // no result yet) and the in-flight map, so rows never flash "Not found".
   const containers = useMemo<NodeDetailLookups['containers']>(() => {
     if (codeResult === null || codeResult.key !== key || !enabled) {
       return { phase: enabled ? 'loading' : 'settled', byName: EMPTY_BY_NAME };

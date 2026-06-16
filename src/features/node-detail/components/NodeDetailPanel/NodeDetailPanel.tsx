@@ -195,7 +195,7 @@ export function NodeDetailPanel({
   // DETAIL_URL_KINDS (pod + workload controllers — every other kind never shows
   // them, even with stray data) AND the node actually carrying that field.
   // lookups defaults to idle/disabled: sections render their data with every
-  // Change Report target as the muted "No change report" hint (no endpoint /
+  // Change Report target as the muted "Not found" hint (no endpoint /
   // left-click selection — no prefetch fired).
   const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);

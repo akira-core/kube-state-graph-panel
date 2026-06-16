@@ -1,10 +1,10 @@
 ## Context
 
-node-detail 面板的 Change Report 欄目前只給「一個外部連結」(eager 預取、ready 時為 `<a href target="_blank" rel="noopener noreferrer">` anchor、unavailable 時為 muted「No change report」),使用者看不出該連結比較的是**哪兩個時間點**的變更 diff。後端即將在 `config_changes`(application-detail)與 `code_changes`(image-detail,每個 container entry)的回應內補上 diff 的兩個時間戳(current → prev),面板需把它們以兩個欄位(Current / Previous)呈現,並把兩區塊的 Change Report header 正名為語意更精確的標題(Application =「Deployment Changes」、Containers =「Code Changes」)。
+node-detail 面板的 Change Report 欄目前只給「一個外部連結」(eager 預取、ready 時為 `<a href target="_blank" rel="noopener noreferrer">` anchor、unavailable 時為 muted「Not found」),使用者看不出該連結比較的是**哪兩個時間點**的變更 diff。後端即將在 `config_changes`(application-detail)與 `code_changes`(image-detail,每個 container entry)的回應內補上 diff 的兩個時間戳(current → prev),面板需把它們以兩個欄位(Current / Previous)呈現,並把兩區塊的 Change Report header 正名為語意更精確的標題(Application =「Deployment Changes」、Containers =「Code Changes」)。
 
 既有分層必須沿用:`useNodeDetailUrls(input, endpoint)` 為集中查詢的 eager hook,經 `getBackendSrv()` 併發發出 `config_changes` + `code_changes`,於 `parseApplicationUrl` / `parseUrlByContainer` 以 anti-corruption 方式解析回傳(`isPlainObject` 守衛,格式不符即丟棄),回傳 discriminated-union 狀態給 presentational 的 `ApplicationTable` / `ContainerTable`,再由共用 `ChangeReportCell` 渲染三態。面板的 `timeZone`(`PanelProps.timeZone`)已存在一條既有路徑流到 `AlertTable`(`KsgPanel` → `NodeDetailPanel` → `AlertTable`,經 `@grafana/data` `dateTimeFormat` 格式化告警時間),本變更的時間欄沿用同一機制與慣例。
 
-約束(不變):查詢必經 `getBackendSrv()`(不直連外部);端點名稱(`config_changes` / `code_changes`)、sibling 推導(`resolveDetailEndpoint` / `detailPaths`)、共用 input、快取語意(每端點每次開啟最多一次、僅快取成功、換節點 / 關閉清快取並中止 in-flight)、區塊 gating(kind ∈ `DETAIL_URL_KINDS` + 對應資料存在性)、右鍵 / 左鍵行為、`InteractiveTable` 帶 header 版型與失敗隔離,皆維持不變;連結欄本身(eager 預取、anchor、unavailable muted「No change report」)行為不變,只改 header 文字與新增兩個時間欄。
+約束(不變):查詢必經 `getBackendSrv()`(不直連外部);端點名稱(`config_changes` / `code_changes`)、sibling 推導(`resolveDetailEndpoint` / `detailPaths`)、共用 input、快取語意(每端點每次開啟最多一次、僅快取成功、換節點 / 關閉清快取並中止 in-flight)、區塊 gating(kind ∈ `DETAIL_URL_KINDS` + 對應資料存在性)、右鍵 / 左鍵行為、`InteractiveTable` 帶 header 版型與失敗隔離,皆維持不變;連結欄本身(eager 預取、anchor、unavailable muted「Not found」)行為不變,只改 header 文字與新增兩個時間欄。
 
 ## Goals / Non-Goals
 
@@ -12,7 +12,7 @@ node-detail 面板的 Change Report 欄目前只給「一個外部連結」(eage
 
 - `config_changes` 回應由 `{ url }` 擴充為 `{ url, current_time, previous_time }`;`code_changes` 每個 container entry 由 `{ url }` 擴充為 `{ url, current_time, previous_time }`。`current_time` / `previous_time` 為 RFC 3339 / ISO 8601(UTC)字串(如 `2026-06-16T10:30:00Z`)。
 - 兩時間戳為 **best-effort**:缺漏 / 非字串 / 解析失敗時該欄顯示 muted(`theme.colors.text.secondary`)「—」,**MUST NOT** 影響同列的 url anchor、其餘欄、或其餘列(沿用既有 anti-corruption:格式不符即丟棄該欄)。
-- Application 與 Containers 兩表格各新增 **Current** 與 **Previous** 兩欄,呈現該 change diff 的 current → prev 時間戳。
+- Application 與 Containers 兩表格各新增 **Current Change Time** 與 **Previous Change Time** 兩欄,呈現該 change diff 的 current → prev 時間戳。
 - 呈現:以 `@grafana/data` `dateTimeFormat` 依**面板 `timeZone`** 格式化為在地化絕對時間(如 `2026-06-16 10:30:00`);完整 ISO 原字串入該 cell 的 `title`;無值 / 解析失敗 → muted「—」。
 - Header 正名:Application 區塊連結欄 header → **「Deployment Changes」**;Containers 區塊連結欄 header → **「Code Changes」**。
 - 維持 hook 集中查詢、表格 presentational 的既有分層;沿用既有 `timeZone` 傳遞路徑。
@@ -20,7 +20,7 @@ node-detail 面板的 Change Report 欄目前只給「一個外部連結」(eage
 **Non-Goals:**
 
 - 不改傳輸層(`getBackendSrv()`)、端點名稱、sibling 推導(`resolveDetailEndpoint` / `detailPaths` 不動)、快取語意、區塊 gating、右鍵 / 左鍵行為。
-- 不改連結欄的 eager 預取、anchor、unavailable「No change report」三態行為(僅改其 header 文字)。
+- 不改連結欄的 eager 預取、anchor、unavailable「Not found」三態行為(僅改其 header 文字)。
 - 不在解析層把 RFC 3339 轉為 `Date` / `DateTime`(原字串往上帶,顯示層才格式化)。
 - 不提供相對時間(如「3 天前」)或互動式時間範圍跳轉(時間欄為純呈現,不可點)。
 

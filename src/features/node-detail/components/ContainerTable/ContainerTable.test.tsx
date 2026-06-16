@@ -21,7 +21,7 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
 
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Name', 'Image', 'Current', 'Previous', 'Code Changes']);
+    expect(headers).toEqual(['Name', 'Image', 'Current Change Time', 'Previous Change Time', 'Code Changes']);
     expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();
 
     const rows = dataRows();
@@ -40,8 +40,8 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     expect(appLink.getAttribute('rel')).toBe('noopener noreferrer');
     expect(within(rows[0]!).queryByTestId('container-url-unavailable')).not.toBeInTheDocument();
 
-    // sidecar row (absent from byName) → muted "No change report" hint, no link.
-    expect(within(rows[1]!).getByTestId('container-url-unavailable')).toHaveTextContent('No change report');
+    // sidecar row (absent from byName) → muted "Not found" hint, no link.
+    expect(within(rows[1]!).getByTestId('container-url-unavailable')).toHaveTextContent('Not found');
     expect(within(rows[1]!).queryByTestId('container-url-link')).not.toBeInTheDocument();
 
     // settled, so nothing is still loading anywhere.
@@ -54,7 +54,7 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     const rows = dataRows();
     expect(rows).toHaveLength(2);
     for (const row of rows) {
-      expect(within(row).getByTestId('container-url-unavailable')).toHaveTextContent('No change report');
+      expect(within(row).getByTestId('container-url-unavailable')).toHaveTextContent('Not found');
       expect(within(row).queryByTestId('container-url-link')).not.toBeInTheDocument();
       expect(within(row).queryByTestId('container-url-pending')).not.toBeInTheDocument();
     }
@@ -84,8 +84,8 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     expect(within(rows[0]!).queryByTestId('container-url-unavailable')).not.toBeInTheDocument();
     expect(within(rows[0]!).queryByTestId('container-url-pending')).not.toBeInTheDocument();
 
-    // Row 1 (sidecar): absent from byName → the muted "No change report" hint, no link.
-    expect(within(rows[1]!).getByTestId('container-url-unavailable')).toHaveTextContent('No change report');
+    // Row 1 (sidecar): absent from byName → the muted "Not found" hint, no link.
+    expect(within(rows[1]!).getByTestId('container-url-unavailable')).toHaveTextContent('Not found');
     expect(within(rows[1]!).queryByTestId('container-url-link')).not.toBeInTheDocument();
     expect(within(rows[1]!).queryByTestId('container-url-pending')).not.toBeInTheDocument();
   });

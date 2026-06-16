@@ -50,7 +50,7 @@ function getStyles(theme: GrafanaTheme2): { urlCell: string; pending: string; li
 // The Change Report cell shared by ApplicationTable and ContainerTable (D8 keeps both
 // sections' columns identical). Renders one eager-prefetched DetailLookup as exactly
 // one of three states, pinned to the column's right edge: loading (Spinner), ready (a
-// real <a href> anchor), or unavailable (a muted "No change report" hint with the full
+// real <a href> anchor), or unavailable (a muted "Not found" hint with the full
 // error in title). testids are `${idPrefix}-url-pending|link|unavailable`.
 export function ChangeReportCell({ state, idPrefix }: Readonly<ChangeReportCellProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
@@ -78,7 +78,7 @@ export function ChangeReportCell({ state, idPrefix }: Readonly<ChangeReportCellP
           data-testid={`${idPrefix}-url-unavailable`}
           {...(state.error !== undefined ? { title: state.error } : {})}
         >
-          No change report
+          Not found
         </span>
       )}
     </div>
