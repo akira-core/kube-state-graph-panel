@@ -392,4 +392,61 @@ describe('getStylesheet', () => {
     const selectors = sheet.map((s) => s.selector);
     expect(selectors.indexOf(SWITCH_FABRIC_SELECTOR)).toBeGreaterThan(selectors.indexOf('edge'));
   });
+
+  it('declares a namespace-box selector (data(namespaceColor)) after node[?isCluster] and before node:selected', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const nsIdx = selectors.indexOf('node[?isNamespace]');
+    expect(nsIdx).toBeGreaterThan(-1);
+    const ns = sheet[nsIdx]?.style ?? {};
+    expect(ns['background-color']).toBe('data(namespaceColor)');
+    expect(ns['border-color']).toBe('data(namespaceColor)');
+    expect(ns['background-image']).toBe('none');
+    // After the cluster selector (so its accent wins for namespace boxes), before the
+    // selection ring (which still wins).
+    expect(nsIdx).toBeGreaterThan(selectors.indexOf('node[?isCluster]'));
+    expect(nsIdx).toBeLessThan(selectors.indexOf('node:selected'));
+  });
+
+  it('keeps a namespace box namespaceColor in both states; a split storageclass sub-box inherits the cluster tint', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        {
+          group: 'nodes',
+          data: {
+            id: 'nsbox',
+            label: 'shop',
+            isNamespace: true,
+            namespace: 'shop',
+            namespaceColor: '#e8833a',
+            parent: 'cluster/prod',
+          },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'scsub', label: 'gp2', kind: 'storageclass', isStorageClass: true, parent: 'nsbox' },
+        },
+        { group: 'nodes', data: { id: 'pvc', label: 'data-0', kind: 'pvc', parent: 'scsub' } },
+      ],
+    });
+    const nsbox = cy.getElementById('nsbox');
+    // Expanded namespace box → border is its namespaceColor (direct node[?isNamespace] hit).
+    const nsBorderExpanded = nsbox.style('border-color') as string;
+    nsbox.addClass('cy-expand-collapse-collapsed-node');
+    // Collapsed → STILL the namespaceColor (the selector does not depend on :parent).
+    expect(nsbox.style('border-color')).toBe(nsBorderExpanded);
+    // The split storageclass sub-box (parent = namespace box) inherits the CLUSTER tint
+    // via the ancestor walk — same backplate colour as the cluster box (one family).
+    expect(cy.getElementById('scsub').style('background-color')).toBe(
+      cy.getElementById('cluster/prod').style('background-color')
+    );
+    cy.destroy();
+  });
 });

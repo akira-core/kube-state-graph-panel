@@ -481,6 +481,11 @@ function synthesizeControllers(
           kind: kindLower as NodeKind,
           isController: true,
           label: o.ownerName,
+          // namespace is a mode-agnostic leaf fact (all owned pods of one controller
+          // share it via the dedup key) — written so applyNamespaceGrouping (controller
+          // mode) can group the controller under its namespace box. Omitted when the
+          // owned pods carry no namespace (exactOptionalPropertyTypes).
+          ...(o.namespace !== '' ? { namespace: o.namespace } : {}),
           ...(parent !== undefined ? { parent } : {}),
           // Always written — a controller always owns ≥1 pod, so an all-normal
           // brood collapses to an explicit green border (normal is drawn too, D10).

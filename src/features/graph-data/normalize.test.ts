@@ -1030,6 +1030,53 @@ describe('normalizeGraph — controller synthesis', () => {
     expect(ctrls).toHaveLength(2);
   });
 
+  it('tags the synthesized controller with its namespace (from owned pods)', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'Deployment', name: 'api' }),
+        ],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl?.namespace).toBe('shop');
+  });
+
+  it('omits the controller namespace when owned pods carry none (exactOptionalPropertyTypes)', () => {
+    const raw = {
+      elements: {
+        nodes: [{ data: { id: 'p1', name: 'p1', type: 'pod', labels: { owner_kind: 'Job', owner_name: 'batch' } } }],
+        edges: [],
+      },
+    };
+    const ctrl = normalizeGraph(raw).elements.find(
+      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
+    )?.data as cytoscape.NodeDataDefinition | undefined;
+    expect(ctrl).toBeDefined();
+    expect(ctrl !== undefined && 'namespace' in ctrl).toBe(false);
+  });
+
+  it('gives same-named controllers in different namespaces their own namespace', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
+          podWithOwner('prod/a1', 'prod', 'a', { kind: 'Deployment', name: 'api' }),
+          podWithOwner('prod/b1', 'prod', 'b', { kind: 'Deployment', name: 'api' }),
+        ],
+        edges: [],
+      },
+    };
+    const namespaces = normalizeGraph(raw)
+      .elements.filter((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)
+      .map((e) => (e.data as cytoscape.NodeDataDefinition).namespace);
+    expect([...namespaces].sort()).toEqual(['a', 'b']);
+  });
+
   it('does not synthesize for pods without an owner', () => {
     const raw = {
       elements: {

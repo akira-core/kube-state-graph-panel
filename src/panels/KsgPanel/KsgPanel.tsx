@@ -6,16 +6,18 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { computeVisibility, isFilterableKind } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
-import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
+import { applyNamespaceGrouping, useGraphData, wrapSwitchFabric } from '../../features/graph-data';
 import {
   ClusterLegend,
   EdgeLegend,
   LayoutModeControl,
+  NamespaceLegend,
   NodeContainerLegend,
   NodeLegend,
   StatusLegend,
   StorageClassLegend,
   type ClusterLegendEntry,
+  type NamespaceLegendEntry,
 } from '../../features/legend';
 import {
   DETAIL_URL_KINDS,
@@ -162,7 +164,7 @@ export function resolveSelectedNode(
       continue;
     }
     const d = el.data as cytoscape.NodeDataDefinition;
-    if (d.id === selectedNodeId && d.isCluster !== true && d.isStorageClass !== true) {
+    if (d.id === selectedNodeId && d.isCluster !== true && d.isStorageClass !== true && d.isNamespace !== true) {
       const label = typeof d.label === 'string' ? d.label : selectedNodeId;
       // Controller identity the detail-URL queries use (D4), resolved only for the
       // kinds they may fire for: a pod from its owner (kind lowercased to match the
@@ -248,11 +250,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // aggregates pods under their owning controller; 'node' is the
   // infrastructure view (clean cluster > node > pod backend topology).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
-  // wrapSwitchFabric synthesizes the virtual `network > switch` compound when
-  // the data ships parent-less switches without its own network group, so any
-  // backend version gets the boxed fabric (see switch-tier-layout spec).
+  // View-transform pipeline (each a pure pass, mode-threaded): applyPodParentMode
+  // re-shapes pod nesting; applyNamespaceGrouping inserts the virtual namespace
+  // compounds in CONTROLLER mode (no-op in node mode — namespace-grouping spec);
+  // wrapSwitchFabric synthesizes the virtual `network > switch` compound when the
+  // data ships parent-less switches without its own network group (switch-tier-layout).
   const elements = useMemo(
-    () => wrapSwitchFabric(applyPodParentMode(baseElements, podParentMode)),
+    () => wrapSwitchFabric(applyNamespaceGrouping(applyPodParentMode(baseElements, podParentMode), podParentMode)),
     [baseElements, podParentMode]
   );
 
@@ -361,6 +365,42 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       }
     }
     return [...byName].map(([name, color]) => ({ name, color }));
+  }, [elements]);
+
+  // Namespace swatches (CONTROLLER mode only) from the synthesized namespace boxes
+  // (data.namespaceColor, assigned in applyNamespaceGrouping) so the legend matches the
+  // on-canvas backplates. Deduped by name (same name → same hashed colour → one row);
+  // SINGLE SOURCE with namespaceContainerIds below (both filter isNamespace === true).
+  // Empty in node mode (no namespace boxes).
+  const namespaceEntries = useMemo<NamespaceLegendEntry[]>(() => {
+    const byName = new Map<string, string>();
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isNamespace === true && typeof d.namespace === 'string' && typeof d.namespaceColor === 'string') {
+        byName.set(d.namespace, d.namespaceColor);
+      }
+    }
+    return [...byName].map(([name, color]) => ({ name, color }));
+  }, [elements]);
+
+  // All namespace box ids (every cluster's), for the namespace collapse-all group.
+  // Same isNamespace filter as namespaceEntries (single source) — so the toggle and the
+  // swatch section can never reference different sets (cf. clusterContainerIds).
+  const namespaceContainerIds = useMemo<string[]>(() => {
+    const ids: string[] = [];
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isNamespace === true && typeof d.id === 'string') {
+        ids.push(d.id);
+      }
+    }
+    return ids;
   }, [elements]);
 
   // Edge types present in the graph, ordered by the canonical edge-style map for
@@ -509,6 +549,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     collapsedIds,
     setCollapsedIds
   );
+  // Namespace collapse-all (controller mode). Namespace boxes are NOT default-collapsed
+  // (no seeding effect), so allNamespacesCollapsed starts false.
+  const { allCollapsed: allNamespacesCollapsed, toggle: toggleNamespaces } = useCollapseGroup(
+    namespaceContainerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
 
   if (seriesError !== undefined) {
     return (
@@ -566,6 +613,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
+          {podParentMode === 'controller' && (
+            <NamespaceLegend
+              namespaces={namespaceEntries}
+              onToggleCollapseAll={toggleNamespaces}
+              allCollapsed={allNamespacesCollapsed}
+            />
+          )}
           <NodeContainerLegend
             nodes={containerEntries}
             onToggleCollapseAll={toggleNodes}

@@ -445,6 +445,55 @@ describe('KsgPanel', () => {
     expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
   });
 
+  it('renders a Namespaces legend section in controller mode (none in node mode) and does NOT default-collapse namespace boxes', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: 'demo/node-a',
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    // Controller mode (default): a Namespaces swatch section appears.
+    const nsLegend = screen.getByTestId('namespace-legend');
+    expect(within(nsLegend).getByRole('heading', { name: /Namespaces/ })).toBeInTheDocument();
+    // The synthesized controller IS default-collapsed, but its namespace box is NOT —
+    // namespace stays expanded so the grouped content is visible.
+    const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
+    const lastCall = calls.at(-1)?.[0];
+    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+    expect(lastCall?.collapsedIds?.has('nsbox/cluster:demo/shop')).toBe(false);
+    // Node mode draws no namespace → no section.
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Node'));
+    });
+    expect(screen.queryByTestId('namespace-legend')).not.toBeInTheDocument();
+  });
+
   it('renders a "Storage classes" legend section and default-folds storage classes on load (toggle expands)', () => {
     const payload = {
       elements: {

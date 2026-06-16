@@ -54,6 +54,13 @@ declare module 'cytoscape' {
     // It nests under its cluster, tints from that cluster's accent, and stays
     // interactive / collapsible.
     isStorageClass?: boolean;
+    // Panel-synthesized namespace compound — CONTROLLER MODE ONLY (applyNamespaceGrouping).
+    // Groups namespaced resources under their cluster: cluster > namespace >
+    // {controller > pod, service, storageclass > pvc}. Decorative (selectable:false),
+    // carries NO status / alerts / worstStatus; coloured by a stable hash of the
+    // namespace name. node mode draws no namespace, so neither flag appears there.
+    isNamespace?: boolean; // true only on a synthesized namespace box
+    namespaceColor?: string; // accent assigned in applyNamespaceGrouping so the stylesheet stays pure
   }
 
   interface EdgeDataDefinition {

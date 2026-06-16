@@ -36,8 +36,20 @@ function resolveIconUri(kind: string | undefined, iconColor: string): string {
 // removes its children), so it stops matching node:parent and reverts to the base
 // node styling — exactly the "white label once collapsed" behaviour we want.
 function resolveParentClusterColor(ele: cytoscape.NodeSingular, fallback: string): string {
-  const parentColor = ele.parent().data('clusterColor') as unknown;
-  return typeof parentColor === 'string' ? parentColor : fallback;
+  // Walk the parent chain to the first ancestor carrying a clusterColor (the cluster
+  // box). The immediate parent suffices for a K8s node directly under its cluster; a
+  // storageclass sub-box split under a namespace box (controller mode) sits one level
+  // deeper (sub-box → namespace box → cluster), so keep walking to inherit the cluster
+  // accent rather than falling back to neutral.
+  let cur: cytoscape.NodeCollection = ele.parent();
+  for (let guard = 0; cur.nonempty() && guard < 64; guard++) {
+    const c = cur.data('clusterColor') as unknown;
+    if (typeof c === 'string') {
+      return c;
+    }
+    cur = cur.parent();
+  }
+  return fallback;
 }
 
 function resolveEdgeStyle(edgeType: string | undefined, map: Record<string, EdgeStyle>): EdgeStyle {
@@ -198,6 +210,34 @@ export function getStylesheet({
         'text-halign': 'center',
         'text-margin-y': -4,
         padding: '18px',
+      },
+    },
+    {
+      // Panel-synthesized namespace compound (controller mode) — nests INSIDE its
+      // cluster box. Its own accent (data.namespaceColor, a palette distinct from
+      // CLUSTER_PALETTE) so the namespace band reads apart from its enclosing cluster.
+      // Matches node[?isNamespace] DIRECTLY (not via node:parent) so the colour holds
+      // in BOTH expanded and collapsed states (a collapsed box drops out of :parent).
+      // Declared after node[?isCluster] so it wins for namespace boxes; before
+      // node:selected so the selection ring still wins (namespace boxes are
+      // selectable:false anyway).
+      selector: 'node[?isNamespace]',
+      style: {
+        shape: 'round-rectangle',
+        'background-image': 'none',
+        'background-color': 'data(namespaceColor)',
+        'background-opacity': 0.1,
+        'border-color': 'data(namespaceColor)',
+        'border-width': 1.5,
+        'border-opacity': 0.7,
+        label: 'data(label)',
+        color: 'data(namespaceColor)',
+        'font-size': 11,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -3,
+        padding: '12px',
       },
     },
     {
