@@ -61,6 +61,31 @@ describe('useHoverElement', () => {
     cy.destroy();
   });
 
+  it('snapshots an element whose data carries a live cytoscape collection without overflowing', () => {
+    // Reproduces the production hover crash: cytoscape-expand-collapse parks live
+    // collections on element data (`collapsedChildren` on collapsed parents,
+    // `originalEnds` on rerouted edges). Those collections reference cy, so they are
+    // cyclic — a naive deep clone of `target.data()` recursed forever and threw
+    // "Maximum call stack size exceeded" on every hover.
+    const cy = headlessCy([
+      { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod' } },
+      { group: 'nodes', data: { id: 'p2', label: 'db', kind: 'pod' } },
+    ]);
+    // Park a live (cyclic) collection on the node, exactly as the extension does.
+    cy.getElementById('p1').data('collapsedChildren', cy.nodes());
+    const cyRef = { current: cy };
+    const { result } = renderHook(() => useHoverElement({ cyRef, ready: true }));
+
+    expect(() => {
+      act(() => {
+        cy.getElementById('p1').emit('mouseover');
+      });
+    }).not.toThrow();
+    expect(result.current?.id).toBe('p1');
+    expect(result.current?.data.label).toBe('web');
+    cy.destroy();
+  });
+
   it('never surfaces a tooltip for a cluster container node', () => {
     const cy = headlessCy([{ group: 'nodes', data: { id: 'cluster:demo', label: 'demo', isCluster: true } }]);
     const cyRef = { current: cy };

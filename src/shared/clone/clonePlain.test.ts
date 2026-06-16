@@ -18,4 +18,28 @@ describe('clonePlain', () => {
     expect(clonePlain(undefined)).toBeUndefined();
     expect(clonePlain(false)).toBe(false);
   });
+
+  it('returns non-plain class instances by reference instead of recursing into them', () => {
+    // The util's contract: only arrays / plain objects are deep-copied; anything
+    // with a non-Object prototype (class instances, and notably the live cytoscape
+    // collections the expand-collapse extension parks on element data) is passed
+    // through untouched.
+    class Box {
+      constructor(public readonly v: number) {}
+    }
+    const box = new Box(1);
+    const cloned = clonePlain({ box });
+    expect(cloned).not.toBe({ box }); // top level is a fresh object
+    expect(cloned.box).toBe(box); // the instance itself is not copied
+  });
+
+  it('does not overflow the stack on a self-referential (cyclic) structure', () => {
+    // Reproduces the hover crash: cytoscape parks live, cyclic collections on
+    // element data, and the old clone recursed forever ("Maximum call stack size
+    // exceeded"). A cycle must terminate, not blow the stack.
+    const a: Record<string, unknown> = { name: 'a' };
+    a.self = a;
+    expect(() => clonePlain(a)).not.toThrow();
+    expect((clonePlain(a) as { name: string }).name).toBe('a');
+  });
 });
