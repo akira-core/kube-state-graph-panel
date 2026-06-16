@@ -16,13 +16,13 @@ function dataRows(): HTMLElement[] {
 }
 
 describe('ContainerTable (eager-prefetch Change Report)', () => {
-  it('renders a headered table (Name / Image / Change Report); a ready container links, a missing one is unavailable', () => {
+  it('renders a headered table (Name / Image / Current / Previous / Code Changes); a ready container links, a missing one is unavailable', () => {
     const byName: Record<string, DetailLookup> = { app: { status: 'ready', url: 'https://x/app' } };
     render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
 
-    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Image' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Change Report' })).toBeInTheDocument();
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toEqual(['Name', 'Image', 'Current', 'Previous', 'Code Changes']);
+    expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();
 
     const rows = dataRows();
     expect(rows).toHaveLength(2);
@@ -88,5 +88,37 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     expect(within(rows[1]!).getByTestId('container-url-unavailable')).toHaveTextContent('No change report');
     expect(within(rows[1]!).queryByTestId('container-url-link')).not.toBeInTheDocument();
     expect(within(rows[1]!).queryByTestId('container-url-pending')).not.toBeInTheDocument();
+  });
+
+  it('renders per-row Current / Previous diff timestamps (localized, ISO in title) on ready rows', () => {
+    const byName: Record<string, DetailLookup> = {
+      app: {
+        status: 'ready',
+        url: 'https://x/app',
+        currentTime: '2026-06-16T10:30:00Z',
+        previousTime: '2026-06-10T08:00:00Z',
+      },
+    };
+    render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} timeZone="utc" />);
+    const rows = dataRows();
+
+    // app row carries timestamps (localized value + ISO title); its link is unaffected.
+    const appCur = within(rows[0]!).getByTestId('container-current');
+    expect(appCur.textContent).toContain('2026-06-16');
+    expect(appCur.getAttribute('title')).toBe('2026-06-16T10:30:00Z');
+    expect(within(rows[0]!).getByTestId('container-previous').getAttribute('title')).toBe('2026-06-10T08:00:00Z');
+    expect(within(rows[0]!).getByTestId('container-url-link').getAttribute('href')).toBe('https://x/app');
+
+    // sidecar row (unavailable) → muted "—" in both time columns.
+    expect(within(rows[1]!).getByTestId('container-current').textContent).toBe('—');
+    expect(within(rows[1]!).getByTestId('container-previous').textContent).toBe('—');
+  });
+
+  it('shows muted "—" time cells on loading rows', () => {
+    render(<ContainerTable containers={containers} lookups={{ phase: 'loading', byName: {} }} timeZone="utc" />);
+    for (const row of dataRows()) {
+      expect(within(row).getByTestId('container-current').textContent).toBe('—');
+      expect(within(row).getByTestId('container-previous').textContent).toBe('—');
+    }
   });
 });

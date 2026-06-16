@@ -315,4 +315,71 @@ describe('useNodeDetailUrls (eager prefetch, no click triggers)', () => {
     expect(result.current.containers.byName['sidecar']).toBeUndefined();
     expect(result.current.containers.byName['worker']).toEqual({ status: 'ready', url: 'https://y/worker' });
   });
+
+  // --- diff timestamps (current → prev), RFC 3339, best-effort ---
+
+  it('carries the RFC 3339 diff timestamps on a ready application lookup', async () => {
+    const appWithTimes = {
+      url: 'https://argo/app/checkout',
+      current_time: '2026-06-16T10:30:00Z',
+      previous_time: '2026-06-10T08:00:00Z',
+    };
+    routeGet(Promise.resolve(appWithTimes), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.application).toEqual({
+        status: 'ready',
+        url: 'https://argo/app/checkout',
+        currentTime: '2026-06-16T10:30:00Z',
+        previousTime: '2026-06-10T08:00:00Z',
+      });
+    });
+  });
+
+  it('carries the diff timestamps per container on ready lookups', async () => {
+    const codeWithTimes = {
+      app: { url: 'https://x/app', current_time: '2026-06-16T10:30:00Z', previous_time: '2026-06-10T08:00:00Z' },
+    };
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeWithTimes));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.containers.byName['app']).toEqual({
+        status: 'ready',
+        url: 'https://x/app',
+        currentTime: '2026-06-16T10:30:00Z',
+        previousTime: '2026-06-10T08:00:00Z',
+      });
+    });
+  });
+
+  it('omits the timestamp keys (not undefined) when the backend sends only a url', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.application.status).toBe('ready');
+    });
+    const app = result.current.application;
+    expect(app).toEqual({ status: 'ready', url: 'https://argo/app/checkout' });
+    expect(Object.hasOwn(app, 'currentTime')).toBe(false);
+    expect(Object.hasOwn(app, 'previousTime')).toBe(false);
+  });
+
+  it('drops a non-string / empty timestamp but keeps the url (best-effort)', async () => {
+    const appBadTime = { url: 'https://argo/app/checkout', current_time: 123, previous_time: '' };
+    routeGet(Promise.resolve(appBadTime), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.application).toEqual({ status: 'ready', url: 'https://argo/app/checkout' });
+    });
+  });
+
+  it('drops a container entry missing a url even if it carries timestamps', async () => {
+    const codeNoUrl = { app: { current_time: '2026-06-16T10:30:00Z', previous_time: '2026-06-10T08:00:00Z' } };
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeNoUrl));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.containers.phase).toBe('settled');
+    });
+    expect(result.current.containers.byName['app']).toBeUndefined();
+  });
 });

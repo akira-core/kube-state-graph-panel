@@ -4,8 +4,10 @@ import { type CellProps, type Column, InteractiveTable, useStyles2 } from '@graf
 import React, { useMemo } from 'react';
 
 import { themeColors } from '../../../../shared/theme/themeColors';
+import { formatChangeTime } from '../../formatChangeTime';
 import type { DetailLookup } from '../../hooks/useNodeDetailUrls';
 import { ChangeReportCell } from '../ChangeReportCell';
+import { ChangeTimeCell } from '../ChangeTimeCell';
 
 import type { ContainerTableProps } from './ContainerTable.types';
 
@@ -65,12 +67,14 @@ function rowLookup(lookups: ContainerTableProps['lookups'], name: string): Detai
 }
 
 // The containers table: a headered InteractiveTable (same component and column
-// layout as the Alerts table — D8) with Name / Image / Change Report columns, one
-// row per container. Each Change Report is EAGER-prefetched (the shared code_changes
-// map resolves when the panel opens); the shared ChangeReportCell renders the row's
-// DetailLookup as a Spinner / `<a href>` anchor / muted "No change report" hint. The
+// layout as the Alerts table — D8) with Name / Image / Current / Previous / Code
+// Changes columns, one row per container. The Code Changes (link) column is EAGER-
+// prefetched (the shared code_changes map resolves when the panel opens); the shared
+// ChangeReportCell renders the row's DetailLookup as a Spinner / `<a href>` anchor /
+// muted "No change report" hint. Current / Previous render the row's diff timestamps
+// off its ready lookup (localized via the panel timeZone, muted "—" when absent). The
 // header and rows always render; each row's state is independent.
-export function ContainerTable({ containers, lookups }: Readonly<ContainerTableProps>): React.JSX.Element {
+export function ContainerTable({ containers, lookups, timeZone }: Readonly<ContainerTableProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
 
   // columns + data must be memoized (InteractiveTable / react-table requirement).
@@ -93,15 +97,49 @@ export function ContainerTable({ containers, lookups }: Readonly<ContainerTableP
         cell: ({ row }: CellProps<ContainerRow>) => <span className={styles.image}>{row.original.image}</span>,
       },
       {
+        id: 'current',
+        header: 'Current',
+        disableGrow: true,
+        cell: ({ row }: CellProps<ContainerRow>) => {
+          const lk = rowLookup(lookups, row.original.name);
+          const iso = lk.status === 'ready' ? lk.currentTime : undefined;
+          return (
+            <ChangeTimeCell
+              formatted={formatChangeTime(iso, timeZone)}
+              {...(iso !== undefined ? { title: iso } : {})}
+              testId="container-current"
+            />
+          );
+        },
+      },
+      {
+        id: 'previous',
+        header: 'Previous',
+        disableGrow: true,
+        cell: ({ row }: CellProps<ContainerRow>) => {
+          const lk = rowLookup(lookups, row.original.name);
+          const iso = lk.status === 'ready' ? lk.previousTime : undefined;
+          return (
+            <ChangeTimeCell
+              formatted={formatChangeTime(iso, timeZone)}
+              {...(iso !== undefined ? { title: iso } : {})}
+              testId="container-previous"
+            />
+          );
+        },
+      },
+      {
         id: 'url',
-        header: 'Change Report',
+        header: 'Code Changes',
+        // disableGrow + stays last so the wrapper's `th:last-child` right-align rule
+        // keeps targeting the link header, aligned with the Application section's.
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => (
           <ChangeReportCell state={rowLookup(lookups, row.original.name)} idPrefix="container" />
         ),
       },
     ],
-    [styles, lookups]
+    [styles, lookups, timeZone]
   );
 
   return (

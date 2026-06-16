@@ -10,4 +10,7 @@ export interface ContainerTableProps {
   // is unavailable (muted "No change report"). The container LIST is `containers`
   // above, not byName. See useNodeDetailUrls.
   lookups: NodeDetailLookups['containers'];
+  // Panel timeZone, forwarded to formatChangeTime for the Current / Previous diff
+  // timestamp columns (omitted → Grafana's default zone).
+  timeZone?: string;
 }

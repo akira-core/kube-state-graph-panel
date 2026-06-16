@@ -8,4 +8,7 @@ export interface ApplicationTableProps {
   // (spinner) → ready (a real <a href> anchor, URL pre-resolved) / unavailable
   // (muted "No change report" hint, full error in title). No click trigger.
   state: DetailLookup;
+  // Panel timeZone, forwarded to formatChangeTime for the Current / Previous diff
+  // timestamp columns (omitted → Grafana's default zone).
+  timeZone?: string;
 }

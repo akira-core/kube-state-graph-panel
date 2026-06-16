@@ -229,7 +229,11 @@ export function NodeDetailPanel({
           <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
             <div className={styles.sectionTitle}>Application</div>
             <div className={styles.staticBody}>
-              <ApplicationTable application={node.application} state={lookupsState.application} />
+              <ApplicationTable
+                application={node.application}
+                state={lookupsState.application}
+                {...(timeZone !== undefined ? { timeZone } : {})}
+              />
             </div>
           </div>
         )}
@@ -237,7 +241,11 @@ export function NodeDetailPanel({
           <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-containers">
             <div className={styles.sectionTitle}>Containers</div>
             <div className={styles.slot}>
-              <ContainerTable containers={node.containers} lookups={lookupsState.containers} />
+              <ContainerTable
+                containers={node.containers}
+                lookups={lookupsState.containers}
+                {...(timeZone !== undefined ? { timeZone } : {})}
+              />
             </div>
           </div>
         )}

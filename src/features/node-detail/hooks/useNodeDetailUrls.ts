@@ -14,15 +14,29 @@ export interface NodeDetailQueryInput {
   time: number;
 }
 
+// The parsed payload of one successful Change Report lookup: the (required) URL plus
+// the optional RFC 3339 / ISO 8601 (UTC) diff timestamps (current → prev). The two
+// times are best-effort — a key is present ONLY when the backend sent a non-empty
+// string (exactOptionalPropertyTypes), so a missing time is an absent key, never
+// `undefined`. The raw ISO string is passed through unchanged; timezone formatting is
+// a display concern (the tables' formatChangeTime), not this parse layer's.
+export interface ChangeReportDetail {
+  url: string;
+  currentTime?: string;
+  previousTime?: string;
+}
+
 // Three rendered states per Change Report target. Eager prefetch starts each at
 // 'loading'; on resolve it becomes 'ready' (URL pre-resolved → the table renders a
-// real <a href> anchor) or 'unavailable' (failure / not-found / no-url → a muted
-// "No change report" hint, full error message in title). A discriminated union (not
-// one interface with optional url?/error?) so exactOptionalPropertyTypes cannot
-// admit a 'ready' state without a url.
+// real <a href> anchor, and the Current/Previous columns render the diff timestamps)
+// or 'unavailable' (failure / not-found / no-url → a muted "No change report" hint,
+// full error message in title). A discriminated union (not one interface with optional
+// url?/error?) so exactOptionalPropertyTypes cannot admit a 'ready' state without a
+// url; the two diff timestamps ride on the 'ready' variant (only a resolved entry can
+// carry them).
 export type DetailLookup =
   | { status: 'loading' }
-  | { status: 'ready'; url: string }
+  | { status: 'ready'; url: string; currentTime?: string; previousTime?: string }
   | { status: 'unavailable'; error?: string };
 
 const LOADING: DetailLookup = { status: 'loading' };
@@ -71,29 +85,42 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-// application-detail (`config_changes`) contract: `{ "url": string }`. undefined =
-// shape mismatch (surfaced as that side's unavailable).
-function parseApplicationUrl(res: unknown): string | undefined {
+// The optional RFC 3339 diff timestamps off a backend entry, best-effort: each key is
+// kept ONLY when its value is a non-empty string, else omitted (exactOptionalProperty-
+// Types — never set to `undefined`). The raw ISO string passes through unchanged.
+function pickTimes(o: Record<string, unknown>): { currentTime?: string; previousTime?: string } {
+  return {
+    ...(typeof o.current_time === 'string' && o.current_time.length > 0 ? { currentTime: o.current_time } : {}),
+    ...(typeof o.previous_time === 'string' && o.previous_time.length > 0 ? { previousTime: o.previous_time } : {}),
+  };
+}
+
+// application-detail (`config_changes`) contract: `{ "url": string, "current_time"?:
+// string, "previous_time"?: string }`. `url` is the SOLE availability criterion — no
+// url is a shape mismatch (undefined → that side's unavailable); the two timestamps
+// are best-effort extras (pickTimes), their absence never fails the lookup.
+function parseApplicationUrl(res: unknown): ChangeReportDetail | undefined {
   if (isPlainObject(res) && typeof res.url === 'string' && res.url.length > 0) {
-    return res.url;
+    return { url: res.url, ...pickTimes(res) };
   }
   return undefined;
 }
 
-// image-detail (`code_changes`) contract: `{ [container]: { "url": string } }` —
-// flattened here so the UI only ever sees container → URL. Malformed entries are
-// dropped (anti-corruption); a non-object payload is a shape error (undefined).
-function parseUrlByContainer(res: unknown): Record<string, string> | undefined {
+// image-detail (`code_changes`) contract: `{ [container]: { "url": string,
+// "current_time"?: string, "previous_time"?: string } }` — flattened here so the UI
+// only ever sees container → detail. Malformed entries (no valid url) are dropped
+// (anti-corruption); a non-object payload is a shape error (undefined).
+function parseUrlByContainer(res: unknown): Record<string, ChangeReportDetail> | undefined {
   if (!isPlainObject(res)) {
     return undefined;
   }
   // Null prototype: container names are arbitrary backend strings, and a name like
   // 'constructor' must read back undefined when absent — on a prototype-ful object
-  // it would resolve to the inherited Function and defeat the UI's ?? fallback.
-  const flat: Record<string, string> = Object.create(null) as Record<string, string>;
+  // it would resolve to the inherited Function and defeat the UI's hasOwn fallback.
+  const flat: Record<string, ChangeReportDetail> = Object.create(null) as Record<string, ChangeReportDetail>;
   for (const [container, entry] of Object.entries(res)) {
     if (isPlainObject(entry) && typeof entry.url === 'string' && entry.url.length > 0) {
-      flat[container] = entry.url;
+      flat[container] = { url: entry.url, ...pickTimes(entry) };
     }
   }
   return flat;
@@ -166,7 +193,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
   const [appResult, setAppResult] = useState<{ key: string; value: DetailLookup } | null>(null);
   const [codeResult, setCodeResult] = useState<{
     key: string;
-    map: Record<string, string> | null;
+    map: Record<string, ChangeReportDetail> | null;
     failed: boolean;
   } | null>(null);
 
@@ -212,17 +239,17 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
         abortSignal: appController.signal,
         showErrorAlert: false,
       })
-      .then((res): string => {
-        const url = parseApplicationUrl(res);
-        if (url === undefined) {
+      .then((res): ChangeReportDetail => {
+        const parsed = parseApplicationUrl(res);
+        if (parsed === undefined) {
           throw new Error('Not Found'); // malformed 200 → unavailable
         }
-        return url;
+        return parsed;
       })
       .then(
-        (url) => {
+        (parsed) => {
           if (!appController.signal.aborted) {
-            setAppResult({ key: k, value: { status: 'ready', url } });
+            setAppResult({ key: k, value: { status: 'ready', ...parsed } });
           }
         },
         (reason: unknown) => {
@@ -242,7 +269,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
         abortSignal: codeController.signal,
         showErrorAlert: false,
       })
-      .then((res): Record<string, string> => {
+      .then((res): Record<string, ChangeReportDetail> => {
         const map = parseUrlByContainer(res);
         if (map === undefined) {
           throw new Error('Not Found');
@@ -280,8 +307,8 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
       return { phase: codeResult.failed ? 'settled' : 'loading', byName: EMPTY_BY_NAME };
     }
     const byName: Record<string, DetailLookup> = Object.create(null) as Record<string, DetailLookup>;
-    for (const [name, url] of Object.entries(codeResult.map)) {
-      byName[name] = { status: 'ready', url };
+    for (const [name, detail] of Object.entries(codeResult.map)) {
+      byName[name] = { status: 'ready', ...detail };
     }
     return { phase: 'settled', byName };
   }, [codeResult, key, enabled]);

@@ -220,5 +220,53 @@ describe('NodeDetailPanel', () => {
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
       expect(screen.queryByTestId('container-url-link')).not.toBeInTheDocument();
     });
+
+    it('forwards timeZone to both tables: Current / Previous render the diff timestamps (ISO in title)', () => {
+      render(
+        <NodeDetailPanel
+          node={podWithBoth}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+          timeZone="utc"
+          lookups={{
+            enabled: true,
+            application: {
+              status: 'ready',
+              url: 'u1',
+              currentTime: '2026-06-16T10:30:00Z',
+              previousTime: '2026-06-10T08:00:00Z',
+            },
+            containers: {
+              phase: 'settled',
+              byName: { app: { status: 'ready', url: 'u2', currentTime: '2026-06-16T10:30:00Z' } },
+            },
+          }}
+        />
+      );
+      expect(screen.getByTestId('application-current').textContent).toContain('2026-06-16');
+      expect(screen.getByTestId('application-current').getAttribute('title')).toBe('2026-06-16T10:30:00Z');
+      expect(screen.getByTestId('application-previous').getAttribute('title')).toBe('2026-06-10T08:00:00Z');
+      expect(screen.getByTestId('container-current').textContent).toContain('2026-06-16');
+      expect(screen.getByTestId('container-current').getAttribute('title')).toBe('2026-06-16T10:30:00Z');
+    });
+
+    it('renders muted "—" time cells (no crash) when the ready lookups carry no timestamps', () => {
+      render(
+        <NodeDetailPanel
+          node={podWithBoth}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+          lookups={{
+            enabled: true,
+            application: { status: 'ready', url: 'u1' },
+            containers: { phase: 'settled', byName: { app: { status: 'ready', url: 'u2' } } },
+          }}
+        />
+      );
+      expect(screen.getByTestId('application-current').textContent).toBe('—');
+      expect(screen.getByTestId('container-current').textContent).toBe('—');
+    });
   });
 });

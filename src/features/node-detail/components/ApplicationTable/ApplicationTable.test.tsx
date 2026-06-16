@@ -6,11 +6,12 @@ import type { DetailLookup } from '../../hooks/useNodeDetailUrls';
 import { ApplicationTable } from './ApplicationTable';
 
 describe('ApplicationTable (eager-prefetch Change Report)', () => {
-  it('renders a headered table (Name / Change Report) with the application name', () => {
+  it('renders a headered table (Name / Current / Previous / Deployment Changes) with the application name', () => {
     const state: DetailLookup = { status: 'ready', url: 'https://x' };
     render(<ApplicationTable application="checkout" state={state} />);
-    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Change Report' })).toBeInTheDocument();
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toEqual(['Name', 'Current', 'Previous', 'Deployment Changes']);
+    expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();
     expect(screen.getByText('checkout')).toBeInTheDocument();
   });
 
@@ -50,5 +51,32 @@ describe('ApplicationTable (eager-prefetch Change Report)', () => {
     const unavailable = screen.getByTestId('application-url-unavailable');
     expect(unavailable).toHaveAttribute('title', 'Not Found');
     expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
+  });
+
+  it('renders the Current / Previous diff timestamps (localized, ISO in title) on a ready lookup', () => {
+    const state: DetailLookup = {
+      status: 'ready',
+      url: 'https://x',
+      currentTime: '2026-06-16T10:30:00Z',
+      previousTime: '2026-06-10T08:00:00Z',
+    };
+    render(<ApplicationTable application="checkout" state={state} timeZone="utc" />);
+    const cur = screen.getByTestId('application-current');
+    const prev = screen.getByTestId('application-previous');
+    expect(cur.textContent).toContain('2026-06-16');
+    expect(cur.getAttribute('title')).toBe('2026-06-16T10:30:00Z');
+    expect(prev.textContent).toContain('2026-06-10');
+    expect(prev.getAttribute('title')).toBe('2026-06-10T08:00:00Z');
+    // the diff timestamps do not affect the link
+    expect(screen.getByTestId('application-url-link')).toHaveAttribute('href', 'https://x');
+  });
+
+  it('shows muted "—" in Current / Previous when the ready lookup has no timestamps (link unaffected)', () => {
+    const state: DetailLookup = { status: 'ready', url: 'https://x' };
+    render(<ApplicationTable application="checkout" state={state} timeZone="utc" />);
+    expect(screen.getByTestId('application-current').textContent).toBe('—');
+    expect(screen.getByTestId('application-previous').textContent).toBe('—');
+    expect(screen.getByTestId('application-current').getAttribute('title')).toBeNull();
+    expect(screen.getByTestId('application-url-link')).toBeInTheDocument();
   });
 });
