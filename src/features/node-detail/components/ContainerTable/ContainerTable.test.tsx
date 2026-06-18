@@ -16,12 +16,19 @@ function dataRows(): HTMLElement[] {
 }
 
 describe('ContainerTable (eager-prefetch Change Report)', () => {
-  it('renders a headered table (Name / Image / Current / Previous / Code Changes); a ready container links, a missing one is unavailable', () => {
+  it('renders a headered table (Name / Image / Change Type / Current / Previous / Code Changes); a ready container links, a missing one is unavailable', () => {
     const byName: Record<string, DetailLookup> = { app: { status: 'ready', url: 'https://x/app' } };
     render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
 
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Name', 'Image', 'Current Change Time', 'Previous Change Time', 'Code Changes']);
+    expect(headers).toEqual([
+      'Name',
+      'Image',
+      'Change Type',
+      'Current Change Time',
+      'Previous Change Time',
+      'Code Changes',
+    ]);
     expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();
 
     const rows = dataRows();
@@ -119,6 +126,43 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     for (const row of dataRows()) {
       expect(within(row).getByTestId('container-current').textContent).toBe('—');
       expect(within(row).getByTestId('container-previous').textContent).toBe('—');
+    }
+  });
+
+  it('renders the per-row Change Type off the ready lookup; absent rows show muted "—"', () => {
+    const byName: Record<string, DetailLookup> = {
+      app: { status: 'ready', url: 'https://x/app', resultType: 'UPDATED' },
+    };
+    render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
+    const rows = dataRows();
+
+    // app row carries result_type → its Change Type cell shows the value, and its link is
+    // unaffected (independent best-effort columns).
+    expect(within(rows[0]!).getByTestId('container-type').textContent).toBe('UPDATED');
+    expect(within(rows[0]!).getByTestId('container-url-link').getAttribute('href')).toBe('https://x/app');
+
+    // sidecar row (absent from byName) → muted "—".
+    expect(within(rows[1]!).getByTestId('container-type').textContent).toBe('—');
+  });
+
+  it('renders an unknown result_type verbatim through the table (visible-by-default, not silently dropped)', () => {
+    const byName: Record<string, DetailLookup> = {
+      app: { status: 'ready', url: 'https://x/app', resultType: 'MIGRATED' },
+    };
+    render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
+    expect(within(dataRows()[0]!).getByTestId('container-type').textContent).toBe('MIGRATED');
+  });
+
+  it('shows muted "—" Change Type on a ready row that carries no result_type', () => {
+    const byName: Record<string, DetailLookup> = { app: { status: 'ready', url: 'https://x/app' } };
+    render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
+    expect(within(dataRows()[0]!).getByTestId('container-type').textContent).toBe('—');
+  });
+
+  it('shows muted "—" Change Type cells on loading rows', () => {
+    render(<ContainerTable containers={containers} lookups={{ phase: 'loading', byName: {} }} />);
+    for (const row of dataRows()) {
+      expect(within(row).getByTestId('container-type').textContent).toBe('—');
     }
   });
 });

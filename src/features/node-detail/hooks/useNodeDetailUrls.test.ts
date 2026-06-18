@@ -382,4 +382,54 @@ describe('useNodeDetailUrls (eager prefetch, no click triggers)', () => {
     });
     expect(result.current.containers.byName['app']).toBeUndefined();
   });
+
+  // --- result_type (change type), best-effort, containers only ---
+
+  it('carries result_type per container on ready lookups', async () => {
+    const codeWithType = { app: { url: 'https://x/app', result_type: 'UPDATED' } };
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeWithType));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.containers.byName['app']).toEqual({
+        status: 'ready',
+        url: 'https://x/app',
+        resultType: 'UPDATED',
+      });
+    });
+  });
+
+  it('omits the result_type key (not undefined) when the backend sends only a url', async () => {
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.containers.phase).toBe('settled');
+    });
+    const app = result.current.containers.byName['app'];
+    expect(app).toEqual({ status: 'ready', url: 'https://x/app' });
+    expect(Object.hasOwn(app ?? {}, 'resultType')).toBe(false);
+  });
+
+  it('drops a non-string / empty result_type but keeps the url (best-effort)', async () => {
+    const codeBadType = {
+      app: { url: 'https://x/app', result_type: 123 },
+      sidecar: { url: 'https://x/sc', result_type: '' },
+    };
+    routeGet(Promise.resolve(appOk), Promise.resolve(codeBadType));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.containers.phase).toBe('settled');
+    });
+    expect(result.current.containers.byName['app']).toEqual({ status: 'ready', url: 'https://x/app' });
+    expect(result.current.containers.byName['sidecar']).toEqual({ status: 'ready', url: 'https://x/sc' });
+  });
+
+  it('does not carry result_type on a ready application lookup (config_changes has no result_type)', async () => {
+    const appWithType = { url: 'https://argo/app/checkout', result_type: 'UPDATED' };
+    routeGet(Promise.resolve(appWithType), Promise.resolve(codeOk));
+    const { result } = renderHook(() => useNodeDetailUrls(input, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.application.status).toBe('ready');
+    });
+    expect(Object.hasOwn(result.current.application, 'resultType')).toBe(false);
+  });
 });

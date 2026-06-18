@@ -13,6 +13,7 @@ node-detail 面板的 Change Report 欄目前只給「一個外部連結」(eage
 - `config_changes` 回應由 `{ url }` 擴充為 `{ url, current_time, previous_time }`;`code_changes` 每個 container entry 由 `{ url }` 擴充為 `{ url, current_time, previous_time }`。`current_time` / `previous_time` 為 RFC 3339 / ISO 8601(UTC)字串(如 `2026-06-16T10:30:00Z`)。
 - 兩時間戳為 **best-effort**:缺漏 / 非字串 / 解析失敗時該欄顯示 muted(`theme.colors.text.secondary`)「—」,**MUST NOT** 影響同列的 url anchor、其餘欄、或其餘列(沿用既有 anti-corruption:格式不符即丟棄該欄)。
 - Application 與 Containers 兩表格各新增 **Current Change Time** 與 **Previous Change Time** 兩欄,呈現該 change diff 的 current → prev 時間戳。
+- Containers 表格新增 **Change Type** 欄(僅 Containers),呈現 `code_changes` entry 的 `result_type`(已知列舉值彩色文字、未知中性灰、無值 muted「—」)——見 D8。
 - 呈現:以 `@grafana/data` `dateTimeFormat` 依**面板 `timeZone`** 格式化為在地化絕對時間(如 `2026-06-16 10:30:00`);完整 ISO 原字串入該 cell 的 `title`;無值 / 解析失敗 → muted「—」。
 - Header 正名:Application 區塊連結欄 header → **「Deployment Changes」**;Containers 區塊連結欄 header → **「Code Changes」**。
 - 維持 hook 集中查詢、表格 presentational 的既有分層;沿用既有 `timeZone` 傳遞路徑。
@@ -81,9 +82,9 @@ function formatChangeTime(iso: string | undefined, timeZone?: string): string | 
 最終欄序(後續 specs / tasks 引用此為準):
 
 - **Application**:`Name` → `Current` → `Previous` → `Deployment Changes`(連結欄維持最右)。
-- **Containers**:`Name` → `Image` → `Current` → `Previous` → `Code Changes`(連結欄維持最右)。
+- **Containers**:`Name` → `Image` → `Change Type` → `Current` → `Previous` → `Code Changes`(連結欄維持最右;`Change Type` 僅 Containers 有,見 D8)。
 
-連結欄維持最右、`disableGrow`;`Name`(及 Containers 的 `Image`)維持既有 grow 行為(`Image` 為唯一 grow 欄,soak up 剩餘寬度;Application 的 `Name` soak up 剩餘寬度)。新增的 `Current` / `Previous` 兩欄 `disableGrow`(時間字串寬度固定、不應撐表)。
+連結欄維持最右、`disableGrow`;`Name`(及 Containers 的 `Image`)維持既有 grow 行為(`Image` 為唯一 grow 欄,soak up 剩餘寬度;Application 的 `Name` soak up 剩餘寬度)。新增的 `Change Type`(僅 Containers)/ `Current` / `Previous` 三欄 `disableGrow`(型別 token / 時間字串寬度固定、不應撐表)。`Change Type` 置於 `Image` 與 `Current` 之間——讀序為「變更型別 → 變更時間窗 → 連結動作」。
 
 右對齊 CSS:既有 `& th:last-child { textAlign: 'right' }` 之所以成立,是因為連結欄為 last-child;新增兩時間欄後**連結欄仍為 last-child**,故該規則對連結欄 header 持續成立,無需改動。`Current` / `Previous` 兩個時間欄沿用 InteractiveTable 預設(左對齊),其 cell 內以 D6 的時間 cell 呈現;若視覺上需與右側連結欄協調,時間欄維持左對齊即可(不強加右對齊,避免與 last-child 規則衝突)。
 
@@ -99,12 +100,28 @@ function formatChangeTime(iso: string | undefined, timeZone?: string): string | 
 
 ### D7:測試策略
 
-- **純函式**:`formatChangeTime`(D3)以 straight Jest 覆蓋——正常 RFC 3339(UTC)→ 依 `timeZone` 在地化絕對時間;`undefined` / 空字串 → `undefined`;非法字串(如 `"not-a-date"`)→ `undefined`;`timeZone` 缺省路徑。解析層(D1)`parseApplicationUrl` / `parseUrlByContainer` 以 straight Jest 覆蓋——三欄齊全;缺時間戳(僅 url)；非字串 / 空字串時間戳被丟棄但 url 保留;non-object payload → undefined;malformed container entry 丟棄。
-- **cell component**:`ChangeTimeCell`(`@testing-library/react`)——格式化值呈現 + `title`=ISO;`undefined` → muted「—」且無 `title`。
-- **表格 component**:`ApplicationTable` / `ContainerTable`(`@testing-library/react`)——驗證新欄序(Name/Current/Previous/Deployment Changes、Name/Image/Current/Previous/Code Changes)、header 文字正名、ready 列同時呈現 anchor + 兩時間、best-effort 缺時間戳列呈現「—」但 anchor 不受影響、both tables 覆蓋。
-- **hook**:`useNodeDetailUrls` 既有測試擴充——`ready` 狀態攜帶 `currentTime` / `previousTime`;後端缺時間戳時 `ready` 不帶兩欄;`code_changes` map 元素新形狀。
+- **純函式**:`formatChangeTime`(D3)以 straight Jest 覆蓋——正常 RFC 3339(UTC)→ 依 `timeZone` 在地化絕對時間;`undefined` / 空字串 → `undefined`;非法字串(如 `"not-a-date"`)→ `undefined`;`timeZone` 缺省路徑。`resultTypeColor`(D8)以 straight Jest 覆蓋——六個已知值各回對應 hex;未知值回中性灰 fallback;大小寫不敏感(`"updated"` 與 `"UPDATED"` 同色)。解析層(D1)`parseApplicationUrl` / `parseUrlByContainer` 以 straight Jest 覆蓋——三/四欄齊全;缺時間戳 / 缺 `result_type`(僅 url)；非字串 / 空字串時間戳 / `result_type` 被丟棄但 url 保留;non-object payload → undefined;malformed container entry 丟棄;`config_changes` 不帶 `result_type`。
+- **cell component**:`ChangeTimeCell`(`@testing-library/react`)——格式化值呈現 + `title`=ISO;`undefined` → muted「—」且無 `title`。`ChangeTypeCell`(D8)——已知值渲染原字串 + `resultTypeColor` 色;未知值渲染原字串 + 中性灰;`undefined` / 空字串 → muted「—」;testId。
+- **表格 component**:`ApplicationTable` / `ContainerTable`(`@testing-library/react`)——驗證新欄序(Name/Current/Previous/Deployment Changes、Name/Image/**Change Type**/Current/Previous/Code Changes)、header 文字正名、ready 列同時呈現 anchor + 兩時間(+ Containers 的 Change Type)、best-effort 缺時間戳 / 缺 `result_type` 列呈現「—」但 anchor 不受影響、both tables 覆蓋;Application 區塊 MUST NOT 有 Change Type 欄。
+- **hook**:`useNodeDetailUrls` 既有測試擴充——`ready` 狀態攜帶 `currentTime` / `previousTime` / `resultType`;後端缺時間戳 / 缺 `result_type` 時 `ready` 不帶該鍵;`code_changes` map 元素新形狀;`config_changes` ready 不帶 `resultType`。
 
 **為何此策略**:沿用專案既有分層(純函式 straight Jest、元件 `@testing-library/react`),把 best-effort 降級的關鍵分支集中在純函式與 cell 層快速覆蓋,表格層只驗欄序 / header / 整合;符合 CLAUDE.md 測試慣例。
+
+### D8:變更型別欄(`result_type` → Change Type,僅 Containers)
+
+`code_changes` 每個 container entry 另帶 `result_type`(變更型別字串)。端到端設計如下:
+
+**解析層(沿用 D1 best-effort)**:`parseUrlByContainer` 新增 `pickResultType(entry)` helper(鏡像 `pickTimes`):僅當 `entry.result_type` 為**非空字串**時保留為原字串(`resultType`),否則不設該鍵(`...(cond ? { resultType } : {})`,守 `exactOptionalPropertyTypes`)。`parseApplicationUrl`(`config_changes`)**不** parse `result_type`——`result_type` 僅屬 `code_changes` 契約,Application 區塊無此欄。`ChangeReportDetail` 與 `DetailLookup` 的 `ready` 變體(D2)各加 `resultType?: string`;container 內部 map 元素擴為 `{ url, currentTime?, previousTime?, resultType? }`;`containers` 的 `useMemo` 既以 `{ status:'ready', ...detail }` spread 組 `byName`,`resultType` 自然帶入,無需額外串接。
+
+**色彩映射(單一來源,鏡像 `colorBySeverity`)**:新增 `src/shared/constants/colorByResultType.ts`——`RESULT_TYPE_COLOR: Record<ResultType, string>`(已知六值 → hardcoded hex)、`FALLBACK_RESULT_TYPE_COLOR`(中性灰)、`resultTypeColor(type: string): string`(查找,**大小寫不敏感**:以 `type.toUpperCase()` 查 map,未知回 fallback)。色值:`ADDED` 綠 `#73BF69`(同 `STATUS_COLOR.normal`)、`REMOVED` 紅 `#E02F44`(同 `SEVERITY_COLOR.critical`)、`UPDATED` 藍 `#3274D9`、`REPLACED` 橘 `#FF9830`、`RENAMED` 紫 `#B877D9`、`UNCHANGED` 灰 `#8E8E8E`;fallback 亦為灰。
+
+**為何 hardcoded hex 而非主題語義色**:沿用面板既有 `STATUS_COLOR` / `SEVERITY_COLOR` 的產品決定(單一調色盤、theme-independent),與 legend / 邊框 tint 同一來源哲學。**取捨**:這些 hex 原作 badge **背景**、本欄作**文字色**,亮色主題下綠 / 橘對比偏弱(已知、可接受);若日後視覺評審要求,可改 `resultTypeColor` 為依 theme 解析語義文字色(`success/error/warning/info.text`)、RENAMED 取自訂紫——映射介面不變、僅 lookup 實作換。
+
+**呈現元件(鏡像 `ChangeTimeCell`)**:新增 presentational `ChangeTypeCell`(共置 `node-detail`,與 `ChangeTimeCell` 同層),props `{ type: string | undefined; testId?: string }`:`type` 有值 → 渲染原字串(CSS `textTransform: uppercase`)、`style={{ color: resultTypeColor(type) }}`;無值 / 空字串 → muted「—」(`themeColors(theme).text.secondary`,同 `ChangeTimeCell` 哨兵)。ContainerTable 在 `Image` 與 `current` 欄之間插入 `type` 欄(`disableGrow`),cell 以 `rowLookup(lookups, name)` 取 `DetailLookup`、`lookup.status==='ready' ? lookup.resultType : undefined` 傳入 `ChangeTypeCell type=…` testId=`container-type`。
+
+**未知值 visible-by-default**:未知 `result_type` 照原字串渲染、以中性灰呈現(不靜默丟棄),沿用面板對 unknown 列舉的處理(CLAUDE.md「Unknown kinds … visible by default」)。
+
+**為何只在 Containers**:`result_type` 屬 `code_changes`(image diff)語意,`config_changes`(deployment diff)契約不含;Application 區塊維持 Name / Current / Previous / Deployment Changes 四欄不動。
 
 ## Risks / Trade-offs
 

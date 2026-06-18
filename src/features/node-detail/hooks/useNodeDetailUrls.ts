@@ -15,15 +15,18 @@ export interface NodeDetailQueryInput {
 }
 
 // The parsed payload of one successful Change Report lookup: the (required) URL plus
-// the optional RFC 3339 / ISO 8601 (UTC) diff timestamps (current → prev). The two
-// times are best-effort — a key is present ONLY when the backend sent a non-empty
-// string (exactOptionalPropertyTypes), so a missing time is an absent key, never
-// `undefined`. The raw ISO string is passed through unchanged; timezone formatting is
-// a display concern (the tables' formatChangeTime), not this parse layer's.
+// the optional RFC 3339 / ISO 8601 (UTC) diff timestamps (current → prev) and the
+// optional code-change `result_type` (containers only — `config_changes` has no
+// result_type, so the application path never sets it). All three extras are best-effort
+// — a key is present ONLY when the backend sent a non-empty string
+// (exactOptionalPropertyTypes), so a missing field is an absent key, never `undefined`.
+// The raw strings pass through unchanged; timezone formatting (formatChangeTime) and
+// colour mapping (resultTypeColor) are display concerns, not this parse layer's.
 export interface ChangeReportDetail {
   url: string;
   currentTime?: string;
   previousTime?: string;
+  resultType?: string;
 }
 
 // Three rendered states per Change Report target. Eager prefetch starts each at
@@ -36,7 +39,7 @@ export interface ChangeReportDetail {
 // carry them).
 export type DetailLookup =
   | { status: 'loading' }
-  | { status: 'ready'; url: string; currentTime?: string; previousTime?: string }
+  | { status: 'ready'; url: string; currentTime?: string; previousTime?: string; resultType?: string }
   | { status: 'unavailable'; error?: string };
 
 const LOADING: DetailLookup = { status: 'loading' };
@@ -95,6 +98,15 @@ function pickTimes(o: Record<string, unknown>): { currentTime?: string; previous
   };
 }
 
+// The optional code-change `result_type` off a backend entry, best-effort (mirrors
+// pickTimes): kept ONLY when its value is a non-empty string, else omitted (the key is
+// absent, never set to `undefined` — exactOptionalPropertyTypes). The raw string passes
+// through unchanged; the known-enum → colour mapping is a display concern
+// (resultTypeColor). Containers-only — parseApplicationUrl does NOT call this.
+function pickResultType(o: Record<string, unknown>): { resultType?: string } {
+  return typeof o.result_type === 'string' && o.result_type.length > 0 ? { resultType: o.result_type } : {};
+}
+
 // application-detail (`config_changes`) contract: `{ "url": string, "current_time"?:
 // string, "previous_time"?: string }`. `url` is the SOLE availability criterion — no
 // url is a shape mismatch (undefined → that side's unavailable); the two timestamps
@@ -107,9 +119,10 @@ function parseApplicationUrl(res: unknown): ChangeReportDetail | undefined {
 }
 
 // image-detail (`code_changes`) contract: `{ [container]: { "url": string,
-// "current_time"?: string, "previous_time"?: string } }` — flattened here so the UI
-// only ever sees container → detail. Malformed entries (no valid url) are dropped
-// (anti-corruption); a non-object payload is a shape error (undefined).
+// "current_time"?: string, "previous_time"?: string, "result_type"?: string } }` —
+// flattened here so the UI only ever sees container → detail. Malformed entries (no
+// valid url) are dropped (anti-corruption); a non-object payload is a shape error
+// (undefined). The two timestamps and result_type are best-effort extras.
 function parseUrlByContainer(res: unknown): Record<string, ChangeReportDetail> | undefined {
   if (!isPlainObject(res)) {
     return undefined;
@@ -120,7 +133,7 @@ function parseUrlByContainer(res: unknown): Record<string, ChangeReportDetail> |
   const flat: Record<string, ChangeReportDetail> = Object.create(null) as Record<string, ChangeReportDetail>;
   for (const [container, entry] of Object.entries(res)) {
     if (isPlainObject(entry) && typeof entry.url === 'string' && entry.url.length > 0) {
-      flat[container] = { url: entry.url, ...pickTimes(entry) };
+      flat[container] = { url: entry.url, ...pickTimes(entry), ...pickResultType(entry) };
     }
   }
   return flat;

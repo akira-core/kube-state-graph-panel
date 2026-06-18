@@ -8,6 +8,7 @@ import { formatChangeTime } from '../../formatChangeTime';
 import type { DetailLookup } from '../../hooks/useNodeDetailUrls';
 import { ChangeReportCell } from '../ChangeReportCell';
 import { ChangeTimeCell } from '../ChangeTimeCell';
+import { ChangeTypeCell } from '../ChangeTypeCell';
 
 import type { ContainerTableProps } from './ContainerTable.types';
 
@@ -67,13 +68,15 @@ function rowLookup(lookups: ContainerTableProps['lookups'], name: string): Detai
 }
 
 // The containers table: a headered InteractiveTable (same component and column
-// layout as the Alerts table — D8) with Name / Image / Current / Previous / Code
-// Changes columns, one row per container. The Code Changes (link) column is EAGER-
+// layout as the Alerts table — D8) with Name / Image / Change Type / Current / Previous /
+// Code Changes columns, one row per container. The Code Changes (link) column is EAGER-
 // prefetched (the shared code_changes map resolves when the panel opens); the shared
 // ChangeReportCell renders the row's DetailLookup as a Spinner / `<a href>` anchor /
-// muted "Not found" hint. Current / Previous render the row's diff timestamps
-// off its ready lookup (localized via the panel timeZone, muted "—" when absent). The
-// header and rows always render; each row's state is independent.
+// muted "Not found" hint. Change Type renders the row's code-change result_type as
+// coloured text (ChangeTypeCell: known enum → semantic colour, unknown → neutral grey,
+// muted "—" when absent). Current / Previous render the row's diff timestamps off its
+// ready lookup (localized via the panel timeZone, muted "—" when absent). The header and
+// rows always render; each row's state is independent.
 export function ContainerTable({ containers, lookups, timeZone }: Readonly<ContainerTableProps>): React.JSX.Element {
   const styles = useStyles2(getStyles);
 
@@ -95,6 +98,19 @@ export function ContainerTable({ containers, lookups, timeZone }: Readonly<Conta
         id: 'image',
         header: 'Image',
         cell: ({ row }: CellProps<ContainerRow>) => <span className={styles.image}>{row.original.image}</span>,
+      },
+      {
+        id: 'type',
+        header: 'Change Type',
+        // disableGrow: the short result_type token has a fixed width; the Image column
+        // still soaks up the remaining width. Sits between Image and the time columns —
+        // reading order is "what changed → when → link".
+        disableGrow: true,
+        cell: ({ row }: CellProps<ContainerRow>) => {
+          const lk = rowLookup(lookups, row.original.name);
+          const type = lk.status === 'ready' ? lk.resultType : undefined;
+          return <ChangeTypeCell type={type} testId="container-type" />;
+        },
       },
       {
         id: 'current',

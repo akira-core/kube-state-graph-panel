@@ -62,10 +62,31 @@
 - [x] 10.4 `npm run build` 成功並更新 `dist/`
 - [x] 10.5 demo 手動 / Playwright 驗證:右鍵 pod/controller → Application 區塊欄序為 Name / Current / Previous / Deployment Changes、Containers 為 Name / Image / Current / Previous / Code Changes;header 文字正名確認;後端有時間戳時兩欄顯示在地化絕對時間(`title`=ISO)、缺時間戳時 muted「—」且 anchor 不受影響。**待辦**:demo backend 目前 `config_changes`/`code_changes` 404,且尚未回傳 `current_time`/`previous_time`——需後端交付後才驗證得了時間欄(無時間戳時降級為「—」可先驗)
 
+## 13. 變更型別欄:result_type → Change Type(僅 Containers,design D8)
+
+- [x] 13.1 (RED)新增 `src/shared/constants/colorByResultType.test.ts`(straight Jest):六個已知值(`UNCHANGED`/`UPDATED`/`REPLACED`/`ADDED`/`REMOVED`/`RENAMED`)各回對應 hex;未知值(如 `"MIGRATED"`)回 `FALLBACK_RESULT_TYPE_COLOR`(中性灰);**大小寫不敏感**(`resultTypeColor('updated') === resultTypeColor('UPDATED')`)
+- [x] 13.2 (GREEN)新增 `src/shared/constants/colorByResultType.ts`(鏡像 `colorBySeverity`):`RESULT_TYPES` const tuple + `ResultType` type;`RESULT_TYPE_COLOR: Record<ResultType, string>`(hardcoded hex:ADDED `#73BF69` / REMOVED `#E02F44` / UPDATED `#3274D9` / REPLACED `#FF9830` / RENAMED `#B877D9` / UNCHANGED `#8E8E8E`);`FALLBACK_RESULT_TYPE_COLOR`(中性灰);`resultTypeColor(type: string): string` 以 `type.toUpperCase()` 查 map、未知回 fallback、永不拋錯 / 不回空
+- [x] 13.3 (RED)擴充 `useNodeDetailUrls.test.ts`(`parseUrlByContainer` 取向):`code_changes` 回 `{ app: { url, result_type: 'UPDATED' } }` → `byName.app` 為 `ready` 攜帶 `resultType: 'UPDATED'`;某 entry 僅 `{ url }` → 不帶 `resultType` 鍵(`Object.hasOwn` 為 false,符 `exactOptionalPropertyTypes`);`result_type` 為非字串 / 空字串 → 丟棄該欄、保留 url;`config_changes`(application)成功 → `ready` **不帶** `resultType` 鍵(僅 containers 契約)
+- [x] 13.4 (GREEN)`useNodeDetailUrls.ts`:`ChangeReportDetail` 與 `DetailLookup` 的 `ready` 變體各加 `resultType?: string`;container 內部 map 元素擴為 `{ url, currentTime?, previousTime?, resultType? }`;新增 `pickResultType(o)` helper(鏡像 `pickTimes`:僅當 `o.result_type` 為非空字串時 `{ resultType }`,否則 `{}`);`parseUrlByContainer` 加 `...pickResultType(entry)`;`parseApplicationUrl` **不**加(application 無 result_type);`containers` 的 `byName` spread 已帶 `resultType`,無需改;更新檔頭註解
+- [x] 13.5 (RED)新增 `ChangeTypeCell.test.tsx`(`@testing-library/react`):已知值(`'UPDATED'`)→ 渲染文字 `UPDATED`、`style.color` 為 `RESULT_TYPE_COLOR.UPDATED`(以 `toHaveStyle` 比對匯入常數,免硬編 hex)；未知值(`'MIGRATED'`)→ 渲染原字串、`style.color` 為 fallback;`undefined` / 空字串 → muted「—」;testId 透傳
+- [x] 13.6 (GREEN)新增 `ChangeTypeCell`(`ChangeTypeCell.tsx` + `.types.ts` + `index.ts`,共置 `node-detail/components`,與 `ChangeTimeCell` 同層):props `{ type: string | undefined; testId?: string }`;有值 → `<span style={{ color: resultTypeColor(type) }}>`(CSS `textTransform: uppercase` / `whiteSpace: nowrap` / `fontWeight: 600`);無值 / 空字串 → muted「—」(`themeColors(theme).text.secondary`);`useStyles2` + emotion
+- [x] 13.7 (RED)擴充 `ContainerTable.test.tsx`:header 期望更新為 **Name / Image / Change Type / Current Change Time / Previous Change Time / Code Changes**(6 欄);某列 `ready` 帶 `resultType` → 該列 `container-type` 顯示型別字串;`ready` 缺 `resultType` / `loading` / map 缺項列 → `container-type` 顯示「—」;既有 `first[0]`(name)/ `first[1]`(image)cell 斷言不受新欄影響
+- [x] 13.8 (GREEN)`ContainerTable.tsx`:在 `image` 與 `current` 欄之間插入 `type` 欄(`id: 'type'`, `header: 'Change Type'`, `disableGrow`),cell 以 `rowLookup(lookups, name)` 取 `DetailLookup`、`lk.status==='ready' ? lk.resultType : undefined` 傳給 `<ChangeTypeCell type=… testId="container-type" />`;import `ChangeTypeCell`;`columns` memo deps 不變(lookups 已在);更新檔頭註解(欄序含 Change Type)。ApplicationTable **不**動(無此欄)
+- [x] 13.9 (GREEN)確認 `ContainerTable` 右對齊 CSS:連結欄仍為 last-child(新增 `type` 欄在中段,不影響 `th:last-child` 規則);`type` 欄沿用 InteractiveTable 預設左對齊
+
+## 14. result_type 品質閘 + 規格同步(重跑)
+
+- [x] 14.1 `openspec validate change-report-diff-timestamps --strict` 通過(含新增 result_type / Change Type delta 與 scenario)
+- [x] 14.2 `npm run typecheck` 通過(`exactOptionalPropertyTypes` 下 `resultType?` MUST NOT 被賦 `undefined`)
+- [x] 14.3 `npm run lint`(zero-warning)通過
+- [x] 14.4 `npm run test:ci` 全綠(含新 `colorByResultType` / `ChangeTypeCell` / `ContainerTable` result_type / hook 擴充測試)
+- [x] 14.5 `npm run build` 成功並更新 `dist/`
+- [~] 14.6 demo Playwright 驗證(2026-06-18,full-stack `/d/ksg-demo`,bundled chromium 驅動,右鍵掃描開 node-detail):**已驗** Containers 欄序為 `["Name","Image","Change Type","Current Change Time","Previous Change Time","Code Changes"]`(Change Type 落在 Image 與 Current 之間)、無 page error、NATS pod 兩 container 的 Change Type 皆降級為 muted「—」(backend `code_changes` 回 404、未回 `result_type`)。**待辦**:有 `result_type` 時的彩色型別正向呈現須待後端交付 `result_type` 後才驗證得了(無值降級「—」已驗)
+
 ## 11. 後端協調(跨 repo,blocked / 需 backend)
 
 - [ ] 11.1 **[blocked / 需 backend]** kube-state-graph 後端:`config_changes`(application)回應由 `{ url }` 擴充為 `{ url, current_time, previous_time }`——`current_time` / `previous_time` 為 RFC 3339 / ISO 8601(UTC)字串(如 `2026-06-16T10:30:00Z`),向後相容(新增欄,缺漏即 best-effort 降級)
-- [ ] 11.2 **[blocked / 需 backend]** kube-state-graph 後端:`code_changes`(image)每個 container entry 由 `{ url }` 擴充為 `{ url, current_time, previous_time }`(同 RFC 3339 UTC 契約,向後相容)
+- [ ] 11.2 **[blocked / 需 backend]** kube-state-graph 後端:`code_changes`(image)每個 container entry 由 `{ url }` 擴充為 `{ url, current_time, previous_time, result_type }`(時間戳同 RFC 3339 UTC 契約;`result_type` 為變更型別字串,已知列舉 `UNCHANGED`/`UPDATED`/`REPLACED`/`ADDED`/`REMOVED`/`RENAMED`,向後相容)
 - [ ] 11.3 **[blocked / 需 backend]** 後端交付後以 demo seeder / 真實後端回放時間戳,完成 10.5 時間欄正向呈現驗證
 
 ## 12. Archive 順序(MUST)
