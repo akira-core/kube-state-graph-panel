@@ -66,6 +66,22 @@ describe('deriveStorageClassContainers', () => {
     expect(containerIds).toEqual(['prod/storageclass/fast-ssd', 'dr/storageclass/fast-ssd']);
   });
 
+  // namespace grouping (controller mode) SPLITS a backend storageclass box per
+  // namespace and re-parents each sub-box under a namespace box (carries namespaceColor,
+  // NOT clusterColor). The swatch must still read the enclosing cluster's accent by
+  // walking the ancestor chain — same backplate colour the canvas paints
+  // (getStylesheet resolveParentClusterColor) so legend ≠ canvas can't drift.
+  it('colours a split storageclass sub-box nested under a namespace box by its cluster ancestor', () => {
+    const els = [
+      node({ id: 'cluster/prod', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
+      node({ id: 'nsbox', isNamespace: true, namespaceColor: '#e8833a', namespace: 'team-a', parent: 'cluster/prod', label: 'team-a' }),
+      node({ id: 'scbox/nsbox/gp2', isStorageClass: true, kind: 'storageclass', parent: 'nsbox', label: 'gp2' }),
+      node({ id: 'pvc/data-0', kind: 'pvc', parent: 'scbox/nsbox/gp2', label: 'data-0' }),
+    ];
+    const { containerEntries } = deriveStorageClassContainers(els, NEUTRAL);
+    expect(containerEntries).toEqual([{ name: 'gp2', color: '#0ea5e9' }]);
+  });
+
   it('labels by id when the storageclass node has no label', () => {
     const els = [
       node({ id: 'sc/no-label', isStorageClass: true }),

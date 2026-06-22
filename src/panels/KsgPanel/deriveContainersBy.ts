@@ -25,6 +25,7 @@ export function deriveContainersBy(
   isContainer: (d: cytoscape.NodeDataDefinition) => boolean
 ): ContainerSet {
   const parentIds = new Set<string>();
+  const parentById = new Map<string, string>();
   for (const el of elements) {
     if (el.group !== 'nodes') {
       continue;
@@ -32,9 +33,31 @@ export function deriveContainersBy(
     const d = el.data as cytoscape.NodeDataDefinition;
     if (typeof d.parent === 'string') {
       parentIds.add(d.parent);
+      if (typeof d.id === 'string') {
+        parentById.set(d.id, d.parent);
+      }
     }
   }
   const clusterColorById = buildClusterColorIndex(elements);
+
+  // Walk the parent chain to the first ancestor carrying a cluster colour, mirroring
+  // the canvas (getStylesheet resolveParentClusterColor) so the legend swatch can never
+  // disagree with the on-canvas box tint. The immediate parent suffices for a container
+  // directly under its cluster; in controller mode a controller (or a split storageclass
+  // sub-box) sits under a synthesized namespace box — which carries namespaceColor, NOT
+  // clusterColor — so keep climbing to inherit the enclosing cluster's accent instead of
+  // falling back to neutral. Guarded against cycles.
+  const clusterColorOfAncestor = (startParentId: string): string | undefined => {
+    let cur: string | undefined = startParentId;
+    for (let guard = 0; cur !== undefined && guard < 64; guard++) {
+      const color = clusterColorById.get(cur);
+      if (color !== undefined) {
+        return color;
+      }
+      cur = parentById.get(cur);
+    }
+    return undefined;
+  };
 
   const containerEntries: ContainerEntry[] = [];
   const containerIds: string[] = [];
@@ -53,7 +76,7 @@ export function deriveContainersBy(
       continue;
     }
     seenNames.add(name);
-    const parentColor = typeof d.parent === 'string' ? clusterColorById.get(d.parent) : undefined;
+    const parentColor = typeof d.parent === 'string' ? clusterColorOfAncestor(d.parent) : undefined;
     containerEntries.push({ name, color: parentColor ?? fallbackColor });
   }
 
