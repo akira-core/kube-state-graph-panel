@@ -23,6 +23,14 @@ export interface KsgPanelOptions {
   // consuming ${pod_list:lucene}. Empty (default) disables the export. The
   // panel can only set values; it cannot create the variable or its options.
   podListVariable: string;
+  // Name of an EXISTING dashboard variable to write the LEFT-clicked pod's name
+  // into, but ONLY when that pod's status is non-normal (warning/critical), so a
+  // sibling panel can query that one pod via $selected_pod. Cleared ($__empty) on
+  // deselect / a normal pod / a non-pod / a right-click. Empty (default) disables
+  // it. Use a TEXTBOX (or custom + allowCustomValue) variable — a query/options
+  // variable would drop the externally-written value — and do NOT reference it in
+  // this panel's own query (self-filter loop). Independent of podListVariable.
+  selectedPodVariable: string;
 }
 
 // The filterable-kind universe, derived from the element-filter's single
@@ -41,4 +49,5 @@ export const defaultOptions: KsgPanelOptions = {
   visibleEdgeTypes: ALL_EDGE_TYPES,
   detailEndpoint: '',
   podListVariable: '',
+  selectedPodVariable: '',
 };

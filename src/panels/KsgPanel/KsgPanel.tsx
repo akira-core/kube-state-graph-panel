@@ -32,7 +32,7 @@ import {
 } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
-import { useVariableExport } from '../../features/variable-export';
+import { useSelectedPodExport, useVariableExport } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, NodeKind, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
@@ -358,6 +358,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // the hook. Shares the same resolved endpoint as the Change Report queries.
   const dashboardParams = useMemo(() => assembleDashboardParams(elements, selectedNodeId), [elements, selectedNodeId]);
   const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
+
+  // Export the LEFT-clicked, non-normal pod's name into the configured variable so a
+  // sibling panel can query that one pod (cleared on deselect / normal / non-pod /
+  // right-click). Left-click = the alerts-view selection (detailRequest === null);
+  // a right-click drives the detail/Change Report flow, not this export.
+  const selectedPodVariable = options.selectedPodVariable ?? defaultOptions.selectedPodVariable;
+  useSelectedPodExport(selectedNode, detailRequest === null, selectedPodVariable, selectedPodVariable.trim() !== '');
 
   // Cluster swatches are derived from the backend's compound (cluster) container
   // nodes, so the legend colours always match the on-canvas backplates (single

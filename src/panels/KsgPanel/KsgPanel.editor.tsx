@@ -87,5 +87,16 @@ export function buildKsgPanelOptions(
         'The variable must already exist on the dashboard and must not feed back into ' +
         "this panel's own query. Leave empty to disable.",
       defaultValue: defaultOptions.podListVariable,
+    })
+    .addTextInput({
+      path: 'selectedPodVariable',
+      name: 'Selected pod variable',
+      description:
+        'Name of an existing dashboard variable to write the LEFT-clicked pod name into, but only ' +
+        'when that pod is non-normal (warning/critical) — so a sibling panel can query that one pod ' +
+        'via $selected_pod. Cleared ($__empty) on deselect, a normal pod, a non-pod, or a right-click. ' +
+        'Use a Textbox (or Custom + allow custom values) variable — a Query variable would drop the ' +
+        "written value — and do not reference it in this panel's own query. Leave empty to disable.",
+      defaultValue: defaultOptions.selectedPodVariable,
     });
 }
