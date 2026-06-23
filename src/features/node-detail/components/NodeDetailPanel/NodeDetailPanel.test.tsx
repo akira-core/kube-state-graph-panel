@@ -72,6 +72,62 @@ describe('NodeDetailPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  describe('Dashboard button (header, both views)', () => {
+    const ready = { status: 'ready', url: 'https://dash/n1' } as const;
+
+    it('renders the Dashboard button beside the name in the alerts (left-click) view when ready', () => {
+      render(
+        <NodeDetailPanel
+          node={sample}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="alerts"
+          dashboard={ready}
+        />
+      );
+      const btn = screen.getByTestId('node-detail-dashboard-button');
+      expect(btn).toHaveAttribute('href', 'https://dash/n1');
+      expect(btn).toHaveAttribute('target', '_blank');
+      expect(btn).toHaveAttribute('rel', 'noopener noreferrer');
+    });
+
+    it('renders the Dashboard button in the detail (right-click) view when ready', () => {
+      render(
+        <NodeDetailPanel
+          node={sample}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          view="detail"
+          dashboard={ready}
+        />
+      );
+      expect(screen.getByTestId('node-detail-dashboard-button')).toBeInTheDocument();
+    });
+
+    it('renders no button when dashboard is omitted, loading, or unavailable', () => {
+      const { rerender } = render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
+      rerender(
+        <NodeDetailPanel
+          node={sample}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          dashboard={{ status: 'loading' }}
+        />
+      );
+      expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
+      rerender(
+        <NodeDetailPanel
+          node={sample}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          dashboard={{ status: 'unavailable' }}
+        />
+      );
+      expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Application / Containers sections', () => {
     const podWithBoth: NodeDetailData = {
       id: 'p1',

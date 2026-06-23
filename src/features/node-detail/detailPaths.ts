@@ -13,3 +13,8 @@
 // wrong value here cannot silently pass.
 export const DETAIL_CONFIG_CHANGES_PATH = '/config_changes';
 export const DETAIL_CODE_CHANGES_PATH = '/code_changes';
+// The per-node Dashboard URL lookup segment (same sibling-of-the-graph-query base
+// as the two Change Report endpoints). useNodeDashboardUrl appends this to the
+// resolved detail base; the backend returns `{ url }` (200 + non-empty url ⇒
+// available — the same availability semantics as config_changes / code_changes).
+export const DETAIL_DASHBOARD_PATH = '/dashboard';

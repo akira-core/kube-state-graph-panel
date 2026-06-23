@@ -1,5 +1,6 @@
 import type { NodeAlert, NodeKind, NodeStatus } from '../../../../shared/constants/types';
 import type { ContainerSpec } from '../../../../shared/types/containerSpec';
+import type { DashboardLookup } from '../../hooks/useNodeDashboardUrl';
 import type { NodeDetailLookups } from '../../hooks/useNodeDetailUrls';
 
 // The slice of a node's data the detail panel needs. Resolved by KsgPanel from
@@ -30,6 +31,9 @@ export interface NodeDetailPanelProps {
   // unavailable hint). Omitted → idle/disabled (no endpoint / left-click
   // selection): sections still render their data, every target shows the hint.
   lookups?: NodeDetailLookups;
+  // Eager-prefetched per-node Dashboard URL lookup. Rendered as a button beside the
+  // node name in the header (both views); shown only when 'ready'. Omitted → no button.
+  dashboard?: DashboardLookup;
   // Which sections to render — the two click paths show disjoint content:
   //   'alerts' (default; left-click selection) → Alerts table only
   //   'detail' (right-click)                   → Application / Containers only

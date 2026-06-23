@@ -10,6 +10,7 @@ import { IDLE_NODE_DETAIL_LOOKUPS } from '../../hooks/useNodeDetailUrls';
 import { AlertTable } from '../AlertTable';
 import { ApplicationTable } from '../ApplicationTable';
 import { ContainerTable } from '../ContainerTable';
+import { DashboardButton } from '../DashboardButton';
 
 import type { NodeDetailPanelProps } from './NodeDetailPanel.types';
 
@@ -183,6 +184,7 @@ export function NodeDetailPanel({
   onAlertTimeClick,
   timeZone,
   lookups,
+  dashboard,
   view = 'alerts',
 }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
@@ -206,6 +208,7 @@ export function NodeDetailPanel({
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
         <span className={styles.title}>{node.label}</span>
+        {dashboard !== undefined && <DashboardButton state={dashboard} />}
         <span className={styles.badges}>
           {node.kind !== undefined && (
             <span className={styles.badge} data-testid="node-detail-kind">

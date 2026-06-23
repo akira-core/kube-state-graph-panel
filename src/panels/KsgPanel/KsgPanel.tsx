@@ -20,9 +20,12 @@ import {
   type NamespaceLegendEntry,
 } from '../../features/legend';
 import {
+  assembleDashboardParams,
   DETAIL_URL_KINDS,
+  isDashboardEligible,
   NodeDetailPanel,
   resolveDetailEndpoint,
+  useNodeDashboardUrl,
   useNodeDetailUrls,
   type NodeDetailData,
   type NodeDetailQueryInput,
@@ -164,7 +167,7 @@ export function resolveSelectedNode(
       continue;
     }
     const d = el.data as cytoscape.NodeDataDefinition;
-    if (d.id === selectedNodeId && d.isCluster !== true && d.isStorageClass !== true && d.isNamespace !== true) {
+    if (d.id === selectedNodeId && isDashboardEligible(d)) {
       const label = typeof d.label === 'string' ? d.label : selectedNodeId;
       // Controller identity the detail-URL queries use (D4), resolved only for the
       // kinds they may fire for: a pod from its owner (kind lowercased to match the
@@ -347,6 +350,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [detailRequest, selectedNode]
   );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
+
+  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId) — left
+  // OR right click — NOT the right-click-only detailRequest above: the button appears in
+  // both views. The param map is assembled from the selected node's data + its children
+  // (compound merge); undefined for no selection / an ineligible compound, which idles
+  // the hook. Shares the same resolved endpoint as the Change Report queries.
+  const dashboardParams = useMemo(() => assembleDashboardParams(elements, selectedNodeId), [elements, selectedNodeId]);
+  const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
 
   // Cluster swatches are derived from the backend's compound (cluster) container
   // nodes, so the legend colours always match the on-canvas backplates (single
@@ -665,6 +676,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           onAlertTimeClick={handleAlertTimeClick}
           timeZone={timeZone}
           lookups={detailLookups}
+          dashboard={dashboardLookup}
           view={detailRequest !== null ? 'detail' : 'alerts'}
         />
       </div>

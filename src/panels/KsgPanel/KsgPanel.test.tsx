@@ -761,6 +761,22 @@ describe('KsgPanel', () => {
     expect(node?.alerts).toEqual(alerts);
   });
 
+  it('resolveSelectedNode opens for k8s-node + controller compounds, not cluster/namespace/storageclass (D2 scope)', () => {
+    const elements: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'node1', kind: 'node', label: 'ip-10' } },
+      { group: 'nodes', data: { id: 'ctrl', kind: 'statefulset', label: 'mongo', isController: true } },
+      { group: 'nodes', data: { id: 'cl', label: 'demo', isCluster: true } },
+      { group: 'nodes', data: { id: 'sc', kind: 'storageclass', label: 'fast', isStorageClass: true } },
+      { group: 'nodes', data: { id: 'ns', label: 'shop', isNamespace: true } },
+    ];
+    const vis = new Set(['node1', 'ctrl', 'cl', 'sc', 'ns']);
+    expect(resolveSelectedNode(elements, 'node1', vis)?.kind).toBe('node');
+    expect(resolveSelectedNode(elements, 'ctrl', vis)?.kind).toBe('statefulset');
+    expect(resolveSelectedNode(elements, 'cl', vis)).toBeNull();
+    expect(resolveSelectedNode(elements, 'sc', vis)).toBeNull();
+    expect(resolveSelectedNode(elements, 'ns', vis)).toBeNull();
+  });
+
   it('rewinds the dashboard time range to a ±5m window when an alert time is clicked', () => {
     const onChangeTimeRange = jest.fn();
     const payload = {
@@ -843,6 +859,11 @@ describe('KsgPanel', () => {
     };
     const lastCanvasProps = (): CanvasHandlers => (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
 
+    // The Change Report (config/code_changes) calls only — separated from the per-node
+    // /dashboard prefetch, which now ALSO fires on every panel open (left or right).
+    const changeReportCalls = (): unknown[][] =>
+      (detailGetMock.mock.calls as unknown[][]).filter((c) => /\/(config|code)_changes$/.test(String(c[0])));
+
     // Controller mode default-collapses the synthesized controller, folding the pod
     // off the canvas — where it cannot be clicked, and where resolveSelectedNode
     // (correctly) refuses to open the panel for it. Expand first, as a user would.
@@ -886,6 +907,35 @@ describe('KsgPanel', () => {
       jest.restoreAllMocks();
     });
 
+    it('left-click OPEN eager-prefetches /dashboard and renders the Dashboard button (both views, no right-click)', async () => {
+      detailGetMock.mockImplementation((path: string) =>
+        path.endsWith('/dashboard') ? Promise.resolve({ url: 'https://dash/mongo-0' }) : Promise.resolve({})
+      );
+      renderPanel(withEndpoint);
+      expandAll();
+      // LEFT-click open (alerts view). The Dashboard prefetch is driven by the panel
+      // OPENING, not the right-click flow — so config_changes/code_changes never fire.
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+      await waitFor(() => {
+        expect(detailGetMock).toHaveBeenCalledWith(
+          '/proxy/dashboard',
+          { application: 'checkout', cluster: 'demo', kind: 'pod', name: 'mongo-0', namespace: 'shop' },
+          undefined,
+          expect.anything()
+        );
+      });
+      // The right-click-only Change Report queries do NOT fire on a left-click open.
+      expect(changeReportCalls()).toHaveLength(0);
+      const btn = await screen.findByTestId('node-detail-dashboard-button');
+      expect(btn.getAttribute('href')).toBe('https://dash/mongo-0');
+      expect(btn.getAttribute('target')).toBe('_blank');
+      // Left-click view shows the Alerts section, not the right-click detail sections —
+      // confirming the dashboard button is open-driven, independent of detailRequest.
+      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
+    });
+
     it('pod right-click EAGER-prefetches both endpoints WITHOUT any click; resolved URLs render as anchors (owner kind/name + right-click time)', async () => {
       // The eager prefetch resolves the application URL and the container→URL map.
       detailGetMock.mockImplementation((path: string) =>
@@ -910,7 +960,7 @@ describe('KsgPanel', () => {
         expect(detailGetMock).toHaveBeenCalledWith('/proxy/config_changes', params, undefined, expect.anything());
       });
       expect(detailGetMock).toHaveBeenCalledWith('/proxy/code_changes', params, undefined, expect.anything());
-      expect(detailGetMock).toHaveBeenCalledTimes(2);
+      expect(changeReportCalls()).toHaveLength(2);
 
       // Once the prefetch resolves, both Change Report cells render real anchors —
       // assert their attributes (never .click() — jsdom would not navigate).
@@ -946,14 +996,20 @@ describe('KsgPanel', () => {
       );
     });
 
-    it('left-click opens the alerts view and never queries (no detail sections)', () => {
+    it('left-click opens the alerts view and never queries (no detail sections)', async () => {
       renderPanel(withEndpoint);
       expandAll();
       act(() => {
         lastCanvasProps().onSelect?.('demo/p1');
       });
+      // Flush the open-driven /dashboard prefetch's resolve inside act.
+      await act(async () => {
+        await Promise.resolve();
+      });
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
-      expect(detailGetMock).not.toHaveBeenCalled();
+      // Left-click never fires the right-click Change Report queries (the /dashboard
+      // prefetch DOES fire on any open — asserted separately).
+      expect(changeReportCalls()).toHaveLength(0);
       // Left-click renders the alerts view only — Application/Containers belong
       // to the right-click detail view.
       expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
@@ -961,15 +1017,21 @@ describe('KsgPanel', () => {
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
     });
 
-    it('right-click on a non pod/controller node opens the panel without sections or queries', () => {
+    it('right-click on a non pod/controller node opens the panel without sections or queries', async () => {
       renderPanel(withEndpoint);
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/svc');
       });
+      // Flush the open-driven /dashboard prefetch's resolve inside act.
+      await act(async () => {
+        await Promise.resolve();
+      });
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
-      expect(detailGetMock).not.toHaveBeenCalled();
+      // A non pod/controller leaf fires no Change Report queries (the /dashboard
+      // prefetch is eligible for any leaf and is covered elsewhere).
+      expect(changeReportCalls()).toHaveLength(0);
     });
 
     it('never queries while the endpoint resolves to nothing (sections render, "Not found" shown)', () => {
@@ -1090,27 +1152,36 @@ describe('KsgPanel', () => {
       act(() => {
         lastCanvasProps().onContextSelect?.('demo/p1');
       });
-      // The right-click eager-prefetches both endpoints: exactly two calls.
+      // The right-click eager-prefetches both Change Report endpoints: exactly two calls.
       await waitFor(() => {
-        expect(detailGetMock).toHaveBeenCalledTimes(2);
+        expect(changeReportCalls()).toHaveLength(2);
       });
       // Left-click switches to the alerts view (no Change Report cells) and clears
       // the request input → the hook disables, aborts in flight, and clears its
-      // caches; there is no detail view to refetch into, so the count stays at 2.
+      // caches; there is no detail view to refetch into, so the Change Report count
+      // stays at 2 (the /dashboard prefetch tracks the open separately).
       act(() => {
         lastCanvasProps().onSelect?.(controllerId);
       });
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
       expect(screen.queryByTestId('application-url-unavailable')).not.toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
-      expect(detailGetMock).toHaveBeenCalledTimes(2);
+      expect(changeReportCalls()).toHaveLength(2);
+      // Flush the controller's open-driven /dashboard prefetch resolve inside act.
+      await act(async () => {
+        await Promise.resolve();
+      });
     });
 
-    it('collapsing the selected pod away closes the detail panel (off-canvas node never described)', () => {
+    it('collapsing the selected pod away closes the detail panel (off-canvas node never described)', async () => {
       renderPanel(withEndpoint);
       expandAll();
       act(() => {
         lastCanvasProps().onSelect?.('demo/p1');
+      });
+      // Flush the open-driven /dashboard prefetch's resolve inside act.
+      await act(async () => {
+        await Promise.resolve();
       });
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
       // Re-collapse the pod's controller (legend toggle / cue): the pod folds off
