@@ -11,14 +11,12 @@ import { type HoverTooltipProps } from './HoverTooltip.types';
 interface TooltipRow {
   key: string;
   value: string;
-  // When true the row wraps (like the label rows) instead of clipping to one line —
-  // used for long synthesized values such as a storageclass's grouped PVC list.
+  // Wrap instead of clip — for long synthesized values like a storageclass's grouped PVC list.
   wrap?: boolean;
 }
 
-// title + the structured attributes (kind/namespace/ipAddress, or edgeType) we
-// promote, then the raw backend `labels` map below a divider. We do NOT filter
-// labels here — the backend decides what to send (no panel-side whitelist).
+// Promoted attrs (kind/namespace/ipAddress, or edgeType) + raw backend `labels`
+// below a divider. Labels are unfiltered — the backend decides what to send.
 interface TooltipContent {
   title: string;
   attrs: TooltipRow[];
@@ -35,8 +33,7 @@ function getStyles(theme: GrafanaTheme2): {
 } {
   const colors = themeColors(theme);
   return {
-    // Floats next to the hovered element; left/top are set inline from the
-    // element's rendered position (see HoverTooltip), clamped within the canvas.
+    // Floats beside the hovered element; left/top set inline + clamped (see HoverTooltip).
     root: css({
       position: 'absolute',
       width: 280,
@@ -52,8 +49,7 @@ function getStyles(theme: GrafanaTheme2): {
       boxShadow: theme.shadows.z2,
       transition: 'opacity 150ms ease-in-out',
       zIndex: 10,
-      // Long label lists scroll within the box instead of overflowing the panel;
-      // max-width/height are set inline from the viewport (see HoverTooltip).
+      // Long label lists scroll; max-width/height set inline from viewport (see HoverTooltip).
       overflowY: 'auto',
       overflowX: 'hidden',
     }),
@@ -64,7 +60,7 @@ function getStyles(theme: GrafanaTheme2): {
       overflow: 'hidden',
       textOverflow: 'ellipsis',
     }),
-    // Promoted attributes stay single-line (they are short and structured).
+    // Promoted attrs stay single-line.
     row: css({
       display: 'flex',
       gap: 4,
@@ -76,13 +72,13 @@ function getStyles(theme: GrafanaTheme2): {
       color: colors.text.secondary,
       flexShrink: 0,
     }),
-    // Label values can be long (k8s labels), so let them wrap instead of clip.
+    // k8s label values can be long — wrap instead of clip.
     labelRow: css({
       display: 'flex',
       gap: 4,
       overflowWrap: 'anywhere',
     }),
-    // Hinted divider: a hairline + the word "labels" introducing the raw map.
+    // Divider introducing the raw labels map.
     labelsHint: css({
       marginTop: 6,
       paddingTop: 6,
@@ -96,8 +92,7 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-// Every string entry of a labels map as rows, skipping keys already promoted to
-// the attributes section (only `namespace` overlaps today).
+// String entries of a labels map as rows, skipping keys already promoted to attrs.
 function toLabelRows(labels: unknown, promoted: ReadonlySet<string>): TooltipRow[] {
   if (labels === null || typeof labels !== 'object') {
     return [];
@@ -123,11 +118,8 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     const labelRaw = data.label;
     const idRaw = data.id;
     const title = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
-    // A storageclass compound group carries its kind but no namespace / ipAddress and
-    // no backend labels, so the generic attrs below would be just the kind. This
-    // branch ADDS the context that lives on the node's PARENT / CHILDREN, not its own
-    // data (gathered in useHoverElement): which cluster it belongs to and the PVCs it
-    // groups — so the tooltip is more than the bare name.
+    // A storageclass compound group has no namespace/ipAddress/labels of its own, so
+    // surface context from its parent/children (cluster + grouped PVCs, from useHoverElement).
     if (data.isStorageClass === true) {
       const kindValue = typeof data.kind === 'string' ? data.kind : 'storageclass';
       const scAttrs: TooltipRow[] = [{ key: 'kind', value: kindValue }];
@@ -161,11 +153,10 @@ function buildContent(hovered: HoveredElement): TooltipContent {
   return { title, attrs, labels: toLabelRows(data.labels, EDGE_PROMOTED_LABELS) };
 }
 
-// Gap between the hovered element's anchor and the tooltip box, and the minimum
-// distance kept from the canvas edges when clamping.
+// Anchor-to-box gap and min distance kept from canvas edges when clamping.
 const TOOLTIP_OFFSET = 14;
 const EDGE_MARGIN = 4;
-// Safe fallback (top-left-ish) when no rendered position is available.
+// Fallback when no rendered position is available.
 const FALLBACK_COORDS = { left: EDGE_MARGIN, top: EDGE_MARGIN };
 
 export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Element | null {
@@ -175,9 +166,8 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
   const ref = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<{ left: number; top: number }>(FALLBACK_COORDS);
 
-  // After layout, place the box beside the anchor and clamp/flip it inside the
-  // canvas. useLayoutEffect runs before paint, so the corrected position shows
-  // on the first visible frame (no flash at the fallback corner).
+  // Place beside the anchor, clamp/flip inside the canvas. useLayoutEffect runs
+  // before paint so the corrected position shows on frame 1 (no flash at the fallback corner).
   useLayoutEffect(() => {
     const el = ref.current;
     if (el === null || hovered === null || hovered.position === undefined) {
@@ -211,9 +201,7 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
 
   const { title, attrs, labels } = buildContent(hovered);
 
-  // Cap the box to the canvas so an oversized tooltip (many label rows, or a
-  // panel narrower/shorter than the box) scrolls within bounds instead of
-  // spilling over the panel edge.
+  // Cap to the canvas so an oversized tooltip scrolls within bounds instead of spilling over.
   const vp = hovered.viewport;
   const sizeStyle =
     vp !== undefined

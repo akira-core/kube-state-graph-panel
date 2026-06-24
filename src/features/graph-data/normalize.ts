@@ -38,19 +38,10 @@ function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
 
-// A node's panel-side identity, keyed off its upstream `type`:
-//   - `cluster`  → a kind-less decorative container (its own palette accent colour).
-//   - `storageclass` → a compound GROUP that carries its `kind` (so it can appear in
-//     the icon legend when collapsed + be filterable) AND the `isStorageClass` flag
-//     (so it gets its own "Storage classes" swatch section + is excluded from the
-//     detail panel). It behaves like the K8s `node` container: icon-less while an
-//     expanded box, shows its icon when collapsed. It carries NO status (a grouping
-//     box has no health).
-//   - everything else → a leaf carrying its kind, plus `status` ONLY when the backend
-//     actually sent one. Status is data-driven: a kind the backend gives no status to
-//     (e.g. service / external) carries no `status` field and therefore renders no
-//     status border (the stylesheet borders `node[status]`, not a hardcoded kind list).
-// One branch, one place.
+// Panel-side identity keyed off upstream `type`: `cluster` → kind-less decorative
+// container; `storageclass` → compound group carrying `kind` + `isStorageClass`, no
+// status; everything else → leaf carrying its kind plus `status` ONLY when the backend
+// sent one (data-driven — stylesheet borders `node[status]`, not a hardcoded kind list).
 type NodeIdentity =
   | { isCluster: true; cluster: string; clusterColor: string }
   | { kind: NodeKind; isStorageClass: true }
@@ -66,17 +57,14 @@ function resolveNodeIdentity(type: string, label: string, status: NodeStatus | u
   return { kind: type as NodeKind, ...(status !== undefined ? { status } : {}) };
 }
 
-// A single Unix-seconds value is valid iff finite and non-negative: NaN/±Infinity
-// would render "Invalid date" and yield a {from:NaN,to:NaN} rewind; a negative epoch
-// would rewind to a bogus pre-1970 window. Reject all of them.
+// Unix seconds: must be finite and non-negative — NaN/±Infinity → "Invalid date" +
+// {from:NaN,to:NaN} rewind; a negative epoch → bogus pre-1970 window.
 function isValidEpochSeconds(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n >= 0;
 }
 
-// Resolve an alert's occurrence times to an ASCENDING `timeRecords` list. Primary
-// source is the upstream `time_records` array (kept = valid epoch seconds, sorted
-// ascending). When that yields nothing, fall back to the legacy single `time` scalar
-// as a one-occurrence list. Returns undefined when no valid occurrence time exists.
+// Ascending `timeRecords` from upstream `time_records` (valid epoch seconds, sorted);
+// falls back to the legacy single `time` scalar. undefined = no valid occurrence time.
 function parseTimeRecords(entry: Record<string, unknown>): number[] | undefined {
   if (Array.isArray(entry.time_records)) {
     const valid = entry.time_records.filter(isValidEpochSeconds);
@@ -87,12 +75,9 @@ function parseTimeRecords(entry: Record<string, unknown>): number[] | undefined 
   return isValidEpochSeconds(entry.time) ? [entry.time] : undefined;
 }
 
-// Project the optional upstream `alerts` array onto typed NodeAlert[]. Anti-corruption
-// boundary: malformed entries (missing/ill-typed name or severity, or no valid
-// occurrence time) are dropped, not thrown — consistent with the partial-parse
-// contract. `severity` is kept as a free-form string: any non-empty label survives
-// (custom labels are colour-mapped downstream, not dropped). Returns undefined when no
-// valid alert survives so the node carries no `alerts` field.
+// Project upstream `alerts` onto typed NodeAlert[]. Anti-corruption: malformed entries
+// dropped, not thrown (partial-parse contract). `severity` kept as free-form string —
+// custom labels survive and are colour-mapped downstream. undefined = no alerts field.
 function parseAlerts(v: unknown): NodeAlert[] | undefined {
   if (!Array.isArray(v)) {
     return undefined;
@@ -121,10 +106,9 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
   return alerts.length > 0 ? alerts : undefined;
 }
 
-// Project the optional upstream pod `containers` array onto typed ContainerSpec[].
-// Anti-corruption boundary: entries whose `name` or `image` is missing, empty, or
-// not a string are dropped, not thrown. Returns undefined when nothing valid
-// survives so the node carries no `containers` field (exactOptionalPropertyTypes).
+// Project upstream pod `containers` onto typed ContainerSpec[]. Anti-corruption:
+// entries with missing/empty/non-string name or image dropped, not thrown.
+// undefined = no containers field (exactOptionalPropertyTypes).
 function parseContainers(v: unknown): ContainerSpec[] | undefined {
   if (!Array.isArray(v)) {
     return undefined;
@@ -138,12 +122,10 @@ function parseContainers(v: unknown): ContainerSpec[] | undefined {
   return containers.length > 0 ? containers : undefined;
 }
 
-// Node-STATUS ranking for the collapsed-container tint: higher = worse. A COLLAPSED
-// container (controller / k8s node) borders by the worst status it HIDES, so its child
-// pods' problems still read once their boxes are folded away. STATUS — not alert
-// severity — is the signal: every node carries a status (default normal), a uniform
-// normal/warning/critical scale, whereas alerts add an 'info' tier status never has and
-// a pod can be warning/critical WITHOUT an alert.
+// Node-STATUS rank for the collapsed-container tint (higher = worse): a collapsed
+// container borders by the worst status it HIDES. STATUS, not alert severity, is the
+// signal — every node has a status (default normal) on a uniform scale, and a pod can
+// be warning/critical without any alert.
 const STATUS_RANK: Record<NodeStatus, number> = { normal: 0, warning: 1, critical: 2 };
 function rankToStatus(rank: number): NodeStatus {
   return rank >= 2 ? 'critical' : rank === 1 ? 'warning' : 'normal';
@@ -156,10 +138,10 @@ interface PendingOwned {
   ownerName: string;
   cluster: string; // '' when absent
   namespace: string; // '' when absent
-  podStatusRank: number; // the pod's status rank (0 = normal); aggregated onto the controller as its worst child status
-  podAlerts: NodeAlert[] | undefined; // the pod's parsed alerts; aggregated onto the controller for its detail-panel alert table
-  podApplication: string | undefined; // the pod's ArgoCD application; the first valued pod (stable order) names the controller's
-  podContainers: ContainerSpec[] | undefined; // the pod's containers; union-aggregated onto the controller, deduped by (name, image)
+  podStatusRank: number; // aggregated onto the controller as its worst child status
+  podAlerts: NodeAlert[] | undefined; // aggregated onto the controller's detail-panel alert table
+  podApplication: string | undefined; // first valued pod (stable order) names the controller's
+  podContainers: ContainerSpec[] | undefined; // union-aggregated onto the controller, deduped by (name, image)
 }
 
 // OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
@@ -167,8 +149,8 @@ function controllerIdFor(o: PendingOwned): string {
   return `ctrl/${o.cluster}/${o.namespace}/${o.ownerKind.toLowerCase()}/${o.ownerName}`;
 }
 
-// Read a pod's controller owner from typed `data.owner` (current backend) or the
-// legacy `labels.owner_kind` / `labels.owner_name` (pre-f050092). undefined = none.
+// Pod controller owner from typed `data.owner` or legacy `labels.owner_kind/_name`
+// (pre-f050092). undefined = none.
 function parseOwner(
   d: Record<string, unknown>,
   labels: Record<string, string> | undefined
@@ -188,8 +170,7 @@ function unwrapData(entry: Record<string, unknown>): Record<string, unknown> {
   return isPlainObject(entry.data) ? entry.data : entry;
 }
 
-// Locate the { nodes, edges } container: accept the full response ({ elements: {...} })
-// or an already-unwrapped object.
+// Locate the { nodes, edges } container: full response ({ elements: {...} }) or already-unwrapped.
 function resolveContainer(raw: Record<string, unknown>): Record<string, unknown> {
   if (isPlainObject(raw.elements)) {
     return raw.elements;
@@ -197,12 +178,10 @@ function resolveContainer(raw: Record<string, unknown>): Record<string, unknown>
   return raw;
 }
 
-// Pre-pass: worst child-pod STATUS rank per parent container id, so a COLLAPSED k8s
-// node can border by the worst status among the pods it hides (getStylesheet). Keyed
-// by the pod's raw `parent` (its k8s node id in cluster > node > pod nesting).
-// Every parented pod records an entry — including rank 0 (normal) — so map
-// membership doubles as "this container HAS child pods" (D10: a node writes
-// worstStatus only when it has status information at all).
+// Pre-pass: worst child-pod STATUS rank per parent container id (keyed by the pod's raw
+// `parent`), so a collapsed k8s node borders by the worst status it hides. Every parented
+// pod records an entry — including rank 0 — so map membership doubles as "has child pods"
+// (D10: write worstStatus only when there is status info at all).
 function computeChildWorstStatus(rawNodes: unknown[]): Map<string, number> {
   const childWorstStatusRank = new Map<string, number>();
   for (const entry of rawNodes) {
@@ -225,9 +204,8 @@ function computeChildWorstStatus(rawNodes: unknown[]): Map<string, number> {
 
 interface ParsedNodes {
   elements: cytoscape.ElementDefinition[];
-  // Accumulators the controller-synthesis stage consumes: pods carrying an owner, and
-  // the cluster name → container id map (a synthesized controller nests under its
-  // cluster). `nodeIds` is the dedup set the edge stage validates endpoints against.
+  // Accumulators for controller synthesis: owned pods + cluster-name → container-id map
+  // (a synthesized controller nests under its cluster). `nodeIds` is the edge-endpoint dedup set.
   pendingOwned: PendingOwned[];
   clusterIdByName: Map<string, string>;
   nodeIds: Set<string>;
@@ -239,14 +217,10 @@ interface ParsedEdges {
   errors: string[];
 }
 
-// Stage 1 — project raw nodes onto cytoscape node elements (in payload order) and
-// collect what controller synthesis needs. The compound (cluster/node) grouping
-// STRUCTURE is owned by the backend: we pass its `parent` field through untouched. A
-// flat payload renders flat; a nested one (cluster > node > pod, cluster > svc) renders
-// boxes — the panel is structure-agnostic. The one presentation concern that stays here
-// is the cluster accent COLOUR (theme/palette is a frontend decision), assigned to each
-// `type: "cluster"` container from a stable palette (single source: data.clusterColor,
-// which the legend swatches read back).
+// Stage 1 — project raw nodes onto cytoscape node elements (payload order) + collect what
+// controller synthesis needs. Compound grouping STRUCTURE is the backend's: `parent` is
+// passed through untouched (panel is structure-agnostic). The one frontend concern kept
+// here is the cluster accent COLOUR (single source: data.clusterColor, read by legend swatches).
 function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<string, number>): ParsedNodes {
   const elements: cytoscape.ElementDefinition[] = [];
   const errors: string[] = [];
@@ -267,9 +241,8 @@ function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<strin
       errors.push(`nodes[${String(index)}] missing type`);
       continue;
     }
-    // Duplicate ids are rejected into the partial-parse channel: cytoscape would
-    // silently first-wins-dedupe the second copy, and when the copies differ in
-    // data the differ would flip-flop them into toUpdate on every refresh.
+    // Duplicate ids → partial-parse channel: cytoscape silently first-wins-dedupes the
+    // copy, and differing copies would flip-flop into toUpdate on every refresh.
     if (nodeIds.has(d.id)) {
       errors.push(`nodes[${String(index)}] duplicate id "${d.id}"`);
       continue;
@@ -279,27 +252,22 @@ function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<strin
     const label = isString(d.name) ? d.name : d.id;
     const isCluster = d.type === 'cluster';
     const isStorageClass = d.type === 'storageclass';
-    // Status is DATA-DRIVEN: keep ONLY a valid backend status on the element (absent →
-    // no `status` field → the stylesheet's `node[status]` selector renders no border).
-    // For aggregating a parent's worst child status (worstStatus), an absent status
-    // still counts as `normal` (FALLBACK_STATUS).
+    // Data-driven status: keep only a valid backend status on the element (absent → no
+    // `status` field → no border via `node[status]`). For worstStatus aggregation, an
+    // absent status counts as FALLBACK_STATUS (normal).
     const rawStatus: NodeStatus | undefined = isNodeStatus(d.status) ? d.status : undefined;
     const ownStatusRank = STATUS_RANK[rawStatus ?? FALLBACK_STATUS];
     const identity = resolveNodeIdentity(d.type, label, rawStatus);
-    // Alerts ride on any leaf node; grouping containers (cluster / storageclass)
-    // never carry them (and are excluded from the detail panel that consumes them).
+    // Alerts ride on leaf nodes only; grouping containers (cluster / storageclass) never carry them.
     const alerts = isCluster || isStorageClass ? undefined : parseAlerts(d.alerts);
-    // A k8s `node` container surfaces the worst status it would HIDE once collapsed: the
-    // worst of its OWN status and its child pods' statuses (worst-wins) — INCLUDING
-    // `normal`, so an all-healthy box collapses to an explicit green border (D10). Set
-    // only when there IS status information (own status or ≥1 child pod): a bare node
-    // with neither must not dress "no data" up as normal.
+    // A collapsed k8s `node` borders by the worst of its own + child-pod statuses, incl.
+    // normal (D10). Set only when status info exists (own status or ≥1 child pod) — a bare
+    // node with neither must not pass "no data" off as normal.
     const nodeChildRank = d.type === 'node' ? childWorstStatusRank.get(d.id) : undefined;
     const nodeHasStatusInfo = d.type === 'node' && (rawStatus !== undefined || nodeChildRank !== undefined);
     const nodeWorstRank = Math.max(ownStatusRank, nodeChildRank ?? 0);
-    // ArgoCD application + container specs + the typed owner ride on POD nodes only
-    // (backend contract); a synthesized controller aggregates the first two from its
-    // owned pods below, and the detail-URL queries read a pod's controller from owner.
+    // ArgoCD application + containers + typed owner ride on POD nodes only (backend
+    // contract); the synthesized controller aggregates application+containers from its pods.
     const isPod = d.type === 'pod';
     const application = isPod && isString(d.application) ? d.application : undefined;
     const containers = isPod ? parseContainers(d.containers) : undefined;
@@ -307,11 +275,9 @@ function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<strin
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
-      // Cluster boxes are decorative grouping backplates: keep them GRABBABLE
-      // (draggable, cytoscape default) but NOT selectable, so a tap can never latch
-      // a selection ring or open the detail panel on them. This is the single source
-      // for "clusters aren't selectable" — the canvas tap handler reads node.selectable()
-      // rather than re-deriving isCluster.
+      // Cluster boxes stay grabbable (draggable) but NOT selectable — a tap can't latch a
+      // selection ring or open the detail panel. Single source for "clusters aren't
+      // selectable": the canvas tap handler reads node.selectable(), not isCluster.
       ...(isCluster ? { selectable: false } : {}),
       data: {
         id: d.id,
@@ -348,9 +314,8 @@ function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<strin
   return { elements, pendingOwned, clusterIdByName, nodeIds, errors };
 }
 
-// Stage 2 — project raw edges onto cytoscape edge elements (in payload order). An edge
-// whose endpoints are not BOTH known node ids is dropped into the partial-parse channel
-// (cytoscape would otherwise throw on an edge to a missing node).
+// Stage 2 — project raw edges onto cytoscape edge elements (payload order). An edge whose
+// endpoints aren't both known node ids → partial-parse channel (cytoscape throws otherwise).
 function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEdges {
   const elements: cytoscape.ElementDefinition[] = [];
   const errors: string[] = [];
@@ -389,10 +354,9 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
   return { elements, errors };
 }
 
-// Stage 3 — synthesize controller nodes + controller-owns-pod edges from pod owners. The
-// backend emits owner metadata on pods only; the panel materializes the controller node
-// the contract implies (deduped) and the owns edge. Deterministic. Returns the controller
-// NODES first, then the owns EDGES — the order the single-pass version appended them.
+// Stage 3 — synthesize deduped controller nodes + controller-owns-pod edges from pod owner
+// metadata (backend emits owners on pods only). Deterministic. Returns controller NODES
+// first, then owns EDGES — the order the prior single-pass version appended them.
 function synthesizeControllers(
   pendingOwned: PendingOwned[],
   clusterIdByName: ReadonlyMap<string, string>
@@ -401,9 +365,8 @@ function synthesizeControllers(
   const controllerSeen = new Set<string>();
   const ownsEdges: cytoscape.ElementDefinition[] = [];
   const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
-  // Pre-pass: worst child-pod STATUS per controller, so a COLLAPSED controller can
-  // border in that colour (getStylesheet). Computed across all owned pods before the
-  // node is materialized. (A controller has no status of its own — purely child-driven.)
+  // Pre-pass: worst child-pod STATUS per controller (a controller has no status of its
+  // own — purely child-driven), so a collapsed controller borders in that colour.
   const controllerWorstRank = new Map<string, number>();
   for (const o of sortedOwned) {
     const id = controllerIdFor(o);
@@ -411,12 +374,10 @@ function synthesizeControllers(
       controllerWorstRank.set(id, o.podStatusRank);
     }
   }
-  // Pre-pass: aggregate child-pod ALERTS per controller, so the detail panel's alert
-  // table on a controller lists every owned pod's alerts. Pods concatenate in the
-  // stable podId order; an entry missing `pod` is attributed to its source pod's
-  // label on a NEW object (the pod element's own alerts stay untouched); entries
-  // carrying an `id` dedupe across pods (first in stable order wins). STATUS — not
-  // alerts — still drives the collapsed-container tint (controllerWorstRank above).
+  // Pre-pass: aggregate child-pod ALERTS per controller (stable podId order) for its
+  // detail-panel alert table. An entry missing `pod` is attributed to its source pod's
+  // label on a NEW object (the pod's own alerts stay untouched); entries with an `id`
+  // dedupe across pods (first wins).
   const controllerAlerts = new Map<string, NodeAlert[]>();
   const controllerAlertIds = new Map<string, Set<string>>();
   for (const o of sortedOwned) {
@@ -438,11 +399,9 @@ function synthesizeControllers(
     controllerAlerts.set(id, agg);
     controllerAlertIds.set(id, seenIds);
   }
-  // Pre-pass: aggregate ArgoCD application + container specs per controller from its
-  // owned pods (the backend emits both on pods only). application = the FIRST valued
-  // pod in stable podId order (deterministic pick); containers = the union across all
-  // owned pods, deduped by (name, image) — insertion order is the stable pod order,
-  // sorted by (name, image) at materialization for a stable output.
+  // Pre-pass: aggregate ArgoCD application + containers per controller. application =
+  // first valued pod in stable podId order; containers = union across owned pods deduped
+  // by (name, image), sorted at materialization for stable output.
   const controllerApplication = new Map<string, string>();
   const controllerContainers = new Map<string, Map<string, ContainerSpec>>();
   for (const o of sortedOwned) {
@@ -481,14 +440,12 @@ function synthesizeControllers(
           kind: kindLower as NodeKind,
           isController: true,
           label: o.ownerName,
-          // namespace is a mode-agnostic leaf fact (all owned pods of one controller
-          // share it via the dedup key) — written so applyNamespaceGrouping (controller
-          // mode) can group the controller under its namespace box. Omitted when the
-          // owned pods carry no namespace (exactOptionalPropertyTypes).
+          // Written so applyNamespaceGrouping (controller mode) can box the controller
+          // under its namespace. Omitted when owned pods carry no namespace.
           ...(o.namespace !== '' ? { namespace: o.namespace } : {}),
           ...(parent !== undefined ? { parent } : {}),
-          // Always written — a controller always owns ≥1 pod, so an all-normal
-          // brood collapses to an explicit green border (normal is drawn too, D10).
+          // Always written — a controller owns ≥1 pod, so an all-normal brood still
+          // collapses to an explicit green border (normal is drawn, D10).
           worstStatus: rankToStatus(worstRank),
           ...(aggregatedAlerts !== undefined ? { alerts: aggregatedAlerts } : {}),
           ...(aggregatedApplication !== undefined ? { application: aggregatedApplication } : {}),
@@ -526,11 +483,9 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     errors.push('payload.edges is missing or not an array');
   }
 
-  // Explicit pipeline, each stage a pure function: child-status pre-pass → nodes →
-  // edges (validated against the parsed node ids) → synthesized controllers (+ owns
-  // edges) from the pods' owner metadata. Element order — nodes, then edges, then
-  // controller nodes + owns edges — and error order — container-shape, then node-parse,
-  // then edge-parse — are preserved exactly as the prior single-pass version emitted them.
+  // Pure-function pipeline: child-status pre-pass → nodes → edges (validated against node
+  // ids) → synthesized controllers. Element order (nodes, edges, controllers) and error
+  // order (container-shape, node-parse, edge-parse) preserved from the prior single-pass version.
   const childWorstStatusRank = computeChildWorstStatus(rawNodes);
   const nodes = parseNodes(rawNodes, childWorstStatusRank);
   const edges = parseEdges(rawEdges, nodes.nodeIds);

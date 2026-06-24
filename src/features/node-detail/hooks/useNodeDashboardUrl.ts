@@ -4,10 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DashboardParams } from '../assembleDashboardParams';
 import { DETAIL_DASHBOARD_PATH } from '../detailPaths';
 
-// Three rendered states of the per-node Dashboard URL lookup. Deliberately lighter
-// than DetailLookup (no diff-timestamp / result-type extras a dashboard URL never
-// has): the button renders ONLY on 'ready'; 'loading' and 'unavailable' both render
-// nothing (no spinner, no error — 200-gated visibility).
+// 200-gated visibility: button renders only on 'ready'; 'loading'/'unavailable' render nothing.
 export type DashboardLookup = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
 
 const LOADING: DashboardLookup = { status: 'loading' };
@@ -17,9 +14,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-// dashboard contract: `{ "url": string }`. A non-empty `url` is the SOLE availability
-// criterion — anything else (non-object, missing/empty url) is a shape mismatch and
-// resolves to unavailable (the button hides).
+// dashboard contract `{ "url": string }`: a non-empty `url` is the sole availability criterion; anything else → unavailable.
 function parseDashboardUrl(res: unknown): string | undefined {
   if (isPlainObject(res) && typeof res.url === 'string' && res.url.length > 0) {
     return res.url;
@@ -27,15 +22,13 @@ function parseDashboardUrl(res: unknown): string | undefined {
   return undefined;
 }
 
-// Stable request key independent of param insertion order, so a refresh that rebuilds
-// an equal param map (different identity, same values) does not refire the effect.
+// Order-independent request key: an equal-value param map (fresh identity) must not refire the effect.
 function serializeParams(base: string, params: DashboardParams): string {
   const body = Object.keys(params)
     .sort()
     .map((k) => {
       const v = params[k];
-      // Fold a string[] value (e.g. `ipaddress`) deterministically so an equal-value,
-      // fresh-identity array does not refire the keyed effect.
+      // Fold string[] values (e.g. `ipaddress`) deterministically for the same reason.
       return `${k}=${Array.isArray(v) ? v.join(',') : (v ?? '')}`;
     })
     .join('&');
@@ -43,18 +36,10 @@ function serializeParams(base: string, params: DashboardParams): string {
 }
 
 /**
- * Eager per-node Dashboard URL prefetch. Mirrors useNodeDetailUrls' machinery — one
- * effect keyed on a request-key STRING, live args read through a ref so a same-value
- * re-render does not refire, AbortController registered in a ref'd Set and aborted on
- * key change + unmount — but issues a SINGLE request through the Grafana backend proxy
- * (`getBackendSrv()`; never a direct external fetch) and carries NO time (the trigger
- * is the panel OPENING, left- or right-click, not a right-click time capture).
- *
- * `params` is the assembled query map (undefined when the node is missing / not
- * dashboard-eligible) and `endpoint` the resolved detail base; either being absent
- * idles the hook (no request, state 'unavailable' → the button hides). On resolve the
- * state is 'ready' (200 + non-empty url → the button renders) or 'unavailable' (any
- * other outcome → hidden, no error surfaced).
+ * Eager per-node Dashboard URL prefetch. Mirrors useNodeDetailUrls' machinery (string-keyed
+ * effect, ref'd live args, AbortController Set aborted on key change + unmount) but issues a
+ * SINGLE request through the Grafana backend proxy (`getBackendSrv()`, never a direct fetch)
+ * and carries no time. Absent `params`/`endpoint` idle the hook → 'unavailable'.
  */
 export function useNodeDashboardUrl(params: DashboardParams | undefined, endpoint: string): DashboardLookup {
   const base = endpoint.trim().replace(/\/+$/, '');
@@ -66,8 +51,7 @@ export function useNodeDashboardUrl(params: DashboardParams | undefined, endpoin
   // In-flight requests, aborted on key change (the keyed effect) and on unmount.
   const controllersRef = useRef<Set<AbortController>>(new Set());
 
-  // Latest params/base for the keyed effect to read at fire time, so a same-key
-  // content refresh (new identity, same values) never re-runs the effect.
+  // Latest params/base read at fire time, so a same-key content refresh never re-runs the effect.
   const argsRef = useRef<{ params: DashboardParams | undefined; base: string }>({ params, base });
   useEffect(() => {
     argsRef.current = { params, base };
@@ -125,7 +109,6 @@ export function useNodeDashboardUrl(params: DashboardParams | undefined, endpoin
   if (!enabled) {
     return UNAVAILABLE; // disabled → hidden button, no request
   }
-  // Pre-effect / in-flight for the current key reads 'loading' (no flash); a resolved
-  // value for a stale key is ignored (reads back fresh on the new key).
+  // Pre-effect/in-flight or a stale-key result reads 'loading' (no flash).
   return result !== null && result.key === key ? result.value : LOADING;
 }

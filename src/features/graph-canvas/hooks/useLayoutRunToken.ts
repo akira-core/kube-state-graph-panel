@@ -3,28 +3,23 @@ import { useCallback, useState } from 'react';
 import type { PodParentMode } from '../../../shared/constants/types';
 
 export interface UseLayoutRunTokenInput {
-  // Collapsed parent-container ids. A fold/unfold must be APPLIED (diff-patch
-  // re-collapse) but must NOT relayout — the extension preserves positions, so
-  // toggling one container no longer reshuffles the whole graph.
+  // Collapsed parent-container ids. A fold/unfold is APPLIED (diff-patch) but must
+  // NOT relayout — the extension preserves positions.
   collapsedIds?: Set<string> | undefined;
-  // Pod-parent mode. Switching it re-parents pods and adds/removes edges (a real
-  // structural rebuild), so it DOES trigger a re-layout.
+  // Switching mode re-parents pods + adds/removes edges (structural), so it DOES relayout.
   podParentMode?: PodParentMode | undefined;
 }
 
 export interface LayoutRunTokens {
-  // Bumps when the collapsed-set CONTENT changes. Gate the diff-patch / re-collapse
-  // cycle on this (collapseKey) so legend + cue toggles are APPLIED — but it is
-  // deliberately decoupled from layoutToken, so a fold/unfold does NOT relayout.
+  // Bumps on collapsed-set CONTENT change; gates diff-patch/re-collapse. Decoupled
+  // from layoutToken so fold/unfold does not relayout.
   collapseApplyToken: number;
-  // Bumps on a pod-parent-mode flip (structural rebuild) OR an imperative
-  // requestRelayout(). Gate the single cy.layout() source (useGraphLayout) on this.
-  // NOT bumped by a collapse toggle — that is the whole point of the split.
+  // Bumps on a pod-parent-mode flip OR requestRelayout(); gates the single cy.layout()
+  // source (useGraphLayout). NOT bumped by a collapse toggle — the point of the split.
   layoutToken: number;
-  // One-shot relayout request for the cases that change the graph without changing
-  // the collapsed-set content or the mode: the mount-time default-collapse (applied
-  // after the layout pass) and a refresh that adds a wholly-new, unanchorable
-  // family. Stable identity — safe in effect deps; does not re-trigger effects.
+  // One-shot relayout for graph changes that touch neither collapsed-set content nor
+  // mode: mount-time default-collapse and a refresh adding a new unanchorable family.
+  // Stable identity — safe in effect deps.
   requestRelayout: () => void;
 }
 
@@ -33,27 +28,20 @@ interface Counter {
   token: number;
 }
 
-// Key that drives a LAYOUT: only the pod-parent mode (a fold/unfold must not relayout).
+// Layout key: only the pod-parent mode (fold/unfold must not relayout).
 function layoutKeyOf({ podParentMode }: UseLayoutRunTokenInput): string {
   return podParentMode ?? 'node';
 }
 
-// Key that drives APPLYING the collapse (diff-patch): the collapsed-set content.
+// Apply key: the collapsed-set content (drives diff-patch).
 function applyKeyOf({ collapsedIds }: UseLayoutRunTokenInput): string {
   return collapsedIds === undefined ? '' : [...collapsedIds].sort().join('|');
 }
 
-// Owns the layout-rerun + collapse-apply triggers as two INDEPENDENT monotonic
-// counters, each with a single meaning: `collapseApplyToken` bumps on a collapsed-set
-// content change (drives diff-patch); `layoutToken` bumps on a pod-parent-mode flip OR
-// requestRelayout() (drives the single cy.layout() source). A fold/unfold bumps ONLY
-// collapseApplyToken, so the extension applies it in place and the graph does not
-// reshuffle.
-//
-// Uses the React render-phase state update idiom: calling setState during render is
-// permitted and tells React to re-render once immediately with the updated state. Each
-// counter is seeded from the first render so mount yields token 0 (mount-only layout)
-// with no spurious bump.
+// Two independent monotonic counters; see LayoutRunTokens above for what each gates.
+// React render-phase setState idiom: setState during render is permitted and re-renders
+// once with the updated state. Each counter is seeded from the first render so mount
+// yields token 0 (mount-only layout) with no spurious bump.
 export function useLayoutRunToken(input: UseLayoutRunTokenInput): LayoutRunTokens {
   const layoutKey = layoutKeyOf(input);
   const applyKey = applyKeyOf(input);

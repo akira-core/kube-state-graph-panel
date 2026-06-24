@@ -3,10 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { DETAIL_CODE_CHANGES_PATH, DETAIL_CONFIG_CHANGES_PATH } from '../detailPaths';
 
-// The shared input of BOTH detail-URL queries (design D2): the ArgoCD application
-// plus the pod-controller identity and the right-click time (Unix SECONDS). A pod
-// resolves kind/name from its owner, a controller from itself, a standalone pod
-// from its own kind/name (resolveSelectedNode). undefined = nothing requested.
+// Shared input of both detail-URL queries (D2). `time` is Unix SECONDS, not ms.
+// kind/name resolved via resolveSelectedNode; undefined = nothing requested.
 export interface NodeDetailQueryInput {
   application: string;
   kind: string;
@@ -14,14 +12,9 @@ export interface NodeDetailQueryInput {
   time: number;
 }
 
-// The parsed payload of one successful Change Report lookup: the (required) URL plus
-// the optional RFC 3339 / ISO 8601 (UTC) diff timestamps (current → prev) and the
-// optional code-change `result_type` (containers only — `config_changes` has no
-// result_type, so the application path never sets it). All three extras are best-effort
-// — a key is present ONLY when the backend sent a non-empty string
-// (exactOptionalPropertyTypes), so a missing field is an absent key, never `undefined`.
-// The raw strings pass through unchanged; timezone formatting (formatChangeTime) and
-// colour mapping (resultTypeColor) are display concerns, not this parse layer's.
+// One successful Change Report lookup. Timestamps are raw RFC 3339 (UTC) strings;
+// resultType is containers-only (config_changes never sets it). Extras are best-effort:
+// key present ONLY for a non-empty backend string, else absent (exactOptionalPropertyTypes).
 export interface ChangeReportDetail {
   url: string;
   currentTime?: string;
@@ -29,14 +22,9 @@ export interface ChangeReportDetail {
   resultType?: string;
 }
 
-// Three rendered states per Change Report target. Eager prefetch starts each at
-// 'loading'; on resolve it becomes 'ready' (URL pre-resolved → the table renders a
-// real <a href> anchor, and the Current/Previous columns render the diff timestamps)
-// or 'unavailable' (failure / not-found / no-url → a muted "Not found" hint,
-// full error message in title). A discriminated union (not one interface with optional
-// url?/error?) so exactOptionalPropertyTypes cannot admit a 'ready' state without a
-// url; the two diff timestamps ride on the 'ready' variant (only a resolved entry can
-// carry them).
+// Rendered state per target: loading → ready (anchor + diff columns) | unavailable
+// (muted "Not found"). Discriminated union, not optional url?/error?, so a 'ready'
+// state cannot exist without a url under exactOptionalPropertyTypes.
 export type DetailLookup =
   | { status: 'loading' }
   | { status: 'ready'; url: string; currentTime?: string; previousTime?: string; resultType?: string }
@@ -45,41 +33,32 @@ export type DetailLookup =
 const LOADING: DetailLookup = { status: 'loading' };
 const UNAVAILABLE: DetailLookup = { status: 'unavailable' };
 
-// Null-prototype empty map: a container literally named `toString` / `constructor`
-// must read back undefined here (not an inherited Object.prototype member), matching
-// the success-path map built below and keeping ContainerTable's not-found fallback
-// honest. Shared by the disabled / failed / not-yet-resolved returns.
+// Null-prototype: a container named `toString`/`constructor` must read back undefined,
+// not an inherited Object.prototype member, so the not-found fallback stays honest.
 const EMPTY_BY_NAME: Record<string, DetailLookup> = Object.create(null) as Record<string, DetailLookup>;
 
-// The resolved per-target lookup state the detail panel renders directly (eager
-// prefetch — there are no click triggers). `enabled` is false when nothing is
-// requested (no right-click input) or no endpoint is configured: every target then
-// reads 'unavailable' (the muted hint), no spinner, no anchor, and the hook fires
-// no query.
+// Resolved per-target state the panel renders directly (eager prefetch, no click).
+// enabled false ⇒ nothing requested or no endpoint ⇒ every target unavailable, no query.
 export interface NodeDetailLookups {
   enabled: boolean;
   application: DetailLookup;
-  // The shared code_changes phase + the per-name resolved map. `phase: 'loading'` =
-  // the whole-map request is in flight (every row shows a spinner). When 'settled',
-  // a name PRESENT in byName is ready (anchor) and a name ABSENT is unavailable (the
-  // container exists in node.containers but the backend returned no URL for it). The
-  // container LIST comes from node.containers, not this map — so byName-missing is
-  // the not-found rule, which a flat Record could not distinguish from "still loading".
+  // Container list comes from node.containers, not byName; so a name ABSENT from a
+  // 'settled' byName means not-found, and 'loading' (whole-map in flight) is distinct
+  // — a flat Record could not tell not-found apart from still-loading.
   containers: {
     phase: 'loading' | 'settled';
     byName: Record<string, DetailLookup>; // only 'ready' entries; null-proto
   };
 }
 
-// The no-lookup controller: nothing requested / no endpoint. Tables render every
-// target as the muted "Not found" hint off it (no spinner, no anchor).
+// The no-lookup state: nothing requested / no endpoint. Every target renders "Not found".
 export const IDLE_NODE_DETAIL_LOOKUPS: NodeDetailLookups = {
   enabled: false,
   application: UNAVAILABLE,
   containers: { phase: 'settled', byName: EMPTY_BY_NAME },
 };
 
-// K8s names and URLs are NUL-free, so the joined form is unambiguous.
+// Space-joined: K8s names and URLs are NUL/space-free, so the key is unambiguous.
 function requestKeyFor(base: string, input: NodeDetailQueryInput): string {
   return [base, input.application, input.kind, input.name, String(input.time)].join(' ');
 }
@@ -88,9 +67,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-// The optional RFC 3339 diff timestamps off a backend entry, best-effort: each key is
-// kept ONLY when its value is a non-empty string, else omitted (exactOptionalProperty-
-// Types — never set to `undefined`). The raw ISO string passes through unchanged.
+// Optional diff timestamps, best-effort: key kept ONLY for a non-empty string, else
+// omitted (exactOptionalPropertyTypes — never `undefined`). Raw string unchanged.
 function pickTimes(o: Record<string, unknown>): { currentTime?: string; previousTime?: string } {
   return {
     ...(typeof o.current_time === 'string' && o.current_time.length > 0 ? { currentTime: o.current_time } : {}),
@@ -98,19 +76,14 @@ function pickTimes(o: Record<string, unknown>): { currentTime?: string; previous
   };
 }
 
-// The optional code-change `result_type` off a backend entry, best-effort (mirrors
-// pickTimes): kept ONLY when its value is a non-empty string, else omitted (the key is
-// absent, never set to `undefined` — exactOptionalPropertyTypes). The raw string passes
-// through unchanged; the known-enum → colour mapping is a display concern
-// (resultTypeColor). Containers-only — parseApplicationUrl does NOT call this.
+// Optional code-change `result_type`, best-effort (mirrors pickTimes). Containers-only:
+// parseApplicationUrl does NOT call this.
 function pickResultType(o: Record<string, unknown>): { resultType?: string } {
   return typeof o.result_type === 'string' && o.result_type.length > 0 ? { resultType: o.result_type } : {};
 }
 
-// application-detail (`config_changes`) contract: `{ "url": string, "current_time"?:
-// string, "previous_time"?: string }`. `url` is the SOLE availability criterion — no
-// url is a shape mismatch (undefined → that side's unavailable); the two timestamps
-// are best-effort extras (pickTimes), their absence never fails the lookup.
+// config_changes contract: `{ url, current_time?, previous_time? }`. `url` is the SOLE
+// availability criterion — no url ⇒ undefined (unavailable); timestamps never gate it.
 function parseApplicationUrl(res: unknown): ChangeReportDetail | undefined {
   if (isPlainObject(res) && typeof res.url === 'string' && res.url.length > 0) {
     return { url: res.url, ...pickTimes(res) };
@@ -118,18 +91,15 @@ function parseApplicationUrl(res: unknown): ChangeReportDetail | undefined {
   return undefined;
 }
 
-// image-detail (`code_changes`) contract: `{ [container]: { "url": string,
-// "current_time"?: string, "previous_time"?: string, "result_type"?: string } }` —
-// flattened here so the UI only ever sees container → detail. Malformed entries (no
-// valid url) are dropped (anti-corruption); a non-object payload is a shape error
-// (undefined). The two timestamps and result_type are best-effort extras.
+// code_changes contract: `{ [container]: { url, current_time?, previous_time?,
+// result_type? } }`, flattened to container → detail. Malformed entries (no valid url)
+// are dropped (anti-corruption); a non-object payload ⇒ undefined (shape error).
 function parseUrlByContainer(res: unknown): Record<string, ChangeReportDetail> | undefined {
   if (!isPlainObject(res)) {
     return undefined;
   }
-  // Null prototype: container names are arbitrary backend strings, and a name like
-  // 'constructor' must read back undefined when absent — on a prototype-ful object
-  // it would resolve to the inherited Function and defeat the UI's hasOwn fallback.
+  // Null prototype: a container named 'constructor' must read back undefined when
+  // absent, else it resolves to the inherited Function and defeats the UI's hasOwn fallback.
   const flat: Record<string, ChangeReportDetail> = Object.create(null) as Record<string, ChangeReportDetail>;
   for (const [container, entry] of Object.entries(res)) {
     if (isPlainObject(entry) && typeof entry.url === 'string' && entry.url.length > 0) {
@@ -139,9 +109,8 @@ function parseUrlByContainer(res: unknown): Record<string, ChangeReportDetail> |
   return flat;
 }
 
-// Best-effort human message from a BackendSrv rejection (FetchError carries
-// data.message / statusText) without trusting its shape. Defaults to "Not Found"
-// (a non-200 / no-result lookup is the common case the UI surfaces in title).
+// Best-effort message from a BackendSrv/FetchError rejection (data.message / statusText)
+// without trusting its shape. Defaults to "Not Found", the common no-result case.
 function errorMessage(reason: unknown): string {
   if (reason instanceof Error && reason.message.length > 0) {
     return reason.message;
@@ -158,10 +127,8 @@ function errorMessage(reason: unknown): string {
   return 'Not Found';
 }
 
-// The application target for the current key: its resolved value, or 'loading' while
-// the prefetch is pending (enabled), or 'unavailable' when disabled. Showing
-// 'loading' rather than 'unavailable' for a not-yet-resolved enabled key avoids a
-// "Not found" flash on the frame before the effect's setState lands.
+// Application target for the current key. A not-yet-resolved enabled key reads
+// 'loading' (not 'unavailable') to avoid a "Not found" flash before setState lands.
 function deriveApplication(
   appResult: { key: string; value: DetailLookup } | null,
   key: string,
@@ -174,35 +141,24 @@ function deriveApplication(
 }
 
 /**
- * Eager detail-URL prefetch for a right-clicked pod/controller. The right-click
- * builds the query input; as soon as it (and an endpoint) is available the hook
- * IMMEDIATELY fires BOTH queries in parallel through the Grafana backend proxy
- * (`getBackendSrv()` — the panel never fetches external URLs directly). No click is
- * needed: the resolved URL is exposed as per-target state so the tables render a
- * real `<a href target="_blank" rel="noopener noreferrer">` anchor on success, a
- * spinner while loading, and a muted "Not found" hint on failure / no-url.
+ * Eager detail-URL prefetch for a right-clicked pod/controller: fires both queries in
+ * parallel through the Grafana backend proxy (`getBackendSrv()` — the panel never
+ * fetches external URLs directly) and exposes resolved URLs as per-target state.
  *
- * At-most-once per open node falls out of the effect being keyed on the request-key
- * STRING (`requestKeyFor`, which fingerprints the endpoint + every input field): a
- * data refresh that hands a new-identity-but-same-value `input` object does NOT
- * re-run the effect — the effect reads the live input/base through a ref instead of
- * listing the object in its deps, so already-resolved anchors never flash back to
- * loading. Changing the selected node (a new key) re-runs the effect once. The
- * in-flight requests abort on node/endpoint change and on unmount (panel close); the
- * resolve/reject handlers early-out on `aborted`, so an aborted pass never writes
- * state and the per-key derived getters read back fresh with no stale frame. (React
- * 18 StrictMode double-mounts in dev → each endpoint may fire twice in DEV;
- * production and the non-StrictMode test renderer fire once.)
+ * Effect is keyed on the request-key STRING, not the `input` object: a same-value data
+ * refresh (new object identity) must NOT re-run it, else resolved anchors flash back to
+ * loading — so it reads live input/base through a ref instead of listing them in deps.
+ * In-flight requests abort on key change / unmount; handlers early-out on `aborted` so
+ * an aborted pass never writes state. (React 18 StrictMode fires each twice in DEV only.)
  */
 export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpoint: string): NodeDetailLookups {
   const base = endpoint.trim().replace(/\/+$/, '');
   const enabled = input !== undefined && base !== '';
   const key = enabled && input !== undefined ? requestKeyFor(base, input) : '';
 
-  // Application target state, and the resolved container→URL map, each tagged with
-  // the key they belong to so a node change reads back as fresh prefetch (no stale
-  // frame). codeResult: map=null + failed=false ⇒ loading; map set ⇒ settled-ready;
-  // failed ⇒ settled with no map (every row reads unavailable).
+  // Each tagged with its key so a node change reads back as fresh prefetch (no stale
+  // frame). codeResult: map=null+!failed ⇒ loading; map set ⇒ settled-ready; failed ⇒
+  // settled, no map (every row unavailable).
   const [appResult, setAppResult] = useState<{ key: string; value: DetailLookup } | null>(null);
   const [codeResult, setCodeResult] = useState<{
     key: string;
@@ -210,17 +166,13 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
     failed: boolean;
   } | null>(null);
 
-  // In-flight requests, aborted on node/endpoint change (the keyed effect) and on
-  // unmount. The same Set instance is mutated (never reassigned), so the cleanup
-  // sees every controller registered during this key's lifetime.
+  // In-flight requests, aborted on key change / unmount. Same Set instance mutated
+  // (never reassigned) so cleanup sees every controller from this key's lifetime.
   const controllersRef = useRef<Set<AbortController>>(new Set());
 
-  // Latest input/base for the keyed effect to read at fire time. The effect depends
-  // ONLY on the stable `key` string; reading the live object through this ref keeps a
-  // same-key content refresh (new object identity, same values) from re-running the
-  // effect (which would abort + re-fire both queries and flash resolved anchors back
-  // to loading). Updated in an effect (runs every commit) declared BEFORE the fetch
-  // effect, so on a key change it refreshes before the fetch effect reads it.
+  // Live input/base read by the keyed effect at fire time (see hook doc — keeps a
+  // same-key refresh from re-firing). Updated in a commit-every effect declared BEFORE
+  // the fetch effect, so on a key change it refreshes first.
   const argsRef = useRef<{ input: NodeDetailQueryInput | undefined; base: string }>({ input, base });
   useEffect(() => {
     argsRef.current = { input, base };
@@ -243,7 +195,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
     }
     const k = key;
 
-    // --- config_changes (application) ---
+    // config_changes (application)
     const appController = new AbortController();
     controllers.add(appController);
     setAppResult({ key: k, value: LOADING });
@@ -273,7 +225,7 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
       )
       .finally(() => controllers.delete(appController));
 
-    // --- code_changes (containers) — one call, shared by every row ---
+    // code_changes (containers) — one call shared by every row
     const codeController = new AbortController();
     controllers.add(codeController);
     setCodeResult({ key: k, map: null, failed: false }); // null map + not-failed = loading
@@ -308,10 +260,8 @@ export function useNodeDetailUrls(input: NodeDetailQueryInput | undefined, endpo
 
   const application = deriveApplication(appResult, key, enabled);
 
-  // Container phase + per-name ready map for the current key. byName holds only
-  // resolved URLs (null-proto); a settled map missing a name ⇒ that row is
-  // unavailable (the table's hasOwn check). 'loading' covers both pre-effect (enabled,
-  // no result yet) and the in-flight map, so rows never flash "Not found".
+  // Container phase + per-name ready map (null-proto) for the current key. 'loading'
+  // covers both pre-effect and in-flight so rows never flash "Not found".
   const containers = useMemo<NodeDetailLookups['containers']>(() => {
     if (codeResult === null || codeResult.key !== key || !enabled) {
       return { phase: enabled ? 'loading' : 'settled', byName: EMPTY_BY_NAME };

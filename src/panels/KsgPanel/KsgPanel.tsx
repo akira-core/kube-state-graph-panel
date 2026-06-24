@@ -45,8 +45,7 @@ import { useCollapseGroup } from './useCollapseGroup';
 
 export type KsgPanelProps = PanelProps<KsgPanelOptions>;
 
-// Clicking an alert's time rewinds the dashboard to a fixed ±5-minute window
-// centred on that alert (alert time is Unix seconds; AbsoluteTimeRange is ms).
+// Alert-time click rewinds to a ±5min window. Alert time is Unix seconds; AbsoluteTimeRange is ms.
 const ALERT_REWIND_HALF_WINDOW_SEC = 300;
 
 function getStyles(theme: GrafanaTheme2): {
@@ -68,9 +67,8 @@ function getStyles(theme: GrafanaTheme2): {
       minWidth: 0,
       position: 'relative',
     }),
-    // EmptyState floats ABOVE the canvas instead of replacing it: the cytoscape
-    // instance (positions, zoom/pan, collapse geometry) must survive a transient
-    // all-kinds-filtered state (panel-rendering spec: canvas 本身保留，不重建 instance).
+    // EmptyState floats ABOVE the canvas, never replaces it: the cy instance must
+    // survive a transient all-kinds-filtered state — panel-rendering spec.
     emptyOverlay: css({
       position: 'absolute',
       inset: 0,
@@ -80,8 +78,7 @@ function getStyles(theme: GrafanaTheme2): {
       justifyContent: 'center',
       pointerEvents: 'none',
     }),
-    // Non-blocking partial-parse warning: invalid entries were skipped but the
-    // remaining graph renders normally (graph-data-integration spec).
+    // Non-blocking partial-parse warning — graph-data-integration spec.
     partialWarning: css({
       position: 'absolute',
       top: 8,
@@ -90,20 +87,15 @@ function getStyles(theme: GrafanaTheme2): {
       zIndex: 3,
       pointerEvents: 'none',
     }),
-    // Legend sits to the LEFT of the canvas (rendered before it in the DOM).
-    // Order: Layout toggle, then the reference sections (Node Kinds / Edge Types /
-    // Status), then the swatch sections (Clusters / Nodes|Controllers / Storage
-    // Classes). A hairline divider separates each stacked section: a top border on
-    // every section after the first.
+    // Legend sits LEFT of the canvas. A top border on every section after the first
+    // gives the hairline dividers between stacked sections.
     legendArea: css({
       width: 200,
       flexShrink: 0,
       padding: '0 8px',
       overflowY: 'auto',
       borderRight: `1px solid ${borderWeak}`,
-      // Shrink every section heading one step (h4 → h5) so long titles like
-      // "Storage Classes (N)" fit on one line in the 200px rail. The fold-toggle
-      // button inherits this via `font: inherit`.
+      // Shrink headings h4 → h5 so long titles fit on one line in the 200px rail.
       '& h4': {
         fontSize: theme.typography.h5.fontSize,
       },
@@ -116,8 +108,8 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-// True when any ancestor (via data.parent) of `id` is a collapsed container —
-// such a node is folded off the canvas even though it stays in `elements`.
+// True when any ancestor (via data.parent) of `id` is collapsed — such a node is
+// folded off the canvas even though it stays in `elements`.
 function hasCollapsedAncestor(
   elements: cytoscape.ElementDefinition[],
   id: string,
@@ -145,11 +137,10 @@ function hasCollapsedAncestor(
   return false;
 }
 
-// Pure resolution of the selected node's detail data from the element list.
-// Exported for unit testing. A node that is not in `visibleNodeIds` (hidden by
-// kind/edge filtering or orphan cascade) or folded inside a collapsed container
-// resolves to null so the detail panel never describes a node that is not on
-// the canvas. (A collapsed container ITSELF is still on canvas as a box.)
+// Resolves the selected node's detail data (exported for unit testing). A node
+// not in `visibleNodeIds` or folded inside a collapsed container resolves to null
+// so the panel never describes an off-canvas node (a collapsed container itself
+// stays on canvas as a box, so it resolves).
 export function resolveSelectedNode(
   elements: cytoscape.ElementDefinition[],
   selectedNodeId: string | null,
@@ -169,17 +160,14 @@ export function resolveSelectedNode(
     const d = el.data as cytoscape.NodeDataDefinition;
     if (d.id === selectedNodeId && isDashboardEligible(d)) {
       const label = typeof d.label === 'string' ? d.label : selectedNodeId;
-      // Controller identity the detail-URL queries use (D4), resolved only for the
-      // kinds they may fire for: a pod from its owner (kind lowercased to match the
-      // synthesized-controller convention), a controller from itself, an owner-less
-      // standalone pod from its own kind/name.
+      // Controller identity the detail-URL queries fire for (D4): pod → its owner
+      // (kind lowercased per synthesized-controller convention), controller → itself,
+      // owner-less standalone pod → its own kind/name.
       let queryTarget: { kind: string; name: string } | undefined;
       if (d.kind !== undefined && DETAIL_URL_KINDS.has(d.kind)) {
         if (d.kind === 'pod') {
-          // The owner kind is validated against the detail-URL contract too: a pod
-          // owned by anything else (a static pod's Node, an operator CRD like
-          // Rollout) falls back to the standalone-pod identity instead of firing
-          // queries with an out-of-contract kind.
+          // Owner kind must be in the detail-URL contract too; otherwise (static
+          // pod's Node, operator CRD like Rollout) fall back to standalone-pod identity.
           const ownerKind = d.owner !== undefined ? d.owner.kind.toLowerCase() : undefined;
           queryTarget =
             d.owner !== undefined && ownerKind !== undefined && DETAIL_URL_KINDS.has(ownerKind as NodeKind)
@@ -210,14 +198,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const theme = useTheme2();
   const stylesheet = useGraphTheme();
 
-  // Backwards-compatible options read — older dashboards may lack new fields
+  // Back-compat read — older dashboards may lack new fields.
   const visibleKinds = options.visibleKinds ?? defaultOptions.visibleKinds;
   const visibleEdgeTypes = options.visibleEdgeTypes ?? defaultOptions.visibleEdgeTypes;
 
   const isLoading = data.state === LoadingState.Loading;
-  // DataQueryError.message is optional — fall back through statusText/status, and
-  // treat state === Error with no errors[] entry as a failure too, so a
-  // message-less failure is never rendered as an empty-but-successful graph.
+  // DataQueryError.message is optional — fall back through statusText/status; treat
+  // state===Error with no errors[] as a failure too, so a message-less error never
+  // renders as an empty-but-successful graph.
   const firstQueryError = data.errors?.[0] ?? (data.state === LoadingState.Error ? {} : undefined);
   const seriesError =
     firstQueryError !== undefined
@@ -227,50 +215,39 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       : undefined;
   const { elements: baseElements, error: normalizeError, hasPayload } = useGraphData(data);
 
-  // Whole-payload normalize failure (nothing parsed) — shared verbatim by the
-  // variable-export gate below and the fatal early return so the two can't drift.
+  // Whole-payload normalize failure (nothing parsed) — shared by the variable-export
+  // gate and the fatal early return so the two can't drift.
   const isFatalNormalizeError = normalizeError !== undefined && baseElements.length === 0;
 
-  // Export every pod name into the dashboard variable named by the option (for
-  // consumers like an ES logs panel). Reads baseElements — the data-layer truth,
-  // before the pod-parent-mode/switch-fabric view transforms. Gated off in every
-  // "not a successful graph load" state: no recognizable payload (hasPayload
-  // false — this also covers the first load, where the series is still empty),
-  // query error, and whole-payload normalize failure — none of those may be
-  // written out as "no pods"; only a loaded graph that truly has zero pods
-  // clears the variable ($__empty).
+  // Export every pod name into the dashboard variable. Reads baseElements (pre-view-
+  // transform data-layer truth). Gated off in every non-successful load state (no
+  // payload — also first load, query error, fatal normalize) so it can't write "no
+  // pods"; only a loaded graph with zero pods clears the variable — pod-list-variable-export spec.
   const podListVariable = options.podListVariable ?? defaultOptions.podListVariable;
   const variableExportEnabled = hasPayload && seriesError === undefined && !isFatalNormalizeError;
   useVariableExport(baseElements, podListVariable, variableExportEnabled);
 
-  // Pod-parent view mode — deliberately ephemeral per-session view state,
-  // toggled from the legend and NOT persisted to panel options (unlike the
-  // visibleKinds eye toggles, which write through onOptionsChange — see
-  // handleToggleKind): a mode flip is a transient way of looking at the same
-  // data, not a dashboard-authoring decision. 'controller' re-parents pods
-  // under their owning controller and swaps the pod↔node / pod↔controller
-  // relationships between nesting and drawn edge. Default 'controller'
-  // aggregates pods under their owning controller; 'node' is the
-  // infrastructure view (clean cluster > node > pod backend topology).
+  // Pod-parent view mode — ephemeral per-session view state, NOT persisted (unlike
+  // visibleKinds toggles): a mode flip is a transient view, not a dashboard-authoring
+  // decision. 'controller' aggregates pods under their owning controller (default);
+  // 'node' is the infrastructure view (cluster > node > pod).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
-  // View-transform pipeline (each a pure pass, mode-threaded): applyPodParentMode
-  // re-shapes pod nesting; applyNamespaceGrouping inserts the virtual namespace
-  // compounds in CONTROLLER mode (no-op in node mode — namespace-grouping spec);
-  // wrapSwitchFabric synthesizes the virtual `network > switch` compound when the
-  // data ships parent-less switches without its own network group (switch-tier-layout).
+  // View-transform pipeline (pure, mode-threaded): applyPodParentMode reshapes pod
+  // nesting; applyNamespaceGrouping inserts namespace compounds in CONTROLLER mode
+  // (no-op in node mode — namespace-grouping spec); wrapSwitchFabric synthesizes the
+  // virtual `network > switch` compound for parent-less switches (switch-tier-layout).
   const elements = useMemo(
     () => wrapSwitchFabric(applyNamespaceGrouping(applyPodParentMode(baseElements, podParentMode), podParentMode)),
     [baseElements, podParentMode]
   );
 
-  // Selected node id drives both the detail panel and (controlled) the cy
-  // selection highlight. GraphCanvas reports taps via onSelect.
+  // Selected node id drives the detail panel and the (controlled) cy selection
+  // highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Right-click intent: which node the detail-URL queries were requested for, and
-  // WHEN (Unix seconds, captured once at the click so re-renders never refetch).
-  // Left-click / background tap / close all clear it — only an explicit right-click
-  // (onContextSelect) ever queries (D1).
+  // Right-click intent: which node the detail-URL queries were requested for, and when
+  // (Unix seconds, captured once at click so re-renders never refetch). Only an explicit
+  // right-click queries (D1); left-click / background tap / close clear it.
   const [detailRequest, setDetailRequest] = useState<{ nodeId: string; time: number } | null>(null);
 
   const handleSelect = useCallback((id: string | null) => {
@@ -283,8 +260,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     setDetailRequest({ nodeId: id, time: Math.floor(Date.now() / 1000) });
   }, []);
 
-  // Rewind the dashboard time range to a fixed ±5m window around the clicked
-  // alert's time (seconds → ms for AbsoluteTimeRange).
+  // Rewind to a ±5m window around the clicked alert (seconds → ms for AbsoluteTimeRange).
   const handleAlertTimeClick = useCallback(
     (timeSec: number) => {
       onChangeTimeRange({
@@ -295,44 +271,35 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [onChangeTimeRange]
   );
 
-  // Collapsed parent-container ids. Lives here so the legend toggles (siblings of
-  // GraphCanvas) and the canvas share one source. GraphCanvas reports the full
-  // next Set via onCollapsedChange (cue events / data-refresh prune).
+  // Collapsed parent-container ids. Lives here so legend toggles and the canvas share
+  // one source; GraphCanvas reports the next Set via onCollapsedChange.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
-  // The ONE visibility computation (kind/edge filter + orphan cascade) over the
-  // mode-transformed elements. GraphCanvas applies it to the live graph verbatim
-  // (useElementFilter) and the detail panel gates on it below — computing it once
-  // keeps the two in lockstep and halves the most expensive pure pass.
+  // The ONE visibility computation (kind/edge filter + orphan cascade). Both GraphCanvas
+  // (useElementFilter) and the detail-panel gate below consume it — computed once to keep
+  // them in lockstep and halve the most expensive pure pass.
   const visibility = useMemo(
     () => computeVisibility(elements, visibleKinds, visibleEdgeTypes),
     [elements, visibleKinds, visibleEdgeTypes]
   );
   const { visibleNodeIds } = visibility;
 
-  // Resolve the selected node's display data from elements. Cluster containers,
-  // hidden nodes and nodes folded inside a collapsed container are excluded; a
-  // missing id (data refresh removed it) closes the panel.
+  // Resolve the selected node's display data; a missing id (data refresh) closes the panel.
   const selectedNode = useMemo(
     () => resolveSelectedNode(elements, selectedNodeId, visibleNodeIds, collapsedIds),
     [elements, selectedNodeId, visibleNodeIds, collapsedIds]
   );
 
-  // The detail-URL query input: defined ONLY when the current selection came from a
-  // right-click on that same node AND it resolves an application + query target
-  // (pod/controller kinds only — queryTarget gates the rest). The endpoint resolves
-  // option-overrides-derivation (D7): an explicit option wins, otherwise the
-  // dashboard query's datasource proxy path; '' idles the hook (no query ever).
+  // detailQueryInput is defined ONLY when the selection is a right-click on that same
+  // node resolving an application + query target. Endpoint: explicit option wins, else
+  // the dashboard query's datasource proxy path; '' idles the hook (D7).
   const detailEndpointOption = options.detailEndpoint ?? defaultOptions.detailEndpoint;
   const detailEndpoint = useMemo(
     () => resolveDetailEndpoint({ option: detailEndpointOption, request: data.request }),
     [detailEndpointOption, data.request]
   );
-  // Memoized so its identity is stable across re-renders of the same selection:
-  // useNodeDetailUrls now EAGER-prefetches in an effect keyed by this input, so an
-  // unstable (re-created-every-render) object would re-fire and re-abort the
-  // prefetch on every render (D7). `time` is captured once at right-click, so the
-  // memo is stable for a given (selectedNode, detailRequest).
+  // Memoized for stable identity: useNodeDetailUrls eager-prefetches in an effect keyed
+  // by this input, so an unstable object would re-fire and re-abort every render (D7).
   const detailQueryInput = useMemo<NodeDetailQueryInput | undefined>(
     () =>
       detailRequest !== null &&
@@ -351,31 +318,25 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
-  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId) — left
-  // OR right click — NOT the right-click-only detailRequest above: the button appears in
-  // both views. The param map is assembled from the selected node's data + its children
-  // (compound merge); undefined for no selection / an ineligible compound, which idles
-  // the hook. Shares the same resolved endpoint as the Change Report queries.
-  // The dashboard's current time range rides the param map as from_time/to_time (Unix
-  // seconds), so the time-windowed URL matches what the operator is viewing; the bounds
-  // join the memo deps so a range change rebuilds the params (the hook then refetches).
+  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, left OR
+  // right click) — the button appears in both views — not the right-click-only
+  // detailRequest. Params = selected node + children (compound merge); undefined idles the
+  // hook. The dashboard time range rides as from_time/to_time (Unix seconds) and is a memo
+  // dep, so a range change rebuilds params and the hook refetches.
   const dashboardParams = useMemo(
     () => assembleDashboardParams(elements, selectedNodeId, data.timeRange),
     [elements, selectedNodeId, data.timeRange]
   );
   const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
 
-  // Export the LEFT-clicked, non-normal pod's name into the configured variable so a
-  // sibling panel can query that one pod (cleared on deselect / normal / non-pod /
-  // right-click). Left-click = the alerts-view selection (detailRequest === null);
-  // a right-click drives the detail/Change Report flow, not this export.
+  // Export the LEFT-clicked, non-normal pod's name into the configured variable for a
+  // sibling panel (cleared on deselect / normal / non-pod / right-click). Left-click is
+  // the alerts-view selection (detailRequest === null); right-click drives the detail flow.
   const selectedPodVariable = options.selectedPodVariable ?? defaultOptions.selectedPodVariable;
   useSelectedPodExport(selectedNode, detailRequest === null, selectedPodVariable, selectedPodVariable.trim() !== '');
 
-  // Cluster swatches are derived from the backend's compound (cluster) container
-  // nodes, so the legend colours always match the on-canvas backplates (single
-  // source: data.clusterColor, assigned in normalize). Deduped by name so two
-  // cluster nodes that share a display name yield one stable legend row/key.
+  // Cluster swatches from the backend cluster containers (single source: data.clusterColor
+  // assigned in normalize) so legend colours match the on-canvas backplates. Deduped by name.
   const clusterEntries = useMemo<ClusterLegendEntry[]>(() => {
     const byName = new Map<string, string>();
     for (const el of elements) {
@@ -384,18 +345,16 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       }
       const d = el.data as cytoscape.NodeDataDefinition;
       if (d.isCluster === true && typeof d.cluster === 'string' && typeof d.clusterColor === 'string') {
-        // Map keys dedupe; the colour is deterministic per name, so set freely.
+        // Colour is deterministic per name, so the dedupe set is safe.
         byName.set(d.cluster, d.clusterColor);
       }
     }
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
-  // Namespace swatches (CONTROLLER mode only) from the synthesized namespace boxes
-  // (data.namespaceColor, assigned in applyNamespaceGrouping) so the legend matches the
-  // on-canvas backplates. Deduped by name (same name → same hashed colour → one row);
-  // SINGLE SOURCE with namespaceContainerIds below (both filter isNamespace === true).
-  // Empty in node mode (no namespace boxes).
+  // Namespace swatches (CONTROLLER mode only) from synthesized namespace boxes
+  // (data.namespaceColor from applyNamespaceGrouping). Deduped by name; SINGLE SOURCE
+  // with namespaceContainerIds below (both filter isNamespace === true).
   const namespaceEntries = useMemo<NamespaceLegendEntry[]>(() => {
     const byName = new Map<string, string>();
     for (const el of elements) {
@@ -410,9 +369,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
-  // All namespace box ids (every cluster's), for the namespace collapse-all group.
-  // Same isNamespace filter as namespaceEntries (single source) — so the toggle and the
-  // swatch section can never reference different sets (cf. clusterContainerIds).
+  // Namespace box ids for the collapse-all group. Same isNamespace filter as
+  // namespaceEntries (single source) so toggle and swatch section can't diverge.
   const namespaceContainerIds = useMemo<string[]>(() => {
     const ids: string[] = [];
     for (const el of elements) {
@@ -427,9 +385,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return ids;
   }, [elements]);
 
-  // Edge types present in the graph, ordered by the canonical edge-style map for
-  // a stable legend. `elements` is already mode-transformed (applyPodParentMode),
-  // so this is exactly the set of drawn edges currently on screen.
+  // Edge types present, ordered by the canonical edge-style map for a stable legend.
+  // `elements` is mode-transformed, so this is exactly the drawn edges on screen.
   const presentEdgeTypes = useMemo<EdgeType[]>(() => {
     const present = new Set<string>();
     for (const el of elements) {
@@ -444,12 +401,10 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return (Object.keys(EDGE_STYLE_BY_TYPE) as EdgeType[]).filter((t) => present.has(t));
   }, [elements]);
 
-  // Default-aggregate: the first render where controllers are present while in
-  // controller mode (initial load OR re-entry) collapses them all so pods start
-  // aggregated. The ref prevents re-collapsing on a later data refresh (a
-  // user-expanded controller stays open) and resets when leaving controller mode
-  // so the next entry re-collapses. Reading `elements` here (a dep) is required to
-  // catch the async first data load.
+  // Default-aggregate: the first render with controllers present in controller mode
+  // (load or re-entry) collapses them all. The ref blocks re-collapsing on later data
+  // refresh (user-expanded controller stays open) and resets on leaving the mode.
+  // `elements` is a dep to catch the async first data load.
   const collapsedForEntryRef = useRef(false);
   useEffect(() => {
     if (podParentMode !== 'controller') {
@@ -467,19 +422,15 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       return;
     }
     collapsedForEntryRef.current = true;
-    // Synchronous setState in an effect is intentional and one-shot here: the
-    // collapsed-set is React-owned UI state seeded from the (async) graph data on
-    // the first controller-mode entry, and the ref guard makes it fire at most
-    // once per entry — no cascading-render loop.
+    // Intentional one-shot setState: collapsed-set seeded from async graph data on first
+    // controller-mode entry; ref guard makes it fire at most once per entry (no loop).
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot, ref-guarded default-collapse seeded from async data
     setCollapsedIds((prev) => new Set([...prev, ...controllerIds]));
   }, [podParentMode, elements]);
 
-  // Mode-aware compound containers (swatched by their cluster) for the "Nodes" /
-  // "Controllers" section. In node mode these are the K8s `node` boxes; in controller
-  // mode the synthesized controllers. Childless candidates are drawn leaves, not
-  // containers. Whether a kind ALSO shows in the icon Node-kinds legend is decided by
-  // deriveLegendEntries (below), not here.
+  // Mode-aware compound containers for the "Nodes" / "Controllers" section: K8s `node`
+  // boxes in node mode, synthesized controllers in controller mode. Childless candidates
+  // are drawn leaves, not containers.
   const {
     containerEntries,
     containerIds,
@@ -490,18 +441,15 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, theme, podParentMode]
   );
 
-  // StorageClass compound groups (cluster > storageclass > pvc). Mode-INDEPENDENT
-  // (unlike the node/controller containers above): a StorageClass always boxes its
-  // PVCs in both pod-parent modes, so it gets its own swatch section + collapse group.
+  // StorageClass compound groups (cluster > storageclass > pvc). Mode-INDEPENDENT: a
+  // StorageClass boxes its PVCs in both modes, so it gets its own swatch + collapse group.
   const { containerEntries: storageClassEntries, containerIds: storageClassIds } = useMemo(
     () => deriveStorageClassContainers(elements, themeColors(theme).border.weak),
     [elements, theme]
   );
 
-  // Default-fold storage classes: a storageclass compound group starts collapsed on the
-  // first load it appears. Mode-INDEPENDENT (unlike the controller default-collapse
-  // above) since a storageclass boxes its PVCs in both pod-parent modes. Ref-guarded so
-  // it fires once per mount — a user-expanded storageclass survives a later data refresh.
+  // Default-fold storage classes on first load. Mode-INDEPENDENT; ref-guarded to fire once
+  // per mount so a user-expanded storageclass survives a later data refresh.
   const storageClassesFoldedRef = useRef(false);
   useEffect(() => {
     if (storageClassesFoldedRef.current || storageClassIds.length === 0) {
@@ -511,28 +459,24 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     setCollapsedIds((prev) => new Set([...prev, ...storageClassIds]));
   }, [storageClassIds]);
 
-  // The rows of the icon Node-kinds legend — collapse- + container-aware (drawn
-  // leaves + collapsed containers; expanded containers and collapse-hidden
-  // children drop out, so collapsing a storageclass swaps `pvc` → `storageclass`,
-  // node⇄pod / controller⇄pod likewise), UNIONED with kinds the visibleKinds
-  // filter currently hides so their eye-slash rows stay restorable (D11).
+  // Icon Node-kinds legend rows — collapse-/container-aware (collapsing a storageclass
+  // swaps pvc → storageclass; node⇄pod / controller⇄pod likewise), UNIONED with kinds
+  // visibleKinds currently hides so their eye-slash rows stay restorable (D11).
   const nodeLegendEntries = useMemo(
     () => deriveLegendEntries(elements, collapsedIds, visibleKinds),
     [elements, collapsedIds, visibleKinds]
   );
 
-  // Legend eye toggle writes the panel option — the options editor multi-select
-  // and the legend buttons are two faces of the same visibleKinds state, so they
-  // stay in sync for free and the choice persists with the dashboard. Collapse
-  // state (collapsedIds) is an independent layer and is deliberately untouched.
+  // Legend eye toggle writes the panel option: the options-editor multi-select and the
+  // legend buttons are two faces of the same visibleKinds state. Collapse state is
+  // independent and untouched.
   const handleToggleKind = useCallback(
     (kind: string) => {
       if (!isFilterableKind(kind)) {
         return; // non-togglable rows render no button; guard the narrowing anyway
       }
-      // Rebuilt in ALL_KINDS order so the persisted array stays canonical — a
-      // hide/show round-trip must not reorder the dashboard JSON or the
-      // options-editor pills.
+      // Rebuilt in ALL_KINDS order so a hide/show round-trip keeps the persisted array
+      // canonical (no reorder of dashboard JSON or options-editor pills).
       const hide = visibleKinds.includes(kind);
       const next = ALL_KINDS.filter((k) => (k === kind ? !hide : visibleKinds.includes(k)));
       onOptionsChange({ ...options, visibleKinds: next });
@@ -540,7 +484,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [visibleKinds, options, onOptionsChange]
   );
 
-  // Cluster container ids = backend cluster containers (isCluster).
   const clusterContainerIds = useMemo<string[]>(() => {
     const ids: string[] = [];
     for (const el of elements) {
@@ -555,9 +498,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return ids;
   }, [elements]);
 
-  // Container ids come from deriveContainers (single source for "which boxes are
-  // collapsible" in the current mode), so the collapse toggle and the swatch
-  // section can never reference different sets.
+  // containerIds come from deriveContainers (single source for collapsible boxes in the
+  // current mode), so toggle and swatch section can't reference different sets.
   const { allCollapsed: allClustersCollapsed, toggle: toggleClusters } = useCollapseGroup(
     clusterContainerIds,
     collapsedIds,
@@ -573,8 +515,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     collapsedIds,
     setCollapsedIds
   );
-  // Namespace collapse-all (controller mode). Namespace boxes are NOT default-collapsed
-  // (no seeding effect), so allNamespacesCollapsed starts false.
+  // Namespace collapse-all (controller mode). Namespace boxes are NOT default-collapsed,
+  // so allNamespacesCollapsed starts false.
   const { allCollapsed: allNamespacesCollapsed, toggle: toggleNamespaces } = useCollapseGroup(
     namespaceContainerIds,
     collapsedIds,
@@ -588,17 +530,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       </Alert>
     );
   }
-  // Full-screen overlay ONLY while there is nothing to show yet (first load).
-  // During a routine refresh Grafana re-emits state=Loading with the previous
-  // series attached — unmounting GraphCanvas then would destroy the cytoscape
-  // instance (positions, zoom/pan, collapse geometry) on every tick and defeat
-  // the diff-and-patch design; the canvas keeps rendering the previous data.
+  // Overlay ONLY on first load (nothing yet). On routine refresh Grafana re-emits
+  // state=Loading with the previous series — unmounting GraphCanvas would destroy the cy
+  // instance every tick and defeat diff-and-patch; the canvas keeps the previous data.
   if (isLoading && baseElements.length === 0) {
     return <LoadingOverlay />;
   }
-  // A whole-payload failure (nothing parsed) is fatal; per the partial-parse
-  // contract, anything less renders the surviving elements with a non-blocking
-  // warning (below) instead of blanking the panel for one bad entry.
+  // Whole-payload failure is fatal; anything less renders survivors with a non-blocking
+  // warning (partial-parse contract) instead of blanking the panel for one bad entry.
   if (isFatalNormalizeError) {
     return (
       <Alert severity="error" title="Graph data malformed">
@@ -607,12 +546,9 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     );
   }
 
-  // Keyed off the computed visibility, not visibleKinds.length: hiding just the
-  // kinds actually present (e.g. via the legend eye toggles) must surface the
-  // filtered-out message even while absent kinds remain checked. The orphan
-  // cascade can also empty the canvas through EDGE-type filtering alone (all
-  // edges hidden → leaves orphan → containers empty out) with every kind still
-  // on — blame node types only when every togglable legend row is hidden.
+  // Keyed off computed visibility, not visibleKinds.length: hiding only the kinds present
+  // must still surface the message, and the orphan cascade can empty the canvas via
+  // EDGE-type filtering alone — so blame node types only when every togglable row is hidden.
   const allTogglableKindsHidden =
     nodeLegendEntries.some((e) => e.togglable) && nodeLegendEntries.every((e) => !e.togglable || e.hidden);
   const emptyMessage =

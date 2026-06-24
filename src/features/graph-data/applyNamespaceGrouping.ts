@@ -3,18 +3,13 @@ import type cytoscape from 'cytoscape';
 import { colorForNamespace } from '../../shared/constants/namespacePalette';
 import type { NodeKind, PodParentMode } from '../../shared/constants/types';
 
-// Fresh-clone an element's data — cytoscape ALIASES the data object on cy.add and the
-// expand-collapse extension mutates incident edges' data in place (see
-// applyPodParentMode's cloneElement). Every returned element is a new object so this
-// pass never corrupts the normalized / pod-parent-applied input.
+// Fresh-clone data — cytoscape ALIASES the data object on cy.add and expand-collapse
+// mutates incident edges' data in place, so a shared ref would corrupt the input.
 function cloneElement(el: cytoscape.ElementDefinition): cytoscape.ElementDefinition {
   return { ...el, data: { ...el.data } };
 }
 
-// Opaque, deterministic ids for the panel-synthesized boxes. Built from the REAL
-// container ids (which the panel never parses — it only joins them as an opaque key)
-// plus the namespace / storageclass NAMES, not from guessed backend naming. The
-// prefixes keep them clear of backend ids in practice.
+// Deterministic ids for panel-synthesized boxes; prefixes keep them clear of backend ids.
 function namespaceBoxId(clusterId: string, ns: string): string {
   return `nsbox/${clusterId}/${ns}`;
 }
@@ -23,24 +18,12 @@ function storageClassSubBoxId(nsBoxId: string, sc: string): string {
 }
 
 /**
- * Insert virtual namespace compound parents — CONTROLLER MODE ONLY.
- *
- * Composed AFTER applyPodParentMode and BEFORE wrapSwitchFabric. In controller mode
- * the namespaced resources are already parented to their cluster (controllers,
- * services) or to a backend storageclass box (pvcs), so this pass groups them under a
- * per-cluster `(cluster, namespace)` box:
- *   - cluster → namespace → controller → pod   (pod stays nested in its controller)
- *   - cluster → namespace → service
- *   - cluster → namespace → storageclass → pvc (the backend storageclass box is SPLIT
- *       per namespace; an original emptied by the split is removed), or
- *     cluster → namespace → pvc                (when the pvc had no storageclass box)
- *
- * `node` mode is a no-op — it returns a fresh, semantically-equal array (k8s nodes are
- * cluster-scoped, so node mode draws no namespace).
- *
- * Pure / deterministic / immutable: the input is never mutated; every returned element
- * is a fresh object; synthesized boxes are appended in a stable order (by container id,
- * then name); namespace colours come from a stable hash of the namespace name.
+ * Insert virtual `(cluster, namespace)` compound parents — CONTROLLER MODE ONLY.
+ * Composed after applyPodParentMode, before wrapSwitchFabric. Groups controllers,
+ * services and pvcs under a per-cluster namespace box; pvc storageclass boxes are split
+ * per namespace (an emptied original is removed). `node` mode is a no-op (k8s nodes are
+ * cluster-scoped) returning a fresh, semantically-equal array. Pure / deterministic /
+ * immutable. See graph-data-integration spec.
  */
 export function applyNamespaceGrouping(
   elements: cytoscape.ElementDefinition[],
@@ -50,7 +33,7 @@ export function applyNamespaceGrouping(
     return elements.map(cloneElement);
   }
 
-  // Index node elements by id for topology lookups (parent chains, kind/flag checks).
+  // Index nodes by id for parent-chain / kind / flag lookups.
   const byId = new Map<string, Record<string, unknown>>();
   for (const el of elements) {
     if (el.group === 'nodes') {
@@ -61,8 +44,7 @@ export function applyNamespaceGrouping(
     }
   }
 
-  // Walk the parent chain up to the enclosing cluster container id (isCluster), or
-  // undefined when there is none (top-level / non-cluster ancestor → fallback).
+  // Walk the parent chain to the enclosing cluster container id, or undefined if none.
   const clusterAncestorId = (data: Record<string, unknown>): string | undefined => {
     let cur = typeof data.parent === 'string' ? data.parent : undefined;
     for (let guard = 0; cur !== undefined && guard < 64; guard++) {
@@ -81,7 +63,7 @@ export function applyNamespaceGrouping(
   const namespaceOf = (data: Record<string, unknown>): string =>
     typeof data.namespace === 'string' ? data.namespace : '';
 
-  // Synthesized boxes, keyed for dedup; values carry what's needed to materialize them.
+  // Synthesized boxes, keyed for dedup.
   const nsBoxes = new Map<string, { id: string; clusterId: string; namespace: string }>();
   const scSubBoxes = new Map<string, { id: string; nsBoxId: string; scName: string }>();
   const newParentById = new Map<string, string>();
@@ -101,9 +83,8 @@ export function applyNamespaceGrouping(
     return id;
   };
 
-  // Per backend storageclass box: total child pvcs vs how many got re-parented out (had
-  // a namespace + resolvable cluster). A box whose pvcs ALL moved is removed so no
-  // childless storageclass container lingers; one with namespace-less pvcs is kept.
+  // Per backend storageclass box: total child pvcs vs how many got re-parented out.
+  // A box whose pvcs ALL moved is removed below so no childless container lingers.
   const scBoxPvcTotal = new Map<string, number>();
   const scBoxPvcReparented = new Map<string, number>();
   for (const el of elements) {
@@ -133,7 +114,7 @@ export function applyNamespaceGrouping(
       continue; // fallback: no namespace → not grouped
     }
 
-    // Controllers & services: re-parent under the (cluster, namespace) box.
+    // Controllers & services: re-parent under the namespace box.
     if (d.isController === true || d.kind === 'service') {
       const clusterId = clusterAncestorId(d);
       if (clusterId === undefined) {
@@ -143,8 +124,8 @@ export function applyNamespaceGrouping(
       continue;
     }
 
-    // PVCs: cluster → namespace → storageclass → pvc (splitting the backend sc box per
-    // namespace), or cluster → namespace → pvc when there is no storageclass box.
+    // PVCs: nest under a per-namespace split of the backend storageclass box, or
+    // directly under the namespace box when the pvc had no storageclass box.
     if (d.kind === 'pvc') {
       const parentId = typeof d.parent === 'string' ? d.parent : undefined;
       const parent = parentId !== undefined ? byId.get(parentId) : undefined;
@@ -164,7 +145,7 @@ export function applyNamespaceGrouping(
     }
   }
 
-  // Backend storageclass boxes whose every child pvc was re-parented → remove.
+  // Storageclass boxes whose every child pvc was re-parented → remove.
   const removedScBoxIds = new Set<string>();
   for (const [scId, total] of scBoxPvcTotal) {
     if (total > 0 && (scBoxPvcReparented.get(scId) ?? 0) === total) {
@@ -189,8 +170,7 @@ export function applyNamespaceGrouping(
     result.push(cloneElement(el));
   }
 
-  // Append synthesized namespace boxes (stable: clusterId, then namespace). Decorative
-  // grouping backplates: selectable:false, no status / alerts / worstStatus.
+  // Append namespace boxes (stable order). Decorative backplates: selectable:false, no status.
   const sortedNs = [...nsBoxes.values()].sort(
     (a, b) => a.clusterId.localeCompare(b.clusterId) || a.namespace.localeCompare(b.namespace)
   );
@@ -209,8 +189,8 @@ export function applyNamespaceGrouping(
     });
   }
 
-  // Append synthesized per-namespace storageclass sub-boxes (stable: nsBoxId, then sc
-  // name). Same shape as a backend storageclass box: kind + isStorageClass, no status.
+  // Append per-namespace storageclass sub-boxes (stable order); same shape as a backend
+  // storageclass box: kind + isStorageClass, no status.
   const sortedSc = [...scSubBoxes.values()].sort(
     (a, b) => a.nsBoxId.localeCompare(b.nsBoxId) || a.scName.localeCompare(b.scName)
   );
