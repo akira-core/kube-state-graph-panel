@@ -210,6 +210,10 @@ describe('normalizeGraph', () => {
     expect(result.errors).toEqual([]);
     expect(result.elements[0]?.data.kind).toBe('customresource');
     expect(result.elements[2]?.data.edgeType).toBe('future-relation');
+    // The cast-free assignments above (normalize.ts now writes `kind: type` / `edgeType:
+    // d.type` without `as NodeKind`/`as EdgeType`) are themselves the compile-time guard:
+    // this and normalize.ts fail `tsc` if GraphNodeKind/GraphEdgeType were ever narrowed
+    // back to the closed unions, since `type` is a plain string.
   });
 
   it('reports missing nodes/edges arrays', () => {

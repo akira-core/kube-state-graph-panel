@@ -2,7 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { EdgeType, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { GraphNodeKind, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
 import type { ContainerSpec } from '../../shared/types/containerSpec';
 
 export interface NormalizeResult {
@@ -45,7 +45,7 @@ function isNodeStatus(v: unknown): v is NodeStatus {
 type NodeIdentity =
   | { isCluster: true; cluster: string; clusterColor: string }
   | { kind: NodeKind; isStorageClass: true }
-  | { kind: NodeKind; status?: NodeStatus };
+  | { kind: GraphNodeKind; status?: NodeStatus };
 
 function resolveNodeIdentity(type: string, label: string, status: NodeStatus | undefined): NodeIdentity {
   if (type === 'cluster') {
@@ -54,7 +54,7 @@ function resolveNodeIdentity(type: string, label: string, status: NodeStatus | u
   if (type === 'storageclass') {
     return { kind: 'storageclass', isStorageClass: true };
   }
-  return { kind: type as NodeKind, ...(status !== undefined ? { status } : {}) };
+  return { kind: type, ...(status !== undefined ? { status } : {}) };
 }
 
 // Unix seconds: must be finite and non-negative — NaN/±Infinity → "Invalid date" +
@@ -346,7 +346,7 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
         id: d.id,
         source: d.source,
         target: d.target,
-        edgeType: d.type as EdgeType,
+        edgeType: d.type,
         ...(labels !== undefined ? { labels } : {}),
       },
     });
@@ -437,7 +437,7 @@ function synthesizeControllers(
         group: 'nodes',
         data: {
           id: controllerId,
-          kind: kindLower as NodeKind,
+          kind: kindLower,
           isController: true,
           label: o.ownerName,
           // Written so applyNamespaceGrouping (controller mode) can box the controller
@@ -459,7 +459,7 @@ function synthesizeControllers(
         id: `syn:controller-owns-pod:${controllerId}:${o.podId}`,
         source: controllerId,
         target: o.podId,
-        edgeType: 'controller-owns-pod' as EdgeType,
+        edgeType: 'controller-owns-pod',
       },
     });
   }

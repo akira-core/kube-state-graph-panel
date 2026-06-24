@@ -6,7 +6,7 @@ type El = cytoscape.ElementDefinition;
 
 const node = (id: string, kind: string, parent?: string): El => ({
   group: 'nodes',
-  data: { id, kind, ...(parent !== undefined ? { parent } : {}) } as cytoscape.NodeDataDefinition,
+  data: { id, kind, ...(parent !== undefined ? { parent } : {}) },
 });
 const owns = (ctrl: string, pod: string): El => ({
   group: 'edges',

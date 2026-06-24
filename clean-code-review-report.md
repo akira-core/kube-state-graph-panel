@@ -365,3 +365,26 @@ Clean Code 影響：
 1. 現在做（低風險）：型別誠實（P1b）+ 補低成本測試，同一 branch。
 2. 開 OpenSpec change：KsgPanel 拆分（連 P1d domain 搬移 + 測試檔拆分）、feature boundary lint（P1e）。
 3. 只保留本次減註解。
+
+## 已執行（2026-06-24，下一步選項 1：P1b 型別誠實 + 低成本測試）
+
+走 TDD 流程，先並行調查再實作，最後 3-lens 對抗式審查（type soundness / test quality / scope+hygiene 皆 PASS）。
+
+### P1b 型別誠實（移除說謊 cast）
+
+- 新增 `GraphNodeKind = NodeKind | (string & {})` 與 `GraphEdgeType = EdgeType | (string & {})`（`types.ts`），作為「執行期實際型別」單一來源——已知列舉值 **或** backend 之後才加的未知字串。
+- `cytoscape.d.ts` 的 `kind?` / `edgeType?` 改用上述型別；`normalize.ts` 因此移除 5 個 cast（`type as NodeKind` ×2、`d.type as EdgeType`、`controller-owns-pod` 與 `storageclass` 兩個多餘字面量 cast）+ `applyNamespaceGrouping.ts` 1 個。
+- **連動修正（報告原判「cascade 低」基本正確，但非零）**：`NodeDetailData.kind`、`SelectedPodExportInput.kind`、`DETAIL_URL_KINDS` 元素型別一併放寬為 `GraphNodeKind`，並順手移除 `KsgPanel.tsx` 的 `ownerKind as NodeKind` 及 3 個測試檔中因放寬而變多餘的 cast（共再消 4 個 cast）。所有下游皆 set-membership／等值比對／有 fallback 的 map 索引／JSX 文字輸出——無 exhaustive switch，零行為變更。
+- 編譯零成本保護：cast-free 的 production code 本身即守門——若有人把型別收窄回封閉 union，`normalize.ts`／`detailUrlKinds.ts` 會直接 `tsc` 失敗。
+
+### P2 低成本測試（4 個新檔，新增 ~33 case）
+
+`useCollapseGroup.test.ts`（real `useState` host 驅動 functional-updater：全收合／全展開／partial 兩段式／空 ids no-op／不可變新 Set／useCallback 身分穩定）、`KsgPanel.editor.test.tsx`（fake recording builder——真 builder 在 jest 因 registry 未初始化會 throw；mock `MultiSelect` 驗證 option/defaultValue 契約與 `items.map(i=>i.value)` onChange 映射）、`detailUrlKinds.test.ts`、`categoryByKind.test.ts`（Workloads 集合 drift 防護 + 未知 kind fallback）。
+
+### 驗證
+
+`typecheck` ✓ ／ `lint`（清快取後）No issues ✓ ／ `test:ci` **72 suites / 669 tests / 1 snapshot pass** ✓（基準 68/638 → +4 檔）。
+
+### 本次未做（仍依判決矩陣走 OpenSpec change，未臨時動）
+
+P1a KsgPanel 拆分、P1d selection/detail domain 搬移、P1e feature-boundary lint（皆需 OpenSpec change）；P1c request 狀態機（defer）、P2 coverage/E2E CI（defer）、P3 useGraphData（skip）、P3 GraphCanvas（觀察）。

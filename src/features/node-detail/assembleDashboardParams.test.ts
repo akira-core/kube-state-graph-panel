@@ -91,7 +91,13 @@ describe('assembleDashboardParams', () => {
         { group: 'nodes', data: { id: 'node1', kind: 'node', label: 'ip-10-0-0-1' } },
         {
           group: 'nodes',
-          data: { id: 'p1', kind: 'pod', label: 'mongo-0', parent: 'node1', owner: { kind: 'StatefulSet', name: 'mongo' } },
+          data: {
+            id: 'p1',
+            kind: 'pod',
+            label: 'mongo-0',
+            parent: 'node1',
+            owner: { kind: 'StatefulSet', name: 'mongo' },
+          },
         },
       ];
       expect(assembleDashboardParams(elements, 'p1')).toEqual({ kind: 'pod', name: 'mongo-0', controller: 'mongo' });
@@ -102,7 +108,13 @@ describe('assembleDashboardParams', () => {
         { group: 'nodes', data: { id: 'ctrl', kind: 'deployment', label: 'web', isController: true } },
         {
           group: 'nodes',
-          data: { id: 'p1', kind: 'pod', label: 'web-0', parent: 'ctrl', owner: { kind: 'ReplicaSet', name: 'web-rs' } },
+          data: {
+            id: 'p1',
+            kind: 'pod',
+            label: 'web-0',
+            parent: 'ctrl',
+            owner: { kind: 'ReplicaSet', name: 'web-rs' },
+          },
         },
       ];
       expect(assembleDashboardParams(elements, 'p1')).toEqual({ kind: 'pod', name: 'web-0', controller: 'web' });
@@ -234,9 +246,7 @@ describe('assembleDashboardParams', () => {
     ['storageclass', { isStorageClass: true, kind: 'storageclass' }],
     ['namespace', { isNamespace: true }],
   ])('returns undefined for the ineligible %s compound', (_label, extra) => {
-    const elements: cytoscape.ElementDefinition[] = [
-      { group: 'nodes', data: { id: 'g1', label: 'g1', ...extra } as cytoscape.NodeDataDefinition },
-    ];
+    const elements: cytoscape.ElementDefinition[] = [{ group: 'nodes', data: { id: 'g1', label: 'g1', ...extra } }];
     expect(assembleDashboardParams(elements, 'g1')).toBeUndefined();
   });
 

@@ -8,7 +8,7 @@ const node = (id: string, kind?: string, parent?: string): cytoscape.ElementDefi
     id,
     ...(kind !== undefined ? { kind } : {}),
     ...(parent !== undefined ? { parent } : {}),
-  } as cytoscape.NodeDataDefinition,
+  },
 });
 
 const edge = (id: string, source: string, target: string): cytoscape.ElementDefinition => ({

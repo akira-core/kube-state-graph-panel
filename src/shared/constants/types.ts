@@ -49,6 +49,16 @@ export type EdgeType =
 // expressed as compound nesting in the default `node` mode (design D31) and only
 // drawn as an edge in `controller` mode.
 
+// Runtime-honest kind / edge type as it actually arrives in graph data: a KNOWN enum
+// value OR a forward-compat string the backend may emit before the panel learns it.
+// Unknown values are kept (computeVisibility leaves them visible, categoryForKind /
+// the *_BY_KIND maps fall back) — they are never dropped, so the type must admit them.
+// `(string & {})` keeps known-literal autocomplete while accepting any string; the
+// cytoscape data declaration uses these so `normalize` need not cast `data.type` to a
+// closed union it cannot prove.
+export type GraphNodeKind = NodeKind | (string & {});
+export type GraphEdgeType = EdgeType | (string & {});
+
 // Health status carried on leaf nodes (upstream data.status). Drives the status
 // border colour (pod/node/pvc) and the detail panel badge. Absent/unknown values
 // are normalised to 'normal'.

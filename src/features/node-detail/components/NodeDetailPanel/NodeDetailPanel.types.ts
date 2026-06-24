@@ -1,4 +1,4 @@
-import type { NodeAlert, NodeKind, NodeStatus } from '../../../../shared/constants/types';
+import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../../../shared/constants/types';
 import type { ContainerSpec } from '../../../../shared/types/containerSpec';
 import type { DashboardLookup } from '../../hooks/useNodeDashboardUrl';
 import type { NodeDetailLookups } from '../../hooks/useNodeDetailUrls';
@@ -8,7 +8,7 @@ import type { NodeDetailLookups } from '../../hooks/useNodeDetailUrls';
 export interface NodeDetailData {
   id: string;
   label: string;
-  kind?: NodeKind;
+  kind?: GraphNodeKind; // known kind or an unknown forward-compat backend string
   status?: NodeStatus;
   alerts?: NodeAlert[]; // node's alerts; absent/empty → "No alerts"
   application?: string; // ArgoCD application (pod passthrough / controller aggregate)

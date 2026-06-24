@@ -1,5 +1,5 @@
 import { CATEGORY_BY_KIND } from '../../shared/constants/categoryByKind';
-import type { NodeKind } from '../../shared/constants/types';
+import type { GraphNodeKind, NodeKind } from '../../shared/constants/types';
 
 // The kinds whose node-detail panel carries the Application / Containers sections
 // and whose right-click fires the detail-URL queries — exactly the Workloads
@@ -7,6 +7,9 @@ import type { NodeKind } from '../../shared/constants/types';
 // CATEGORY_BY_KIND (a compiler-exhaustive Record<NodeKind, …>) instead of a
 // hand-maintained parallel list, so a future workload kind cannot silently miss
 // this gate. The panel-rendering spec pins the same membership.
-export const DETAIL_URL_KINDS: ReadonlySet<NodeKind> = new Set(
+// Typed ReadonlySet<GraphNodeKind> (not NodeKind) so callers can membership-test a
+// raw graph kind — which may be an unknown backend string — without casting; an
+// unknown kind simply isn't a member.
+export const DETAIL_URL_KINDS: ReadonlySet<GraphNodeKind> = new Set(
   (Object.keys(CATEGORY_BY_KIND) as NodeKind[]).filter((kind) => CATEGORY_BY_KIND[kind] === 'Workloads')
 );

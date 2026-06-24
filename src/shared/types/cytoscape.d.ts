@@ -1,12 +1,12 @@
 import 'cytoscape';
 
-import type { NodeKind, EdgeType, NodeStatus, NodeAlert } from '../constants/types';
+import type { GraphEdgeType, GraphNodeKind, NodeStatus, NodeAlert } from '../constants/types';
 
 import type { ContainerSpec } from './containerSpec';
 
 declare module 'cytoscape' {
   interface NodeDataDefinition {
-    kind?: NodeKind; // mapped from upstream data.type
+    kind?: GraphNodeKind; // mapped from upstream data.type (may be an unknown backend kind)
     status?: NodeStatus; // mapped from upstream data.status; normalize defaults to 'normal'
     namespace?: string; // extracted from upstream data.labels.namespace
     ipAddress?: string[]; // mapped from upstream data.ipaddress (moved out of labels in 524057b)
@@ -64,7 +64,7 @@ declare module 'cytoscape' {
   }
 
   interface EdgeDataDefinition {
-    edgeType?: EdgeType; // mapped from upstream data.type
+    edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)
     labels?: Record<string, string>;
   }
 

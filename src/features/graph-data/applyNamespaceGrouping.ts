@@ -1,7 +1,7 @@
 import type cytoscape from 'cytoscape';
 
 import { colorForNamespace } from '../../shared/constants/namespacePalette';
-import type { NodeKind, PodParentMode } from '../../shared/constants/types';
+import type { PodParentMode } from '../../shared/constants/types';
 
 // Fresh-clone data — cytoscape ALIASES the data object on cy.add and expand-collapse
 // mutates incident edges' data in place, so a shared ref would corrupt the input.
@@ -200,7 +200,7 @@ export function applyNamespaceGrouping(
       data: {
         id: box.id,
         label: box.scName,
-        kind: 'storageclass' as NodeKind,
+        kind: 'storageclass',
         isStorageClass: true,
         parent: box.nsBoxId,
       },

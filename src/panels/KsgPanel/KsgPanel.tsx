@@ -34,7 +34,7 @@ import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { useSelectedPodExport, useVariableExport } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
-import type { EdgeType, NodeKind, PodParentMode } from '../../shared/constants/types';
+import type { EdgeType, PodParentMode } from '../../shared/constants/types';
 import { themeColors } from '../../shared/theme/themeColors';
 
 import { deriveLegendEntries } from './deriveLegendEntries';
@@ -170,7 +170,7 @@ export function resolveSelectedNode(
           // pod's Node, operator CRD like Rollout) fall back to standalone-pod identity.
           const ownerKind = d.owner !== undefined ? d.owner.kind.toLowerCase() : undefined;
           queryTarget =
-            d.owner !== undefined && ownerKind !== undefined && DETAIL_URL_KINDS.has(ownerKind as NodeKind)
+            d.owner !== undefined && ownerKind !== undefined && DETAIL_URL_KINDS.has(ownerKind)
               ? { kind: ownerKind, name: d.owner.name }
               : { kind: 'pod', name: label };
         } else {

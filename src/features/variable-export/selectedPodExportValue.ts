@@ -1,10 +1,10 @@
-import type { NodeKind, NodeStatus } from '../../shared/constants/types';
+import type { GraphNodeKind, NodeStatus } from '../../shared/constants/types';
 
 // The minimal slice of the selected node this decision needs. Structurally a subset
 // of node-detail's NodeDetailData (kind?/status?/label), so KsgPanel passes that
 // directly — but kept local so variable-export does not depend on node-detail.
 export interface SelectedPodExportInput {
-  kind?: NodeKind;
+  kind?: GraphNodeKind;
   status?: NodeStatus;
   label: string;
 }
