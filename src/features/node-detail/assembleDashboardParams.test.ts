@@ -24,7 +24,7 @@ describe('assembleDashboardParams', () => {
     expect(assembleDashboardParams(elements, 'demo/p1')).toEqual({ kind: 'pod', name: 'mongo-0', namespace: 'shop' });
   });
 
-  it('leaf: drops every non-scalar value (alerts / containers / owner / ipAddress)', () => {
+  it('leaf: drops alerts/containers/raw owner, but emits ipaddress (from ipAddress) + controller (from owner.name)', () => {
     const elements: cytoscape.ElementDefinition[] = [
       {
         group: 'nodes',
@@ -39,7 +39,130 @@ describe('assembleDashboardParams', () => {
         },
       },
     ];
-    expect(assembleDashboardParams(elements, 'demo/p1')).toEqual({ kind: 'pod', name: 'mongo-0' });
+    // alerts/containers dropped; raw `owner` object never sent, but it seeds `controller`
+    // (no isController ancestor here → owner.name fallback); ipAddress → ipaddress array.
+    expect(assembleDashboardParams(elements, 'demo/p1')).toEqual({
+      kind: 'pod',
+      name: 'mongo-0',
+      controller: 'mongo',
+      ipaddress: ['10.0.0.1'],
+    });
+  });
+
+  describe('ipaddress', () => {
+    it('emits ipaddress carrying the string[] verbatim (repeated params)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0', ipAddress: ['10.0.0.1', '10.0.0.2'] } },
+      ];
+      expect(assembleDashboardParams(elements, 'p1')).toEqual({
+        kind: 'pod',
+        name: 'mongo-0',
+        ipaddress: ['10.0.0.1', '10.0.0.2'],
+      });
+    });
+
+    it('omits ipaddress when ipAddress is absent or an empty array', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0', ipAddress: [] } },
+      ];
+      const params = assembleDashboardParams(elements, 'p1');
+      expect(params).toEqual({ kind: 'pod', name: 'mongo-0' });
+      expect(params && 'ipaddress' in params).toBe(false);
+    });
+  });
+
+  describe('controller resolution', () => {
+    it('resolves controller from the nearest isController ancestor (controller mode pod)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'cl', label: 'prod', isCluster: true, cluster: 'prod' } },
+        { group: 'nodes', data: { id: 'ctrl', kind: 'statefulset', label: 'mongo', isController: true, parent: 'cl' } },
+        { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0', parent: 'ctrl' } },
+      ];
+      expect(assembleDashboardParams(elements, 'p1')).toEqual({
+        kind: 'pod',
+        name: 'mongo-0',
+        cluster: 'prod',
+        controller: 'mongo',
+      });
+    });
+
+    it('falls back to owner.name when no isController ancestor is present (node mode pod)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'node1', kind: 'node', label: 'ip-10-0-0-1' } },
+        {
+          group: 'nodes',
+          data: { id: 'p1', kind: 'pod', label: 'mongo-0', parent: 'node1', owner: { kind: 'StatefulSet', name: 'mongo' } },
+        },
+      ];
+      expect(assembleDashboardParams(elements, 'p1')).toEqual({ kind: 'pod', name: 'mongo-0', controller: 'mongo' });
+    });
+
+    it('prefers the ancestor controller over owner.name (ancestor is authoritative)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'ctrl', kind: 'deployment', label: 'web', isController: true } },
+        {
+          group: 'nodes',
+          data: { id: 'p1', kind: 'pod', label: 'web-0', parent: 'ctrl', owner: { kind: 'ReplicaSet', name: 'web-rs' } },
+        },
+      ];
+      expect(assembleDashboardParams(elements, 'p1')).toEqual({ kind: 'pod', name: 'web-0', controller: 'web' });
+    });
+
+    it('omits controller for a controller compound itself (no parent controller, no owner)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'ctrl', kind: 'deployment', label: 'web', isController: true } },
+      ];
+      const params = assembleDashboardParams(elements, 'ctrl');
+      expect(params).toEqual({ kind: 'deployment', name: 'web' });
+      expect(params && 'controller' in params).toBe(false);
+    });
+
+    it('omits controller for a bare leaf with no ancestor controller and no owner', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'svc', kind: 'service', label: 'mongo-svc' } },
+      ];
+      const params = assembleDashboardParams(elements, 'svc');
+      expect(params).toEqual({ kind: 'service', name: 'mongo-svc' });
+      expect(params && 'controller' in params).toBe(false);
+    });
+  });
+
+  describe('from_time / to_time', () => {
+    it('emits from_time/to_time as Unix-seconds strings when a timeRange is passed', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0' } },
+      ];
+      const timeRange = {
+        from: { unix: (): number => 1700000000 },
+        to: { unix: (): number => 1700003600 },
+      } as unknown as Parameters<typeof assembleDashboardParams>[2];
+      expect(assembleDashboardParams(elements, 'p1', timeRange)).toEqual({
+        kind: 'pod',
+        name: 'mongo-0',
+        from_time: '1700000000',
+        to_time: '1700003600',
+      });
+    });
+
+    it('omits from_time/to_time when no timeRange is passed', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0' } },
+      ];
+      const params = assembleDashboardParams(elements, 'p1');
+      expect(params && 'from_time' in params).toBe(false);
+      expect(params && 'to_time' in params).toBe(false);
+    });
+
+    it('never carries time for an ineligible node (returns undefined before the time block)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'cl', label: 'prod', isCluster: true } },
+      ];
+      const timeRange = {
+        from: { unix: (): number => 1700000000 },
+        to: { unix: (): number => 1700003600 },
+      } as unknown as Parameters<typeof assembleDashboardParams>[2];
+      expect(assembleDashboardParams(elements, 'cl', timeRange)).toBeUndefined();
+    });
   });
 
   it('compound (k8s-node): merges an attribute identical across ALL children that the node itself lacks', () => {

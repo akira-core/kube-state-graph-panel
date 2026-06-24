@@ -32,7 +32,12 @@ function parseDashboardUrl(res: unknown): string | undefined {
 function serializeParams(base: string, params: DashboardParams): string {
   const body = Object.keys(params)
     .sort()
-    .map((k) => `${k}=${params[k] ?? ''}`)
+    .map((k) => {
+      const v = params[k];
+      // Fold a string[] value (e.g. `ipaddress`) deterministically so an equal-value,
+      // fresh-identity array does not refire the keyed effect.
+      return `${k}=${Array.isArray(v) ? v.join(',') : (v ?? '')}`;
+    })
     .join('&');
   return `${base}|${body}`;
 }

@@ -58,7 +58,6 @@ Current state mapped from the code:
 - No error UI — an unavailable dashboard is simply an absent button.
 - No change to the `config_changes` / `code_changes` (right-click) flow.
 - No backend implementation (contract-only dependency; the demo backend may `404`).
-- No time-windowing of `/dashboard` (see Open Questions).
 
 ## Decisions
 
@@ -99,18 +98,20 @@ and muddy the at-most-once-per-open semantics of each.
 
 ### D4 — Param assembly as a pure helper
 
-Add `assembleDashboardParams(elements, nodeId): Record<string, string> | undefined`
-(node-detail feature, unit-tested in isolation). Returns `undefined` when the node is
-missing or is a cluster/namespace/storageclass compound (defensive eligibility gate, D1).
-Otherwise:
+Add `assembleDashboardParams(elements, nodeId, timeRange?): DashboardParams | undefined`
+(node-detail feature, unit-tested in isolation), where
+`DashboardParams = Record<string, string | string[]>` (the `string[]` arm carries
+repeated params — `ipaddress`, D9) and `timeRange` supplies the dashboard `[from,to]`
+(D10). Returns `undefined` when the node is missing or is a cluster/namespace/storageclass
+compound (defensive eligibility gate, D1). Otherwise:
 
 1. **Denylist** these panel-internal / structural keys: `id`, `parent`, `worstStatus`,
    `isCluster`, `isController`, `isStorageClass`, `isNamespace`, `clusterColor`,
    `namespaceColor`, `labels`. (`id` is excluded because controllers carry a synthesized
    id, not a backend attribute; identity travels as kind+name.)
-2. **Scalar-only**: keep string/number values; drop arrays/objects (`alerts`, `containers`,
-   `owner`, `ipAddress`) — they are not query identity. (See Open Questions for
-   `ipAddress`.)
+2. **Scalar-only (+ `ipaddress` exception)**: keep string/number values; drop non-identity
+   arrays/objects (`alerts`, `containers`, `owner`). **Exception:** `ipAddress` (`string[]`)
+   IS emitted, as repeated `ipaddress=` params (D9) — resolving Q2 toward "send".
 3. **Rename `label` → `name`** so the param vocabulary matches the existing detail
    endpoints (which key on `kind` + `name`). `kind` passes through unchanged.
 4. **Compound child-merge** (k8s-node / controller): direct children are the elements with
@@ -134,7 +135,8 @@ Otherwise:
    ancestor walk is self-contained and symmetric with the existing child-walk. Revisit
    if other features need `cluster` on the node.
 
-KsgPanel memoizes the result on `(elements, selectedNodeId)` and feeds it to
+KsgPanel memoizes the result on `(elements, selectedNodeId, from, to)` — the time bounds
+join the deps so a dashboard time-range change rebuilds the params (D10) — and feeds it to
 `useNodeDashboardUrl`. The shared eligibility predicate (cluster/ns/sc exclusion) is
 extracted so it cannot drift from `resolveSelectedNode`.
 
@@ -173,6 +175,61 @@ the both-views requirement. Thread the state via a new optional
 `dashboard?: DashboardLookup` prop on `NodeDetailPanelProps` (omitted ⇒ hidden), keeping
 the panel a pure presentational component.
 
+### D8 — `controller` param via ancestor walk (symmetric with `cluster`)
+
+Emit a `controller` param naming the node's controller, resolved exactly like `cluster`
+(D4 step 5) via a `resolveController(elements, selfData)` ancestor walk: from the node,
+follow `data.parent` up to the **nearest `isController` compound** and emit its name
+(`data.label`). This covers the common case — in controller mode a pod's direct parent
+**is** its controller compound. **Fallback** (no `isController` ancestor — e.g. k8s-node
+mode, where pods nest under the node compound and no controller node exists): read the
+pod's own controller from `data.owner` (`{ kind, name }` passthrough; the same source
+`useNodeDetailUrls` resolves a pod's controller from) and emit `owner.name`. Omit
+`controller` when neither yields a name (a controller compound itself has no parent
+controller, and a bare service/pvc/external has no owner). Ancestor wins over the `owner`
+fallback; an own `controller` key (none today) is never overwritten — own-wins, mirroring
+`resolveCluster`.
+
+_Why a new resolver and not the existing `application` param:_ `application` is the ArgoCD
+application name (a distinct backend field already passed through on pods/controllers);
+the controller is the workload owner (Deployment/StatefulSet/…). They are orthogonal —
+both may be sent.
+
+### D9 — `ipaddress` as repeated params; `DashboardParams` widens to `string | string[]`
+
+`ipAddress` is `string[]` on pod nodes (`cytoscape.d.ts`). It is emitted as the
+`ipaddress` param carrying the **array verbatim** — `getBackendSrv().get(url, params)`
+serializes a `string[]` value to repeated `ipaddress=` query params, matching the
+multi-value graph-query convention (`cluster=prod&cluster=dr`). Consequences:
+
+- `DashboardParams` changes from `Record<string, string>` to
+  `Record<string, string | string[]>`.
+- `serializeParams` (the hook's request-key builder) must fold an array value
+  deterministically into the key string (e.g. `k=[v1,v2]` in sorted-key order) so the
+  at-most-once-per-open key stays stable across equal-value refreshes.
+- The compound child-merge (D4 step 4) compares values across children for equality;
+  array values are compared element-wise (or simply never merge — pods' IPs differ, so
+  `ipaddress` is per-leaf and is not a compound-shared attribute in practice).
+- A pod with no/empty `ipAddress` omits the param (empty array → not sent).
+
+### D10 — `from_time` / `to_time` from the panel time range (Unix seconds)
+
+`/dashboard`'s underlying config/code comparison is time-windowed, so the request carries
+the **dashboard's current time range**: `from_time` / `to_time` = the panel's
+`PanelProps` `timeRange.from` / `timeRange.to` as **Unix seconds**
+(`timeRange.from.unix()` / `.unix()`), matching the backend graph query
+(`start=${__from:date:seconds}` — the backend accepts Unix seconds or RFC 3339, seconds
+chosen). The bounds are injected by `assembleDashboardParams` (D4) from its `timeRange`
+arg — only on the eligible (non-`undefined`) branch — so they ride the same param map and
+the same request key.
+
+**Refetch semantics (amends D3 / the request-key risk):** because `from_time`/`to_time`
+are in the param map, they enter the request key, so a dashboard time-range change yields a
+new key → the prefetch **refetches** (the dashboard URL is time-dependent; this is
+intended, not the volatile-field problem of Q1). The "at-most-once per open / equal-value
+refresh MUST NOT refire" guarantee still holds **within a fixed time range**. If
+`timeRange` is absent, both bounds are omitted (no `from_time`/`to_time`).
+
 ## Risks / Trade-offs
 
 - **Demo backend has no `/dashboard` (404).** → The button hides gracefully (D6); the
@@ -204,12 +261,12 @@ Rollback = remove `DashboardButton`, `useNodeDashboardUrl`, `assembleDashboardPa
 - **Q1 — `status` param:** it passes the denylist (the proposal excludes only rendering
   fields) but is health, not identity, and is volatile (would refire the prefetch key on a
   refresh). _Lean:_ exclude `status` from the request (treat it as non-identity).
-- **Q2 — `ipAddress`:** send as repeated `ipaddress=` params or drop under scalar-only?
-  _Lean:_ drop (identity travels as kind+name; revisit if the backend keys on IP).
-- **Q3 — time window:** does `/dashboard` need `[from,to]` (its config/code comparison is
-  time-windowed)? The proposal sends attributes only, and the open trigger (incl.
-  left-click) captures no time. _Lean:_ omit; treat a time requirement as a follow-up
-  contract change.
+- **Q2 — `ipAddress`: RESOLVED → send.** Emitted as repeated `ipaddress=` params (D9).
+- **Q3 — time window: RESOLVED → send.** `from_time` / `to_time` carry the panel time
+  range as Unix seconds (D10).
 - **Q4 — backend param vocabulary:** D4 assumes `/dashboard` keys on `kind` + `name`
-  (matching `config_changes`/`code_changes`), hence the `label → name` rename. Confirm the
-  exact param names the backend expects for `/dashboard`.
+  (matching `config_changes`/`code_changes`), hence the `label → name` rename. The added
+  params likewise assume the names `controller` (D8), `ipaddress` (D9), and
+  `from_time`/`to_time` (D10). Confirm the exact param names the backend expects for
+  `/dashboard` — this remains open (the demo backend `404`s `/dashboard`, so it is not
+  confirmable on the local stack).

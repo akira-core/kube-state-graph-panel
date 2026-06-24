@@ -1,8 +1,10 @@
+import type { TimeRange } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
-// The per-node Dashboard URL query param map: flat string → string, exactly what
-// getBackendSrv().get takes as its `params` argument.
-export type DashboardParams = Record<string, string>;
+// The per-node Dashboard URL query param map, exactly what getBackendSrv().get takes as
+// its `params` argument. A `string[]` value (e.g. `ipaddress`) serializes to REPEATED
+// query params (`ipaddress=a&ipaddress=b`), matching the multi-value graph-query style.
+export type DashboardParams = Record<string, string | string[]>;
 
 // Panel-internal rendering-only / structural `data` keys that are NOT backend
 // attributes and MUST NOT be sent as `/dashboard` query params:
@@ -72,14 +74,22 @@ function resolveCluster(
   return typeof labelCluster === 'string' && labelCluster.length > 0 ? labelCluster : undefined;
 }
 
-// Project ONE node's `data` onto query params: drop the denylist + every non-scalar
-// value (arrays/objects — `alerts` / `containers` / `owner` / `ipAddress`), and rename
-// `label` → `name` (normalize stored the upstream `name` as `label`; the backend
-// detail endpoints key on `name`). Numbers stringify; everything else is skipped.
+// Project ONE node's `data` onto query params: drop the denylist + non-identity
+// arrays/objects (`alerts` / `containers` / `owner`), and rename `label` → `name`
+// (normalize stored the upstream `name` as `label`; the backend detail endpoints key on
+// `name`). Numbers stringify. EXCEPTION: `ipAddress` (`string[]`) is emitted as the
+// `ipaddress` param carrying the array verbatim → repeated `ipaddress=` query params
+// (empty/absent → omitted).
 function paramsFromData(d: cytoscape.NodeDataDefinition): DashboardParams {
   const out: DashboardParams = {};
   for (const [key, value] of Object.entries(d)) {
     if (DENYLIST.has(key)) {
+      continue;
+    }
+    if (key === 'ipAddress') {
+      if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string')) {
+        out.ipaddress = value;
+      }
       continue;
     }
     if (typeof value !== 'string' && typeof value !== 'number') {
@@ -89,6 +99,45 @@ function paramsFromData(d: cytoscape.NodeDataDefinition): DashboardParams {
     out[paramKey] = String(value);
   }
   return out;
+}
+
+// Resolve the node's controller NAME for the `controller` param — symmetric with
+// resolveCluster. Authoritative source: the nearest `isController` ANCESTOR's name
+// (`data.label`); in controller mode a pod's direct parent IS its controller compound.
+// Falls back to the node's own `data.owner.name` (the same source useNodeDetailUrls
+// reads a pod's controller from) when no controller compound is an ancestor (e.g. node
+// mode). `undefined` when neither exists — a controller compound itself (no parent
+// controller, no owner), or a bare service/pvc/external. Self is NOT counted; only
+// ancestors are walked.
+function resolveController(
+  elements: readonly cytoscape.ElementDefinition[],
+  selfData: cytoscape.NodeDataDefinition
+): string | undefined {
+  const byId = new Map<string, cytoscape.NodeDataDefinition>();
+  for (const el of elements) {
+    if (el.group !== 'nodes') {
+      continue;
+    }
+    const d = el.data as cytoscape.NodeDataDefinition;
+    if (typeof d.id === 'string') {
+      byId.set(d.id, d);
+    }
+  }
+  let cur: cytoscape.NodeDataDefinition | undefined = selfData;
+  let hops = 0;
+  while (cur?.parent !== undefined && hops <= byId.size) {
+    const parent = byId.get(cur.parent);
+    if (parent === undefined) {
+      break;
+    }
+    if (parent.isController === true && typeof parent.label === 'string' && parent.label.length > 0) {
+      return parent.label;
+    }
+    cur = parent;
+    hops += 1;
+  }
+  const ownerName = selfData.owner?.name;
+  return typeof ownerName === 'string' && ownerName.length > 0 ? ownerName : undefined;
 }
 
 /**
@@ -103,12 +152,19 @@ function paramsFromData(d: cytoscape.NodeDataDefinition): DashboardParams {
  * that differ across children are skipped. No direct children → own attributes only.
  *
  * The `cluster` param is resolved separately (resolveCluster): the nearest isCluster
- * ancestor's name, else the node's own `labels.cluster`. It rides on every eligible node
- * even though `cluster` is not a first-class leaf data field (and `labels` is denied).
+ * ancestor's name, else the node's own `labels.cluster`. The `controller` param is
+ * resolved the same way (resolveController): the nearest isController ancestor's name,
+ * else the node's own `data.owner.name`. Both ride on every eligible node even though
+ * neither is a first-class leaf data field (and `labels` is denied).
+ *
+ * When `timeRange` is supplied, `from_time` / `to_time` carry its bounds as Unix seconds
+ * (the dashboard URL is time-windowed) — only on the eligible branch, so an ineligible
+ * node (which returns `undefined` above) never carries time.
  */
 export function assembleDashboardParams(
   elements: readonly cytoscape.ElementDefinition[],
-  nodeId: string | null
+  nodeId: string | null,
+  timeRange?: TimeRange
 ): DashboardParams | undefined {
   if (nodeId === null) {
     return undefined;
@@ -154,6 +210,21 @@ export function assembleDashboardParams(
     if (cluster !== undefined) {
       params.cluster = cluster;
     }
+  }
+
+  // controller: nearest isController ancestor (or own owner.name fallback), own-wins.
+  if (!('controller' in params)) {
+    const controller = resolveController(elements, selfData);
+    if (controller !== undefined) {
+      params.controller = controller;
+    }
+  }
+
+  // from_time / to_time: the dashboard's current range as Unix seconds. Eligible branch
+  // only (we are past the undefined gate), so ineligible nodes never carry time.
+  if (timeRange !== undefined) {
+    params.from_time = String(timeRange.from.unix());
+    params.to_time = String(timeRange.to.unix());
   }
 
   return params;

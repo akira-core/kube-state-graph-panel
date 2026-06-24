@@ -356,7 +356,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // both views. The param map is assembled from the selected node's data + its children
   // (compound merge); undefined for no selection / an ineligible compound, which idles
   // the hook. Shares the same resolved endpoint as the Change Report queries.
-  const dashboardParams = useMemo(() => assembleDashboardParams(elements, selectedNodeId), [elements, selectedNodeId]);
+  // The dashboard's current time range rides the param map as from_time/to_time (Unix
+  // seconds), so the time-windowed URL matches what the operator is viewing; the bounds
+  // join the memo deps so a range change rebuilds the params (the hook then refetches).
+  const dashboardParams = useMemo(
+    () => assembleDashboardParams(elements, selectedNodeId, data.timeRange),
+    [elements, selectedNodeId, data.timeRange]
+  );
   const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
 
   // Export the LEFT-clicked, non-normal pod's name into the configured variable so a

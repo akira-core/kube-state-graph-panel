@@ -129,4 +129,41 @@ describe('useNodeDashboardUrl (eager prefetch, open-driven)', () => {
     unmount();
     expect(opts.abortSignal.aborted).toBe(true);
   });
+
+  it('passes a string[] value (ipaddress) straight through to getBackendSrv (repeated params)', async () => {
+    mockGet.mockResolvedValue({ url: 'https://dash/n1' });
+    const withIps: DashboardParams = { kind: 'pod', name: 'mongo-0', ipaddress: ['10.0.0.1', '10.0.0.2'] };
+    const { result } = renderHook(() => useNodeDashboardUrl(withIps, '/proxy'));
+    await waitFor(() => {
+      expect(result.current.status).toBe('ready');
+    });
+    expect(mockGet).toHaveBeenCalledWith('/proxy/dashboard', withIps, undefined, expect.anything());
+  });
+
+  it('refetches when from_time / to_time change (new request key)', () => {
+    mockGet.mockReturnValue(new Promise(() => undefined)); // never settles
+    const { rerender } = renderHook(({ p }: { p: DashboardParams }) => useNodeDashboardUrl(p, '/proxy'), {
+      initialProps: { p: { ...params, from_time: '100', to_time: '200' } },
+    });
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    rerender({ p: { ...params, from_time: '100', to_time: '300' } });
+    expect(mockGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not refetch on an equal-value array (string[]) re-render — stable key', async () => {
+    mockGet.mockResolvedValue({ url: 'https://dash/n1' });
+    const make = (): DashboardParams => ({ kind: 'pod', name: 'mongo-0', ipaddress: ['10.0.0.1', '10.0.0.2'] });
+    const { result, rerender } = renderHook(({ p }: { p: DashboardParams }) => useNodeDashboardUrl(p, '/proxy'), {
+      initialProps: { p: make() },
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('ready');
+    });
+    rerender({ p: make() });
+    rerender({ p: make() });
+    await waitFor(() => {
+      expect(result.current.status).toBe('ready');
+    });
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
 });

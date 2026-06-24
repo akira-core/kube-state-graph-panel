@@ -12,6 +12,10 @@ Operators inspecting a node want one-click access to the backend-curated dashboa
   - Leaf node → send the node's attributes **except `labels`**.
   - Compound node (**k8s-node / controller only**) → send the node's **own** attributes **plus** attributes whose value is **identical across all children**; attributes that differ across children are **skipped**. `labels` still excluded.
   - Panel-internal rendering-only fields (accent colours, `parent`, `worstStatus`, `is*` container flags) are not backend attributes and are excluded.
+- **Context params resolved from ancestors / time (extension):** in addition to `cluster` (resolved by walking up to the nearest `isCluster` compound), the request also carries:
+  - **`controller`** — resolved the same way: walk up to the nearest `isController` compound and send its name; fallback to the pod's own `data.owner.name`; omitted when neither exists.
+  - **`ipaddress`** — the pod's `ipAddress` (`string[]`) sent as **repeated `ipaddress=` params** (previously dropped under scalar-only); omitted when empty.
+  - **`from_time` / `to_time`** — the **dashboard's current time range** (the panel `timeRange`) as **Unix seconds**, so the time-windowed dashboard URL matches what the operator is viewing. A time-range change refetches the URL.
 - **Node-detail panel opens for the k8s-node and controller compounds** so the Dashboard button can appear for them. (Controllers already open the panel today; the k8s-node compound may need its context/tap handling enabled — confirmed in design.) Cluster / namespace / storageclass compounds remain non-opening. A compound panel with no alerts / containers / change-report still shows the node name + Dashboard button.
 - **Eager prefetch:** fire the `/dashboard` request when a node panel opens (one request per opened node), reusing the existing endpoint-resolution and abort/cleanup machinery — NOT a per-canvas-node request storm.
 
@@ -28,8 +32,8 @@ Operators inspecting a node want one-click access to the backend-curated dashboa
 ## Impact
 
 - **Code:**
-  - `src/features/node-detail/` — new `/dashboard` lookup hook (own hook or extension of `useNodeDetailUrls`), new `DashboardButton` component, `NodeDetailPanel` header wiring, `detailPaths.ts` adds `/dashboard`, reuse `resolveDetailEndpoint` for the base URL.
-  - `src/panels/KsgPanel/` — assemble the `/dashboard` param map from the cytoscape node `data()` + its children (k8s-node / controller compound merge); ensure the panel opens for the k8s-node compound.
+  - `src/features/node-detail/` — new `/dashboard` lookup hook (own hook or extension of `useNodeDetailUrls`), new `DashboardButton` component, `NodeDetailPanel` header wiring, `detailPaths.ts` adds `/dashboard`, reuse `resolveDetailEndpoint` for the base URL. **Extension:** `assembleDashboardParams` adds a `resolveController` ancestor walk, the `ipaddress` repeated-param emission, and `from_time`/`to_time` from a new `timeRange` arg; `DashboardParams` widens to `Record<string, string | string[]>` and the hook's `serializeParams` folds array values into the request key.
+  - `src/panels/KsgPanel/` — assemble the `/dashboard` param map from the cytoscape node `data()` + its children (k8s-node / controller compound merge); ensure the panel opens for the k8s-node compound. **Extension:** pass `data.timeRange` into `assembleDashboardParams` and add the time bounds to the memo deps.
   - `src/features/graph-canvas/` — `cxttap` / `tap` handling extended so the k8s-node compound can open the panel (if not already).
   - `src/shared/types/` — `/dashboard` request param + response types.
 - **Backend:** new `GET /dashboard` endpoint (upstream kube-state-graph) returning `{ url }`. Contract-only dependency; the demo backend may `404` and the button must hide gracefully.

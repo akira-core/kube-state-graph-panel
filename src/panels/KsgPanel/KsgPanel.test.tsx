@@ -921,7 +921,19 @@ describe('KsgPanel', () => {
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
           '/proxy/dashboard',
-          { application: 'checkout', cluster: 'demo', kind: 'pod', name: 'mongo-0', namespace: 'shop' },
+          {
+            application: 'checkout',
+            cluster: 'demo',
+            kind: 'pod',
+            name: 'mongo-0',
+            namespace: 'shop',
+            // controller mode re-parents the pod under the synthesized controller compound
+            // (isController, label 'mongo') → resolved via the ancestor walk.
+            controller: 'mongo',
+            // from the dashboard time range (stubTimeRange), Unix-seconds strings.
+            from_time: expect.any(String) as string,
+            to_time: expect.any(String) as string,
+          },
           undefined,
           expect.anything()
         );
