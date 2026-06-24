@@ -1,6 +1,6 @@
 import type cytoscape from 'cytoscape';
 
-import { computeVisibility } from './computeVisibility';
+import { computeVisibility, isFilterableKind } from './computeVisibility';
 
 const node = (id: string, kind: string, extra: Record<string, unknown> = {}): cytoscape.ElementDefinition =>
   ({ group: 'nodes', data: { id, kind, ...extra } }) as unknown as cytoscape.ElementDefinition;
@@ -8,6 +8,18 @@ const cluster = (id: string): cytoscape.ElementDefinition =>
   ({ group: 'nodes', data: { id, isCluster: true } }) as unknown as cytoscape.ElementDefinition;
 const edge = (id: string, source: string, target: string, edgeType: string): cytoscape.ElementDefinition =>
   ({ group: 'edges', data: { id, source, target, edgeType } }) as unknown as cytoscape.ElementDefinition;
+
+describe('isFilterableKind', () => {
+  it('accepts known resource kinds', () => {
+    expect(isFilterableKind('pod')).toBe(true);
+    expect(isFilterableKind('storageclass')).toBe(true);
+  });
+
+  it('rejects the network wrapper and unknown kinds (never kind-filtered)', () => {
+    expect(isFilterableKind('network')).toBe(false);
+    expect(isFilterableKind('crd-from-the-future')).toBe(false);
+  });
+});
 
 describe('computeVisibility', () => {
   it('marks everything visible when all kinds + edgeTypes are enabled', () => {
@@ -22,6 +34,32 @@ describe('computeVisibility', () => {
     const elements = [node('a', 'pod'), node('b', 'pod'), node('s', 'service'), edge('e', 'a', 'b', 'pod-calls-pod')];
     const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
     expect([...visibleNodeIds]).toEqual(['a', 'b']);
+  });
+
+  it('never kind-filters the network fabric wrapper (stale saved visibleKinds)', () => {
+    // visibleKinds saved before the `network` kind existed: the wrapper must stay
+    // visible, or every switch nested inside it disappears with it.
+    const elements = [
+      node('net', 'network'),
+      node('sw1', 'switch', { parent: 'net' }),
+      node('sw2', 'switch', { parent: 'net' }),
+      edge('e', 'sw1', 'sw2', 'switch-to-switch'),
+    ];
+    const { visibleNodeIds } = computeVisibility(elements, ['switch'], ['switch-to-switch']);
+    expect([...visibleNodeIds].sort()).toEqual(['net', 'sw1', 'sw2']);
+  });
+
+  it('orphan-cascades the network wrapper away when its switches are filtered out', () => {
+    const elements = [
+      node('net', 'network'),
+      node('sw1', 'switch', { parent: 'net' }),
+      node('p', 'pod', {}),
+      node('p2', 'pod', {}),
+      edge('e', 'p', 'p2', 'pod-calls-pod'),
+    ];
+    const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
+    expect(visibleNodeIds.has('net')).toBe(false);
+    expect(visibleNodeIds.has('sw1')).toBe(false);
   });
 
   it('hides edges whose edgeType is filtered out', () => {
@@ -47,6 +85,16 @@ describe('computeVisibility', () => {
     const elements = [node('cr', 'CustomResource'), node('b', 'pod'), edge('e', 'cr', 'b', 'pod-calls-pod')];
     const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
     expect([...visibleNodeIds]).toEqual(['cr', 'b']);
+  });
+
+  it('keeps unknown edge TYPES visible by default (forward-compat, mirrors unknown kinds)', () => {
+    // A backend-added edge type is outside the filter universe (the MultiSelect
+    // only lists known types) — it must render in fallback style, not vanish, and
+    // its endpoints must not be orphan-cascaded away.
+    const elements = [node('a', 'pod'), node('b', 'pod'), edge('e', 'a', 'b', 'pod-uses-configmap')];
+    const { visibleNodeIds, visibleEdgeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod']);
+    expect([...visibleEdgeIds]).toEqual(['e']);
+    expect([...visibleNodeIds]).toEqual(['a', 'b']);
   });
 
   describe('orphan cascade-hide', () => {
@@ -83,6 +131,24 @@ describe('computeVisibility', () => {
       expect(visibleNodeIds.has('n')).toBe(true);
       expect(visibleNodeIds.has('cl')).toBe(true);
       expect(visibleNodeIds.has('p1')).toBe(true);
+    });
+
+    it('cascades a controller box away when the pod kind is filtered out (legend eye on pod, controller mode)', () => {
+      // The owns-edge dies with its pod endpoint, so a controller with no other
+      // visible edge or child follows its pods out (D11 interplay scenario).
+      const elements = [
+        cluster('cl'),
+        node('ctrl', 'deployment', { parent: 'cl', isController: true }),
+        node('p1', 'pod', { parent: 'ctrl' }),
+        edge('owns', 'ctrl', 'p1', 'controller-owns-pod'),
+      ];
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(
+        elements,
+        ['deployment', 'node'],
+        ['controller-owns-pod']
+      );
+      expect(visibleEdgeIds.has('owns')).toBe(false);
+      expect([...visibleNodeIds]).toEqual([]);
     });
 
     it('recursively hides an emptied node container and its cluster', () => {

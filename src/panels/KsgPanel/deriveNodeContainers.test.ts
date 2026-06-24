@@ -123,4 +123,19 @@ describe('deriveContainers — controller mode', () => {
     const { containerIds } = deriveContainers(els, NEUTRAL, 'controller');
     expect(containerIds).toEqual(['c1']);
   });
+
+  // namespace grouping (controller mode) re-parents controllers under a synthesized
+  // namespace box, which carries namespaceColor — NOT clusterColor. The swatch must
+  // still read the enclosing cluster's accent by walking the ancestor chain, matching
+  // the canvas (getStylesheet resolveParentClusterColor) so legend ≠ canvas can't drift.
+  it('controller mode colours a controller nested under a namespace box by its cluster ancestor', () => {
+    const els = [
+      node({ id: 'cl', isCluster: true, clusterColor: '#0ea5e9', label: 'prod' }),
+      node({ id: 'nsbox/cl/team-a', isNamespace: true, namespaceColor: '#e8833a', namespace: 'team-a', parent: 'cl', label: 'team-a' }),
+      node({ id: 'c1', kind: 'statefulset', isController: true, label: 'mongo', parent: 'nsbox/cl/team-a', namespace: 'team-a' }),
+      node({ id: 'p1', kind: 'pod', parent: 'c1' }),
+    ];
+    const { containerEntries } = deriveContainers(els, NEUTRAL, 'controller');
+    expect(containerEntries).toEqual([{ name: 'mongo', color: '#0ea5e9' }]);
+  });
 });

@@ -21,7 +21,7 @@ const alerts: NodeAlert[] = [
 describe('AlertTable', () => {
   it('renders a row per alert with the six columns', () => {
     render(<AlertTable alerts={alerts} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    for (const header of ['Pod', 'Service', 'Alert', 'Severity', 'Count', 'Last seen']) {
+    for (const header of ['Pod', 'Service', 'Alert', 'Severity', 'Count', 'Last occurred']) {
       expect(screen.getByRole('columnheader', { name: header })).toBeInTheDocument();
     }
     expect(screen.getByText('HighMemory')).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('AlertTable', () => {
     expect(list).toHaveTextContent('2024-06-04 11:40:00'); // last occurrence
   });
 
-  it('calls onAlertTimeClick with the LAST (max) occurrence time in seconds when Last seen is clicked', () => {
+  it('calls onAlertTimeClick with the LAST (max) occurrence time in seconds when Last occurred is clicked', () => {
     const onAlertTimeClick = jest.fn();
     render(<AlertTable alerts={alerts} onAlertTimeClick={onAlertTimeClick} timeZone="utc" />);
     const times = screen.getAllByTestId('alert-time');
@@ -87,7 +87,7 @@ describe('AlertTable', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  it('formats the Last seen label (max occurrence) with the provided time zone', () => {
+  it('formats the Last occurred label (max occurrence) with the provided time zone', () => {
     render(<AlertTable alerts={[alerts[0]!]} onAlertTimeClick={jest.fn()} timeZone="utc" />);
     // max = 1717501200s = 2024-06-04 11:40:00 UTC
     expect(screen.getByTestId('alert-time')).toHaveTextContent(/2024-06-04 11:40:00/);

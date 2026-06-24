@@ -8,7 +8,7 @@ import { test, expect } from '@grafana/plugin-e2e';
  * These tests run GREEN after the provisioning from F1 Tasks 2-5 is committed.
  * They are developer-triggered locally (npm run e2e) — not in CI.
  *
- * Note: The v0.0.14 backend already supports the scope query params driven by
+ * Note: The kube-state-graph backend already supports the scope query params driven by
  * these variables — no image change is required.
  */
 

@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 
 import { useElementFilter } from '../../../element-filter';
 import { HoverTooltip } from '../../../hover-tooltip';
-import { buildSwitchConstraints, readNodeFabricTier, readSwitchLevels } from '../../../switch-topology';
+import { buildSwitchConstraints, readSwitchLevels } from '../../../switch-topology';
 import { useCytoscape } from '../../hooks/useCytoscape';
 import { useExpandCollapse } from '../../hooks/useExpandCollapse';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
@@ -32,7 +32,7 @@ function getStyles(): { root: string; canvas: string } {
 }
 
 function noop(): void {
-  // No-op collapsed-change sink for the backward-compatible (no-collapse) path.
+  // collapsed-change sink for the no-collapse path
 }
 
 export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Element {
@@ -40,9 +40,9 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     elements,
     stylesheet,
     layout,
-    visibleKinds,
-    visibleEdgeTypes,
+    visibility,
     onSelect,
+    onContextSelect,
     selectedId,
     collapsedIds,
     onCollapsedChange,
@@ -50,8 +50,8 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   } = props;
   const styles = useStyles2(getStyles);
 
-  // GraphCanvas owns the expand-collapse refs so useExpandCollapse (writer) and
-  // useCytoscape's diff-patch (reader) share one api/guard/desired-set.
+  // Owns the expand-collapse refs so useExpandCollapse (writer) and useCytoscape's
+  // diff-patch (reader) share one api/guard/desired-set.
   const apiRef = useRef<cytoscape.ExpandCollapseApi | null>(null);
   const suppressRef = useRef(false);
   const collapsedIdsRef = useRef<ReadonlySet<string>>(collapsedIds ?? new Set());
@@ -59,19 +59,18 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     collapsedIdsRef.current = collapsedIds ?? new Set();
   }, [collapsedIds]);
 
-  // runToken bumps only when a layout-affecting input changes content — the
-  // collapsed-id set or the pod-parent mode (which re-parents pods + swaps
-  // edges) — so layout reruns once per real structural change, not per render.
-  const runToken = useLayoutRunToken({ collapsedIds, podParentMode });
+  // collapseApplyToken gates the diff-patch re-collapse (fold/unfold applied in place,
+  // no global relayout); layoutToken gates layout (pod-parent flip or requestRelayout).
+  // requestRelayout covers fresh-layout cases that change neither mode nor collapsed set
+  // (mount-time default-collapse, refresh adding an unanchorable family); idempotent
+  // under StrictMode double-mount. See switch-tier-layout / expand-collapse specs.
+  const { collapseApplyToken, layoutToken, requestRelayout } = useLayoutRunToken({ collapsedIds, podParentMode });
 
-  // Derive switch-fabric tier constraints from the current graph. Applied by
-  // useGraphLayout only when the active layout is fcose; null (no-op) when there
-  // are no switches. useGraphLayout reads the latest value at layout-run time, so
-  // a refresh-driven identity change here does not by itself rerun the layout.
-  const switchConstraints = useMemo(
-    () => buildSwitchConstraints(readNodeFabricTier(elements, podParentMode ?? 'node', readSwitchLevels(elements))),
-    [elements, podParentMode]
-  );
+  // Switch-fabric tier constraints; null when no switches. Applied by useGraphLayout
+  // only for fcose, read at layout-run time (a refresh identity change here alone
+  // won't rerun layout). Only levelled switches are pinned — K8s nodes stay free so
+  // a fabric-tier pin can't drag cluster compounds into overlap. See switch-tier-layout spec.
+  const switchConstraints = useMemo(() => buildSwitchConstraints(readSwitchLevels(elements)), [elements]);
 
   const collapseEnabled = onCollapsedChange !== undefined;
 
@@ -79,16 +78,27 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     elements,
     stylesheet,
     podParentMode,
-    ...(collapseEnabled ? { apiRef, collapsedIdsRef, suppressRef, onCollapsedChange, collapseKey: runToken } : {}),
+    // collapseKey applies fold/unfold in place (no layoutToken bump → no relayout).
+    // onStructuralRelayout relayouts once for a new unanchorable family on refresh;
+    // anchored pod-under-existing-parent adds skip it (D7 kept).
+    ...(collapseEnabled
+      ? {
+          apiRef,
+          collapsedIdsRef,
+          suppressRef,
+          onCollapsedChange,
+          collapseKey: collapseApplyToken,
+          onStructuralRelayout: requestRelayout,
+        }
+      : {}),
   });
 
-  useGraphLayout({ cyRef, name: layout, runToken, switchConstraints });
+  useGraphLayout({ cyRef, name: layout, runToken: layoutToken, switchConstraints });
   useGraphResize({ cyRef, containerRef });
-  useElementFilter({ cyRef, elements, visibleKinds, visibleEdgeTypes });
+  useElementFilter({ cyRef, sets: visibility });
   useExpandCollapse({
     cyRef,
-    // Gate: only init the extension when collapse is wired. On the no-collapse
-    // path this stays false so the effect early-returns and never calls the
+    // false on the no-collapse path → effect early-returns, never calls the
     // (potentially unregistered) cy.expandCollapse.
     enabled: collapseEnabled,
     isReady,
@@ -96,6 +106,8 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     collapsedIdsRef,
     suppressRef,
     onCollapsedChange: onCollapsedChange ?? noop,
+    // Relayout once after the mount-time default-collapse lands.
+    onMountCollapseApplied: requestRelayout,
   });
 
   useEffect(() => {
@@ -110,34 +122,71 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
       }
       const single = evt.target as cytoscape.NodeSingular;
       if (single.isNode()) {
+        // Cluster backplates (selectable:false) are decorative: tap deselects like a
+        // background tap, never opening the detail panel. Still grabbable; a drag fires
+        // no 'tap' so dragging a cluster is unaffected.
+        if (!single.selectable()) {
+          onSelect(null);
+          return;
+        }
         onSelect(single.id());
         return;
       }
-      // Edge taps act as deselect to keep the callback contract consistent
-      // with background taps; consumers receive null when no node is active.
+      // Edge taps deselect, like background taps.
       onSelect(null);
     };
     cy.on('tap', handleTap);
     return (): void => {
       cy.off('tap', handleTap);
     };
-    // isReady gates binding until the instance exists (see useCytoscape).
+    // isReady gates binding until the instance exists.
   }, [cyRef, onSelect, isReady]);
 
-  // Controlled selection sync: mirror selectedId into cytoscape's single
-  // selection so the blue highlight tracks the detail panel (tap / X / background).
+  // Right-click (cxttap) reports the node for the detail-URL flow, routed through the
+  // same controlled selectedId as tap so highlight + detail panel stay in sync (D1).
+  // cxttap does NOT preventDefault the DOM contextmenu, so we suppress the native menu
+  // at the container level — only while a consumer wires onContextSelect.
+  useEffect(() => {
+    const cy = cyRef.current;
+    const container = containerRef.current;
+    if (cy === null || container === null || onContextSelect === undefined) {
+      return;
+    }
+    const handleCxtTap = (evt: cytoscape.EventObject): void => {
+      if (evt.target === cy) {
+        return; // background right-click: keep the current selection
+      }
+      const single = evt.target as cytoscape.NodeSingular;
+      // Same selectability rule as tap: backplates and edges never open the detail panel.
+      if (single.isNode() && single.selectable()) {
+        onContextSelect(single.id());
+      }
+    };
+    const suppressNativeMenu = (e: Event): void => {
+      e.preventDefault();
+    };
+    cy.on('cxttap', handleCxtTap);
+    container.addEventListener('contextmenu', suppressNativeMenu);
+    return (): void => {
+      cy.off('cxttap', handleCxtTap);
+      container.removeEventListener('contextmenu', suppressNativeMenu);
+    };
+    // isReady gates binding until the instance exists (see useCytoscape).
+  }, [cyRef, containerRef, onContextSelect, isReady]);
+
+  // Mirror selectedId into cytoscape's single selection so the highlight tracks the
+  // detail panel. `elements` is a dep: a rebuild/re-add brings the node back UNSELECTED
+  // without firing an event, so the mirror must re-apply on any element-set change.
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {
       return;
     }
     selectSingle(cy, selectedId ?? null);
-    // isReady re-runs this once the instance exists (cyRef is a stable ref).
-  }, [cyRef, selectedId, isReady]);
+  }, [cyRef, selectedId, isReady, elements]);
 
-  // Dim everything outside the selected node's focus set so the selection reads
-  // clearly (colour alone is too subtle on a dense graph). Re-applies after a
-  // rebuild (mode/data change) since that drops the imperative classes.
+  // Dim everything outside the selected node's focus set (colour alone is too subtle
+  // on a dense graph). `elements` re-applies after a rebuild, which drops the imperative classes.
   useSelectionFocus({ cyRef, selectedId: selectedId ?? null, isReady, elements });
 
   return (

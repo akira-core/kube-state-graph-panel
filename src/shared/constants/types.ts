@@ -23,7 +23,12 @@ export type NodeKind =
   // A backend-synthesized StorageClass compound GROUP (cluster > storageclass > pvc).
   // It is also tagged `isStorageClass` (see cytoscape.d.ts) and behaves like the K8s
   // `node` container: icon-less while an expanded box, shows its icon when collapsed.
-  | 'storageclass';
+  | 'storageclass'
+  // A virtual compound GROUP wrapping the physical switch fabric (network > switch).
+  // Pure grouping box, collapsible like other containers; collapsing swaps
+  // `switch` → `network` in the node-kinds legend (deriveLegendKinds). Never
+  // carries status/alerts.
+  | 'network';
 
 // Full wire contract: every edge type the backend's core graph can carry.
 // `switch-to-switch` / `node-to-switch` are the physical network-fabric edges
@@ -39,13 +44,20 @@ export type EdgeType =
   | 'switch-to-switch'
   | 'node-to-switch';
 
-// Edge types the panel actually DRAWS. The backend's compound Cytoscape view
-// (the only format this panel consumes) expresses `pod-runs-on-node` as
-// compound nesting (cluster > node > pod) and omits it as an edge — see
-// serialise.go / design D31. So it is excluded from the drawn map, the legend,
-// the filter, and the stylesheet. It remains in `EdgeType` because it is still a
-// valid wire value (the Grafana Node Graph format retains it).
-export type DrawnEdgeType = Exclude<EdgeType, 'pod-runs-on-node'>;
+// Which edge types are actually DRAWN (and listed in the legend) depends on the
+// pod-parent mode — see `drawnEdgeTypesForMode`. Notably `pod-runs-on-node` is
+// expressed as compound nesting in the default `node` mode (design D31) and only
+// drawn as an edge in `controller` mode.
+
+// Runtime-honest kind / edge type as it actually arrives in graph data: a KNOWN enum
+// value OR a forward-compat string the backend may emit before the panel learns it.
+// Unknown values are kept (computeVisibility leaves them visible, categoryForKind /
+// the *_BY_KIND maps fall back) — they are never dropped, so the type must admit them.
+// `(string & {})` keeps known-literal autocomplete while accepting any string; the
+// cytoscape data declaration uses these so `normalize` need not cast `data.type` to a
+// closed union it cannot prove.
+export type GraphNodeKind = NodeKind | (string & {});
+export type GraphEdgeType = EdgeType | (string & {});
 
 // Health status carried on leaf nodes (upstream data.status). Drives the status
 // border colour (pod/node/pvc) and the detail panel badge. Absent/unknown values
@@ -74,7 +86,7 @@ export interface NodeAlert {
   // rendered in the critical fallback colour. Never dropped for being "unknown".
   severity: string;
   // Every occurrence time of this (grouped) alert, Unix epoch SECONDS, ASCENDING.
-  // Count = timeRecords.length, last-seen = max(timeRecords) (the last element); both
+  // Count = timeRecords.length, last-occurred = max(timeRecords) (the last element); both
   // are derived at render, never stored. A legacy backend's single `time` scalar
   // normalises to a one-element list. The panel converts to milliseconds only at the
   // render / time-rewind boundary.

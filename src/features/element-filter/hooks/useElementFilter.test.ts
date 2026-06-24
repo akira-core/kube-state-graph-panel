@@ -2,6 +2,8 @@ import { renderHook } from '@testing-library/react';
 import cytoscape from 'cytoscape';
 import type { MutableRefObject } from 'react';
 
+import { computeVisibility } from '../computeVisibility';
+
 import { useElementFilter } from './useElementFilter';
 
 describe('useElementFilter', () => {
@@ -25,9 +27,11 @@ describe('useElementFilter', () => {
     renderHook(() =>
       useElementFilter({
         cyRef,
-        elements: cy.elements().jsons() as cytoscape.ElementDefinition[],
-        visibleKinds: ['pod'],
-        visibleEdgeTypes: ['pod-calls-pod', 'service-selects-pod'],
+        sets: computeVisibility(
+          cy.elements().jsons() as cytoscape.ElementDefinition[],
+          ['pod'],
+          ['pod-calls-pod', 'service-selects-pod']
+        ),
       })
     );
 
@@ -67,17 +71,19 @@ describe('useElementFilter', () => {
     renderHook(() =>
       useElementFilter({
         cyRef,
-        // Only the real (non-meta) elements are passed in, as in production.
-        elements: [
-          { group: 'nodes', data: { id: 'a', kind: 'pod' } },
-          { group: 'nodes', data: { id: 'b', kind: 'pod' } },
-          { group: 'nodes', data: { id: 'anchor', kind: 'pod' } },
-          { group: 'nodes', data: { id: 'c', kind: 'service' } },
-          { group: 'edges', data: { id: 'ra', source: 'a', target: 'anchor', edgeType: 'pod-calls-pod' } },
-          { group: 'edges', data: { id: 'rb', source: 'b', target: 'anchor', edgeType: 'pod-calls-pod' } },
-        ] as cytoscape.ElementDefinition[],
-        visibleKinds: ['pod'],
-        visibleEdgeTypes: ['pod-calls-pod'],
+        // Only the real (non-meta) elements feed the visibility sets, as in production.
+        sets: computeVisibility(
+          [
+            { group: 'nodes', data: { id: 'a', kind: 'pod' } },
+            { group: 'nodes', data: { id: 'b', kind: 'pod' } },
+            { group: 'nodes', data: { id: 'anchor', kind: 'pod' } },
+            { group: 'nodes', data: { id: 'c', kind: 'service' } },
+            { group: 'edges', data: { id: 'ra', source: 'a', target: 'anchor', edgeType: 'pod-calls-pod' } },
+            { group: 'edges', data: { id: 'rb', source: 'b', target: 'anchor', edgeType: 'pod-calls-pod' } },
+          ] as cytoscape.ElementDefinition[],
+          ['pod'],
+          ['pod-calls-pod']
+        ),
       })
     );
 

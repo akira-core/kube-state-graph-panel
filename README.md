@@ -6,7 +6,7 @@ Grafana panel plugin that visualizes Kubernetes resource topology (Pods, Service
 
 - Node 22+
 - Docker (with Compose v2)
-- No real Kubernetes cluster needed — the demo is fully self-contained. The `v0.0.14` backend derives the graph from PromQL over a seeded VictoriaMetrics (the `ksg-seeder` service pushes a synthetic fixture), all brought up by `docker compose`.
+- No real Kubernetes cluster needed — the demo is fully self-contained. The kube-state-graph backend derives the graph from PromQL over a seeded VictoriaMetrics (the `ksg-seeder` service pushes a synthetic fixture), all brought up by `docker compose`.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ Both dashboards are provisioned from `provisioning/dashboards/` and are independ
 
 ### Variable filtering
 
-The demo dashboard exposes four template variables that filter the graph **at the backend** (`/v1/graph` scope query params): `cluster`, `namespace`, `name` (resource), and `edge_type`. They are chained — `namespace` is scoped by the selected `cluster`, and `name` by both. Multi-value selections expand to repeated query params (e.g. `cluster=prod&cluster=dr`) via Grafana's `${var:customqueryparam:<name>:}` interpolation; `All` expands to every actual value (no filter). `cluster` values are sourced from the backend discovery endpoint `GET /v1/clusters` (returns `{ "clusters": [{"name":"dr"}, {"name":"prod"}] }`); `edge_type` is a fixed Custom variable with the 3 drawn edge types. The `v0.0.14` backend already implements scope params and discovery endpoints — no image change is required. Panel-side `node kind` / `edge type` visibility filters (panel options) are independent and stack on top of the backend filter.
+The demo dashboard exposes four template variables that filter the graph **at the backend** (`/v1/graph` scope query params): `cluster`, `namespace`, `name` (resource), and `edge_type`. They are chained — `namespace` is scoped by the selected `cluster`, and `name` by both. Multi-value selections expand to repeated query params (e.g. `cluster=prod&cluster=dr`) via Grafana's `${var:customqueryparam:<name>:}` interpolation; `All` expands to every actual value (no filter). `cluster` values are sourced from the backend discovery endpoint `GET /v1/clusters` (returns `{ "clusters": [{"name":"dr"}, {"name":"prod"}] }`); `edge_type` is a fixed Custom variable with the 3 drawn edge types. The kube-state-graph backend already implements scope params and discovery endpoints — no image change is required. Panel-side `node kind` / `edge type` visibility filters (panel options) are independent and stack on top of the backend filter.
 
 ## Architecture Overview
 

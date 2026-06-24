@@ -58,11 +58,64 @@ describe('diffElements', () => {
     expect(diffElements([], [])).toEqual({ toAdd: [], toRemove: [], toUpdate: [] });
   });
 
+  it('treats an undefined-valued key as absent (removeData tombstone ≠ change)', () => {
+    // cytoscape's removeData() leaves `{ key: undefined }` on the live element's
+    // jsons(); an incoming definition that omits the key must compare equal, or the
+    // element would be re-flagged toUpdate on every diff cycle after a removal.
+    const current = [node('a', { kind: 'deployment', alerts: undefined })];
+    const next = [node('a', { kind: 'deployment' })];
+    expect(diffElements(current, next).toUpdate).toEqual([]);
+    // The reverse still counts as a real update (a value appearing).
+    const gained = [node('a', { kind: 'deployment', alerts: [{ name: 'x' }] })];
+    expect(diffElements(current, gained).toUpdate).toHaveLength(1);
+  });
+
   it('ignores elements without an id', () => {
     const noId: cytoscape.ElementDefinition = { group: 'nodes', data: {} };
     const diff = diffElements([noId], [noId, node('a')]);
     expect(diff.toAdd).toHaveLength(1);
     expect(diff.toAdd[0]?.data.id).toBe('a');
     expect(diff.toRemove).toEqual([]);
+  });
+
+  it('routes an edge endpoint change through remove+add (data() cannot rewire)', () => {
+    // cytoscape ignores writes to source/target via data(); classifying a rewired
+    // edge as toUpdate would leave it pointing at the old endpoint forever (e.g. a
+    // ppm:pod-runs-on-node edge whose pod rescheduled to another K8s node).
+    const current = [node('a'), node('b'), node('c'), edge('e1', 'a', 'b')];
+    const next = [node('a'), node('b'), node('c'), edge('e1', 'a', 'c')];
+    const diff = diffElements(current, next);
+    expect(diff.toRemove).toEqual(['e1']);
+    expect(diff.toAdd.map((el) => el.data.id)).toEqual(['e1']);
+    expect(diff.toUpdate).toEqual([]);
+  });
+
+  it('keeps a data-only edge change on the update path (no endpoint change)', () => {
+    const current = [node('a'), node('b'), edge('e1', 'a', 'b', { edgeType: 'pod-calls-pod' })];
+    const next = [node('a'), node('b'), edge('e1', 'a', 'b', { edgeType: 'service-selects-pod' })];
+    const diff = diffElements(current, next);
+    expect(diff.toRemove).toEqual([]);
+    expect(diff.toAdd).toEqual([]);
+    expect(diff.toUpdate).toHaveLength(1);
+  });
+
+  it('ignores expand-collapse bookkeeping keys left on a live element', () => {
+    // After expand the extension leaves `collapsedChildren: null` behind and never
+    // removes `size-before-collapse`; the incoming definition carries neither — the
+    // element must NOT re-enter toUpdate on every diff cycle forever.
+    const current = [
+      node('ctrl', {
+        kind: 'deployment',
+        collapsedChildren: null,
+        'size-before-collapse': { w: 21, h: 21 },
+        expandcollapseRenderedStartX: 3,
+        'x-before-fisheye': 10,
+      }),
+    ];
+    const next = [node('ctrl', { kind: 'deployment' })];
+    expect(diffElements(current, next).toUpdate).toEqual([]);
+    // A real data change on the same element is still detected.
+    const changed = [node('ctrl', { kind: 'deployment', worstStatus: 'critical' })];
+    expect(diffElements(current, changed).toUpdate).toHaveLength(1);
   });
 });

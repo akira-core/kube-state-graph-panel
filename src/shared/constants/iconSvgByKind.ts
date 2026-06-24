@@ -31,8 +31,11 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   // Desktop computer: a monitor screen on a stand. Reads as "a machine / host".
   node: icon('<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v3M8.5 19h7"/>'),
   pvc: icon('<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6 v12 a7 2.6 0 0 0 14 0 V6"/>'),
+  // 1-to-3 fan-out tree: one head endpoint load-balancing onto three backends.
+  // Orthogonal (taxi) connectors — stem to a horizontal bus, then vertical
+  // drops — matching how switch-incident edges route on the canvas.
   service: icon(
-    '<circle cx="12" cy="5.5" r="2.2"/><circle cx="6" cy="18.5" r="2.2"/><circle cx="18" cy="18.5" r="2.2"/><path d="M12 7.7 V13 M12 13 L6.8 16.6 M12 13 L17.2 16.6"/>'
+    '<circle cx="12" cy="5" r="2.2"/><circle cx="4.5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19.5" cy="19" r="2"/><path d="M12 7.5 V12.5 M4.5 12.5 H19.5 M4.5 12.5 V16.7 M12 12.5 V16.7 M19.5 12.5 V16.7"/>'
   ),
   // Rack-switch chassis: front-panel port row + status LED. Reads as hardware.
   switch: icon(
@@ -71,6 +74,14 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   storageclass: icon(
     '<ellipse cx="12" cy="5.5" rx="7" ry="2.4"/><path d="M5 5.5 v13 a7 2.4 0 0 0 14 0 V5.5"/><path d="M5 9.8 a7 2.4 0 0 0 14 0"/><path d="M5 14.1 a7 2.4 0 0 0 14 0"/>'
   ),
+  // Virtual switch-fabric group, drawn as a wifi mark (three arcs + dot): reads
+  // as "the network". Only ever drawn when the group is COLLAPSED (expanded it
+  // is a labelled container with no icon). Legend follows deriveLegendKinds:
+  // collapsing the group swaps `switch` → `network` in the node-kinds legend,
+  // like storageclass ⇄ pvc.
+  network: icon(
+    '<path d="M3.5 11.5 a12 12 0 0 1 17 0 M6.5 14.5 a7.8 7.8 0 0 1 11 0 M9.4 17.3 a3.7 3.7 0 0 1 5.2 0"/><circle cx="12" cy="19.8" r="1.1"/>'
+  ),
 };
 
 // Drawn for any kind not in the map, so upstream/backend additions never vanish.
@@ -79,7 +90,10 @@ export const FALLBACK_ICON_SVG = icon(
 );
 
 export function iconSvgForKind(kind: string | undefined): string {
-  if (kind !== undefined && kind in ICON_SVG_BY_KIND) {
+  // Object.hasOwn, NOT `in`: `in` walks the prototype chain, so a backend kind
+  // named after an Object.prototype member ('toString', 'constructor', …) would
+  // return an inherited Function instead of an SVG string and crash the tinter.
+  if (kind !== undefined && Object.hasOwn(ICON_SVG_BY_KIND, kind)) {
     const svg = ICON_SVG_BY_KIND[kind as NodeKind];
     if (svg !== undefined) {
       return svg;

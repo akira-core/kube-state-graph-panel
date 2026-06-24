@@ -28,11 +28,18 @@ describe('buildSwitchConstraints', () => {
     );
     expect(result?.fixedNodeConstraint).toHaveLength(2);
     // sorted ids → 'a' gets the negative offset, 'b' the positive; both share y=0.
-    expect(find(result, 'a')).toEqual({ x: -90, y: 0 });
-    expect(find(result, 'b')).toEqual({ x: 90, y: 0 });
+    // Assert the structural property (symmetric around 0, shared y) rather than the
+    // exact COL_GAP pixel value, so visual tuning of the gap doesn't break this test.
+    const a = find(result, 'a');
+    const b = find(result, 'b');
+    expect(a?.y).toBe(0);
+    expect(b?.y).toBe(0);
+    expect(a?.x ?? Number.NaN).toBeLessThan(0);
+    expect(b?.x ?? Number.NaN).toBeGreaterThan(0);
+    expect(a?.x).toBe(-(b?.x ?? Number.NaN)); // centred on 0
   });
 
-  it('stacks level k above level k+1 (smaller y for the lower level)', () => {
+  it('stacks level k+1 above level k (smaller y for the higher level)', () => {
     const result = buildSwitchConstraints(
       levels([
         ['a', 0],
@@ -40,8 +47,8 @@ describe('buildSwitchConstraints', () => {
         ['c', 2],
       ])
     );
-    expect(yOf(result, 'a')).toBeLessThan(yOf(result, 'b'));
-    expect(yOf(result, 'b')).toBeLessThan(yOf(result, 'c'));
+    expect(yOf(result, 'c')).toBeLessThan(yOf(result, 'b'));
+    expect(yOf(result, 'b')).toBeLessThan(yOf(result, 'a'));
   });
 
   it('sorts ids within a level for deterministic x positions', () => {

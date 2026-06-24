@@ -110,7 +110,7 @@ export function SwatchLegend({
             data-testid={`${testId}-fold-toggle`}
             onClick={() => setFolded((f) => !f)}
           >
-            <Icon name={caretIcon} size="sm" />
+            <Icon name={caretIcon} size="lg" />
             {`${title}(${entries.length})`}
           </button>
         </h4>
@@ -120,7 +120,7 @@ export function SwatchLegend({
             name={allCollapsed ? 'plus-circle' : 'minus-circle'}
             aria-label={collapseLabel}
             tooltip={collapseLabel}
-            size="sm"
+            size="lg"
             onClick={onToggleCollapseAll}
           />
         )}

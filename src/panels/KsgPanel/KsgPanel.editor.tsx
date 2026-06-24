@@ -63,5 +63,40 @@ export function buildKsgPanelOptions(
       description: 'Relationship types shown in the graph. Edges with a hidden endpoint are auto-hidden.',
       defaultValue: defaultOptions.visibleEdgeTypes,
       editor: EdgeTypesEditor,
+    })
+    .addTextInput({
+      path: 'detailEndpoint',
+      name: 'Detail URL endpoint',
+      description:
+        'Overrides the base the node-detail Application/Containers URL lookups append their ' +
+        '/config_changes and /code_changes segments to. Leave empty to derive it from the dashboard ' +
+        'query so the detail endpoints resolve as siblings of the graph query (the datasource ' +
+        'proxy path /api/datasources/proxy/uid/<uid> plus the graph query directory, e.g. a query ' +
+        'at .../api/v1/graph/service_graph yields .../api/v1/graph/config_changes). ' +
+        'If neither resolves, the URL buttons stay disabled and no lookup is issued.',
+      defaultValue: defaultOptions.detailEndpoint,
+    })
+    .addTextInput({
+      path: 'podListVariable',
+      name: 'Pod list variable',
+      description:
+        'Name of an existing dashboard variable to export the pod names of the graph into ' +
+        '(multi-value), e.g. for an Elasticsearch logs panel querying ${pod_list:lucene}. ' +
+        'A successfully loaded graph with zero pods writes the $__empty sentinel (consumers ' +
+        'match no pod) — query errors and payload-less refreshes leave the variable untouched. ' +
+        'The variable must already exist on the dashboard and must not feed back into ' +
+        "this panel's own query. Leave empty to disable.",
+      defaultValue: defaultOptions.podListVariable,
+    })
+    .addTextInput({
+      path: 'selectedPodVariable',
+      name: 'Selected pod variable',
+      description:
+        'Name of an existing dashboard variable to write the LEFT-clicked pod name into, but only ' +
+        'when that pod is non-normal (warning/critical) — so a sibling panel can query that one pod ' +
+        'via $selected_pod. Cleared ($__empty) on deselect, a normal pod, a non-pod, or a right-click. ' +
+        'Use a Textbox (or Custom + allow custom values) variable — a Query variable would drop the ' +
+        "written value — and do not reference it in this panel's own query. Leave empty to disable.",
+      defaultValue: defaultOptions.selectedPodVariable,
     });
 }

@@ -4,49 +4,29 @@ import type { PodParentMode } from '../../shared/constants/types';
 
 const SYNTHETIC_EDGE_PREFIX = 'ppm:pod-runs-on-node:';
 
-// Return an element with its own fresh `data` object. Load-bearing: cytoscape
-// ALIASES the `data` object we hand it (it does not deep-copy on `cy.add`), and
-// the expand-collapse extension re-routes a collapsed controller's edges by
-// mutating `data.source`/`data.target` in place. If we passed through the
-// normalized `baseElements` objects by reference, that mutation would corrupt
-// baseElements — so toggling back to node mode would see `controller→pvc` edges
-// (controller filtered out → the whole workload orphans). Cloning keeps the
-// normalized input pristine across mode switches.
+// Fresh `data` per element: cytoscape ALIASES the `data` we hand `cy.add` (no
+// deep-copy) and expand-collapse mutates `data.source`/`target` in place when a
+// controller collapses — passing baseElements by reference would corrupt them.
+// See pod-parent-mode spec ("每個 元素 MUST 為全新且彼此獨立的物件").
 function cloneElement(el: cytoscape.ElementDefinition): cytoscape.ElementDefinition {
   return { ...el, data: { ...el.data } };
 }
 
 /**
- * Re-shape the normalized graph for the given pod-parent mode.
- *
- * `node` mode is the infrastructure view (clean cluster > node > pod): pods nest
- * in their K8s node, `pod-runs-on-node` is nesting. The synthesized controllers
- * (`data.isController`) and their `controller-owns-pod` edges belong to the
- * controller view only, so they are dropped here (node mode is no longer a
- * referential passthrough — it returns a filtered copy).
- *
- * `controller` mode makes the graph controller-centric: every pod that is the
- * target of a `controller-owns-pod` edge is re-parented under the
- * lexicographically smallest owning controller; all `controller-owns-pod` edges
- * are dropped (that relationship is now nesting); and a `pod-runs-on-node` edge
- * is synthesised from the pod to its ORIGINAL K8s `node` parent — but only when
- * that original parent is a `node`-kind node present in elements (a pod parented
- * to a cluster, or to nothing, gets re-parented to the controller with no edge).
- * Service edges (`service-selects-pod` / `pod-calls-service`) are kept in both
- * modes.
- *
- * Pure and immutable: input is never mutated, and EVERY returned element is a
- * fresh object (data shallow-cloned via cloneElement) — not just the changed
- * ones — so cytoscape's in-place edge re-routing can never corrupt baseElements.
+ * Re-shape the normalized graph for the given pod-parent mode (pure, immutable —
+ * every returned element is a fresh object, see cloneElement). `node` = infra
+ * view (cluster > node > pod), drops synthesized controllers + `controller-owns-pod`.
+ * `controller` = re-parent each owned pod under its lexicographically smallest
+ * owner, synthesise `pod-runs-on-node` to the pod's ORIGINAL K8s `node` parent
+ * (only when that parent is a present `node`-kind node), drop `controller-owns-pod`.
+ * Full rules in pod-parent-mode spec.
  */
 export function applyPodParentMode(
   elements: cytoscape.ElementDefinition[],
   mode: PodParentMode
 ): cytoscape.ElementDefinition[] {
   if (mode === 'node') {
-    // Node mode is the infrastructure view (cluster > node > pod). The synthesized
-    // controllers + their controller-owns-pod edges belong to the controller view
-    // only, so drop them here — node mode stays a clean backend topology.
+    // Drop synthesized controllers + their owns edges (controller-view only).
     return elements
       .filter((el) => {
         const data = el.data as Record<string, unknown>;
@@ -123,8 +103,7 @@ export function applyPodParentMode(
     const data = el.data as Record<string, unknown>;
     const id = data.id;
     const chosen = typeof id === 'string' ? chosenControllerByPod.get(id) : undefined;
-    // Pass through with fresh data (same as cloneElement); a pod with a chosen
-    // owner additionally gets its parent re-pointed to that controller.
+    // Fresh data; a pod with a chosen owner gets its parent re-pointed to it.
     const nextData = chosen === undefined ? { ...data } : { ...data, parent: chosen };
     result.push({ ...el, data: nextData });
   }

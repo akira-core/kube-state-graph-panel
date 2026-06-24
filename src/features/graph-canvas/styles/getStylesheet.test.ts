@@ -1,7 +1,7 @@
 import { createTheme } from '@grafana/data';
 import cytoscape from 'cytoscape';
 
-import { COLOR_BY_EDGE_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
+import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { FALLBACK_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
@@ -79,10 +79,24 @@ describe('getStylesheet', () => {
     const edgeStyle = styleFor('edge');
     const colorFn = edgeStyle['line-color'] as EdgeFn;
     const lineFn = edgeStyle['line-style'] as EdgeFn;
-    for (const [edgeType, style] of Object.entries(COLOR_BY_EDGE_TYPE)) {
+    for (const [edgeType, style] of Object.entries(EDGE_STYLE_BY_TYPE)) {
       expect(colorFn(fakeEle({ edgeType }))).toBe(style.color);
       expect(lineFn(fakeEle({ edgeType }))).toBe(style.lineStyle);
     }
+  });
+
+  it('derives the taxi-routing selector from the edge-style map (fabric edges only)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const taxiRule = sheet.find((s) => (s.style as Record<string, unknown> | undefined)?.['curve-style'] === 'taxi');
+    expect(taxiRule).toBeDefined();
+    const expected = Object.entries(EDGE_STYLE_BY_TYPE)
+      .filter(([, style]) => style.routing === 'taxi')
+      .map(([type]) => `edge[edgeType='${type}']`)
+      .join(', ');
+    expect(taxiRule?.selector).toBe(expected);
   });
 
   it('falls back for unknown/undefined edge type', () => {
@@ -96,20 +110,25 @@ describe('getStylesheet', () => {
     expect(nodeStyle.height).toBe(40);
   });
 
-  it('declares collapsed-node and meta-edge selectors with collapsed-cluster events override after node[?isCluster]', () => {
+  it('keeps cluster boxes grabbable (no events:no) so the user can drag a cluster around', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const cluster = sheet.find((s) => s.selector === 'node[?isCluster]');
+    // events:'no' would make the backplate non-interactive and so non-draggable;
+    // it must be absent (cytoscape default 'yes') for cluster drag to work.
+    expect(cluster?.style?.events).toBeUndefined();
+  });
+
+  it('declares collapsed-node and meta-edge selectors', () => {
     const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
       selector: string;
       style?: StyleRecord;
     }>;
     const selectors = sheet.map((s) => s.selector);
     expect(selectors).toContain('node.cy-expand-collapse-collapsed-node');
-    expect(selectors).toContain('node[?isCluster].cy-expand-collapse-collapsed-node');
     expect(selectors).toContain('edge.cy-expand-collapse-meta-edge');
-    expect(selectors.indexOf('node[?isCluster].cy-expand-collapse-collapsed-node')).toBeGreaterThan(
-      selectors.indexOf('node[?isCluster]')
-    );
-    const collapsedCluster = sheet.find((s) => s.selector === 'node[?isCluster].cy-expand-collapse-collapsed-node');
-    expect(collapsedCluster?.style?.events).toBe('yes');
     const metaEdge = sheet.find((s) => s.selector === 'edge.cy-expand-collapse-meta-edge');
     // The meta-edge keeps its real edge-type colour (cascades from the base `edge`
     // rule), so this rule must NOT pin a colour — it only bumps the width as the
@@ -372,5 +391,62 @@ describe('getStylesheet', () => {
     // Declared after the base `edge` rule so its curve-style wins.
     const selectors = sheet.map((s) => s.selector);
     expect(selectors.indexOf(SWITCH_FABRIC_SELECTOR)).toBeGreaterThan(selectors.indexOf('edge'));
+  });
+
+  it('declares a namespace-box selector (data(namespaceColor)) after node[?isCluster] and before node:selected', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const nsIdx = selectors.indexOf('node[?isNamespace]');
+    expect(nsIdx).toBeGreaterThan(-1);
+    const ns = sheet[nsIdx]?.style ?? {};
+    expect(ns['background-color']).toBe('data(namespaceColor)');
+    expect(ns['border-color']).toBe('data(namespaceColor)');
+    expect(ns['background-image']).toBe('none');
+    // After the cluster selector (so its accent wins for namespace boxes), before the
+    // selection ring (which still wins).
+    expect(nsIdx).toBeGreaterThan(selectors.indexOf('node[?isCluster]'));
+    expect(nsIdx).toBeLessThan(selectors.indexOf('node:selected'));
+  });
+
+  it('keeps a namespace box namespaceColor in both states; a split storageclass sub-box inherits the cluster tint', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        {
+          group: 'nodes',
+          data: {
+            id: 'nsbox',
+            label: 'shop',
+            isNamespace: true,
+            namespace: 'shop',
+            namespaceColor: '#e8833a',
+            parent: 'cluster/prod',
+          },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'scsub', label: 'gp2', kind: 'storageclass', isStorageClass: true, parent: 'nsbox' },
+        },
+        { group: 'nodes', data: { id: 'pvc', label: 'data-0', kind: 'pvc', parent: 'scsub' } },
+      ],
+    });
+    const nsbox = cy.getElementById('nsbox');
+    // Expanded namespace box → border is its namespaceColor (direct node[?isNamespace] hit).
+    const nsBorderExpanded = nsbox.style('border-color') as string;
+    nsbox.addClass('cy-expand-collapse-collapsed-node');
+    // Collapsed → STILL the namespaceColor (the selector does not depend on :parent).
+    expect(nsbox.style('border-color')).toBe(nsBorderExpanded);
+    // The split storageclass sub-box (parent = namespace box) inherits the CLUSTER tint
+    // via the ancestor walk — same backplate colour as the cluster box (one family).
+    expect(cy.getElementById('scsub').style('background-color')).toBe(
+      cy.getElementById('cluster/prod').style('background-color')
+    );
+    cy.destroy();
   });
 });

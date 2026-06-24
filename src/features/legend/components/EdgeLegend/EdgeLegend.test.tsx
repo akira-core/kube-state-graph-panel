@@ -1,11 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import React from 'react';
 
-import {
-  COLOR_BY_EDGE_TYPE,
-  EDGE_ENDPOINTS_BY_TYPE,
-  EDGE_STYLE_BY_TYPE,
-} from '../../../../shared/constants/colorByEdgeType';
+import { EDGE_ENDPOINTS_BY_TYPE, EDGE_STYLE_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
 
 import { EdgeLegend } from './EdgeLegend';
@@ -34,12 +30,13 @@ describe('EdgeLegend', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
-    // controller-owns-pod is covered by its own dedicated test below.
-    for (const edgeType of Object.keys(COLOR_BY_EDGE_TYPE).filter(
-      (t) => !SVC_PAIR.includes(t) && t !== 'controller-owns-pod'
+    // controller-owns-pod and pod-calls-pod are covered by their own dedicated tests
+    // below (pod-calls-pod carries the merged `pod ↔ pod/service` label, not `pod → pod`).
+    for (const edgeType of drawnEdgeTypesForMode('node').filter(
+      (t) => !SVC_PAIR.includes(t) && t !== 'controller-owns-pod' && t !== 'pod-calls-pod'
     )) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
-      const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType as keyof typeof EDGE_ENDPOINTS_BY_TYPE];
+      const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType];
       // pod→pod renders 'pod' twice, so count occurrences rather than getByText.
       const expected = [label(from), label(to)];
       for (const text of new Set(expected)) {
@@ -59,10 +56,22 @@ describe('EdgeLegend', () => {
     expect(within(legend).queryByTestId('edge-legend-row-pod-svc')).toBeNull();
   });
 
+  it('labels the pod-calls-pod row `pod ↔ pod/service` with a bidirectional glyph (the folded svc edges)', () => {
+    // The single pod-calls-pod row stands in for the omitted pod↔service pair, so it
+    // reads `pod ↔ pod/service` (bidirectional) rather than a one-way `pod → pod`.
+    render(<EdgeLegend />);
+    const legend = screen.getByTestId('edge-legend');
+    const row = within(legend).getByTestId('edge-legend-row-pod-calls-pod');
+    expect(within(row).getByText('pod')).toBeInTheDocument();
+    expect(within(row).getByText('pod/service')).toBeInTheDocument();
+    // bidirectional → an arrowhead at BOTH ends.
+    expect(within(row).getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(2);
+  });
+
   it('colours service edges the same as pod-calls-pod on canvas (single shared style)', () => {
     // Canvas colour parity (the legend omits svc, but the style map must unify them).
-    expect(COLOR_BY_EDGE_TYPE['service-selects-pod'].color).toBe(COLOR_BY_EDGE_TYPE['pod-calls-pod'].color);
-    expect(COLOR_BY_EDGE_TYPE['pod-calls-service'].color).toBe(COLOR_BY_EDGE_TYPE['pod-calls-pod'].color);
+    expect(EDGE_STYLE_BY_TYPE['service-selects-pod'].color).toBe(EDGE_STYLE_BY_TYPE['pod-calls-pod'].color);
+    expect(EDGE_STYLE_BY_TYPE['pod-calls-service'].color).toBe(EDGE_STYLE_BY_TYPE['pod-calls-pod'].color);
   });
 
   it('places a same-colour arrow glyph between the endpoints of every non-omitted drawn edge type', () => {

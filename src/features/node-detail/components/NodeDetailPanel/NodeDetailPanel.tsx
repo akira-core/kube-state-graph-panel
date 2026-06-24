@@ -1,46 +1,46 @@
-import { css } from '@emotion/css';
+import { css, cx } from '@emotion/css';
 import type { GrafanaTheme2 } from '@grafana/data';
 import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
 import { themeColors } from '../../../../shared/theme/themeColors';
+import { DETAIL_URL_KINDS } from '../../detailUrlKinds';
+import { IDLE_NODE_DETAIL_LOOKUPS } from '../../hooks/useNodeDetailUrls';
 import { AlertTable } from '../AlertTable';
+import { ApplicationTable } from '../ApplicationTable';
+import { ContainerTable } from '../ContainerTable';
+import { DashboardButton } from '../DashboardButton';
 
 import type { NodeDetailPanelProps } from './NodeDetailPanel.types';
 
 function getStyles(theme: GrafanaTheme2): {
   root: string;
   header: string;
-  scroll: string;
+  body: string;
   title: string;
   badges: string;
   badge: string;
   statusBadge: string;
   section: string;
+  sectionFixed: string;
+  sectionFill: string;
   sectionTitle: string;
-  sectionBody: string;
+  slot: string;
+  staticBody: string;
 } {
   const colors = themeColors(theme);
   return {
-    // Floating overlay docked to the bottom of the canvas (mirrors HoverTooltip's
-    // absolute placement, but interactive: pointer-events on). The z-index MUST
-    // exceed cytoscape's transparent input-catching canvas, which it paints at
-    // z-index 999 in the SAME stacking context as this panel (the intervening
-    // graph-canvas wrappers create no stacking context of their own). At a lower
-    // z-index the 999 canvas sits on top of the (visible-but-transparent-behind)
-    // panel and swallows every click as a background tap → the panel deselects
-    // and closes the instant you touch it, so alert links can never be reached.
-    //
-    // The panel is a flex column capped at maxHeight: the header is flex-none and
-    // pinned, only the inner `scroll` body overflows. So a long alert list scrolls
-    // WITHOUT carrying the title + close button out of view.
+    // Interactive bottom-docked overlay. z-index MUST exceed cytoscape's transparent
+    // input-catching canvas (painted at 999 in this SAME stacking context — the
+    // graph-canvas wrappers create none) or the canvas swallows every click as a
+    // background tap and the panel deselects/closes before any link is reachable.
     root: css({
       position: 'absolute',
       left: 8,
       right: 8,
       bottom: 8,
-      maxHeight: 220,
+      maxHeight: 'min(50%, 380px)',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
@@ -53,10 +53,34 @@ function getStyles(theme: GrafanaTheme2): {
       pointerEvents: 'auto',
       zIndex: 1000,
     }),
-    header: css({ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }),
-    // The only scrolling region: takes the remaining height under the pinned header
-    // (flex:1 + minHeight:0 lets it shrink below content size so overflow kicks in).
-    scroll: css({ flex: 1, minHeight: 0, overflowY: 'auto' }),
+    // Title row divider matches the between-sections bar so all boundaries read alike.
+    header: css({
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      paddingBottom: 10,
+      marginBottom: 10,
+      borderBottom: `2px solid ${colors.border.strong}`,
+      flexShrink: 0,
+    }),
+    // Non-scrolling flex column under the pinned header (flex:1 + minHeight:0 so its
+    // filling child takes over the scroll). The section divider lives HERE as a
+    // parent-scoped `& > div + div` rule, NOT on the section class as `& + &`:
+    // `cx(styles.section, …)` merges the emotion classes, so the `section` class the
+    // `&` selector targets is gone after composition and the rule never matches.
+    // `body` is applied alone (no cx), so `&` resolves.
+    body: css({
+      flex: '1 1 auto',
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      '& > div + div': {
+        marginTop: 12,
+        paddingTop: 10,
+        borderTop: `2px solid ${colors.border.strong}`,
+      },
+    }),
     title: css({
       fontWeight: 600,
       flex: 1,
@@ -85,31 +109,36 @@ function getStyles(theme: GrafanaTheme2): {
       textTransform: 'uppercase',
       letterSpacing: 0.4,
     }),
-    // Adjacent sections get a hairline divider above (matches the legend/tooltip).
-    section: css({
-      '& + &': {
-        marginTop: 6,
-        paddingTop: 6,
-        borderTop: `1px solid ${colors.border.weak}`,
-      },
-    }),
-    // Section titles stick to the top of the scroll body, so the "Alerts" label
-    // stays visible while its rows scroll under it (the opaque background hides the
-    // rows passing behind). With multiple sections each title pins in turn.
+    section: css({ display: 'flex', flexDirection: 'column' }),
+    // Application: pinned at content height (always a single row — at most one ArgoCD app).
+    sectionFixed: css({ flex: '0 0 auto' }),
+    // Containers / Alerts: fill remaining height and scroll inside their table area.
+    // flex-basis auto (NOT 0) is deliberate — basis 0 collapses to nothing under the
+    // panel's indefinite maxHeight and the table vanishes; auto sizes to content then
+    // shrinks-and-scrolls only once the panel hits its cap.
+    sectionFill: css({ flex: '1 1 auto', minHeight: 0 }),
     sectionTitle: css({
-      position: 'sticky',
-      top: 0,
-      zIndex: 1,
-      background: colors.background.secondary,
-      fontSize: 10,
+      flexShrink: 0,
+      fontSize: 13,
       fontWeight: 600,
       letterSpacing: 0.6,
-      textTransform: 'uppercase',
       color: colors.text.secondary,
-      paddingBottom: 2,
+      paddingBottom: 6,
     }),
-    // Empty for now — content is filled in later.
-    sectionBody: css({ minHeight: 24 }),
+    // Scrolling table area (Containers / Alerts) — only the tbody rows scroll. Sticky
+    // thead pins the column header here. InteractiveTable wraps its <table> in a div
+    // with `overflowX: auto` that would trap the sticky header; we reset that inner
+    // overflow to visible so the header resolves to this area. ContainerTable nests one
+    // level deeper than AlertTable, hence both `& > div` and `& > div > div`.
+    slot: css({
+      flex: '1 1 auto',
+      minHeight: 24,
+      overflowY: 'auto',
+      fontSize: theme.typography.bodySmall.fontSize,
+      '& > div, & > div > div': { overflowX: 'visible' },
+      '& thead th': { position: 'sticky', top: 0, zIndex: 1, background: colors.background.secondary },
+    }),
+    staticBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
   };
 }
 
@@ -118,15 +147,28 @@ export function NodeDetailPanel({
   onClose,
   onAlertTimeClick,
   timeZone,
+  lookups,
+  dashboard,
+  view = 'alerts',
 }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   if (node === null) {
     return null;
   }
+  // Disjoint views: 'alerts' (left-click) shows Alerts only; 'detail' (right-click)
+  // shows Application/Containers, each gated on kind ∈ DETAIL_URL_KINDS AND the field
+  // being present. lookups defaults to idle/disabled (every Change Report target shows
+  // the muted "Not found" hint, no prefetch).
+  const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
+  const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
+  const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
+  const showContainers =
+    view === 'detail' && isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
         <span className={styles.title}>{node.label}</span>
+        {dashboard !== undefined && <DashboardButton state={dashboard} />}
         <span className={styles.badges}>
           {node.kind !== undefined && (
             <span className={styles.badge} data-testid="node-detail-kind">
@@ -145,17 +187,43 @@ export function NodeDetailPanel({
         </span>
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
-      <div className={styles.scroll} data-testid="node-detail-scroll">
-        <div className={styles.section} data-testid="node-detail-section-alerts">
-          <div className={styles.sectionTitle}>Alerts</div>
-          <div className={styles.sectionBody}>
-            <AlertTable
-              alerts={node.alerts ?? []}
-              onAlertTimeClick={onAlertTimeClick}
-              {...(timeZone !== undefined ? { timeZone } : {})}
-            />
+      <div className={styles.body} data-testid="node-detail-scroll">
+        {showApplication && node.application !== undefined && (
+          <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
+            <div className={styles.sectionTitle}>Application</div>
+            <div className={styles.staticBody}>
+              <ApplicationTable
+                application={node.application}
+                state={lookupsState.application}
+                {...(timeZone !== undefined ? { timeZone } : {})}
+              />
+            </div>
           </div>
-        </div>
+        )}
+        {showContainers && node.containers !== undefined && (
+          <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-containers">
+            <div className={styles.sectionTitle}>Containers</div>
+            <div className={styles.slot}>
+              <ContainerTable
+                containers={node.containers}
+                lookups={lookupsState.containers}
+                {...(timeZone !== undefined ? { timeZone } : {})}
+              />
+            </div>
+          </div>
+        )}
+        {view === 'alerts' && (
+          <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-alerts">
+            <div className={styles.sectionTitle}>Alerts</div>
+            <div className={styles.slot}>
+              <AlertTable
+                alerts={node.alerts ?? []}
+                onAlertTimeClick={onAlertTimeClick}
+                {...(timeZone !== undefined ? { timeZone } : {})}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

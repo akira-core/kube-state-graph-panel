@@ -1,14 +1,32 @@
 import 'cytoscape';
 
-import type { NodeKind, EdgeType, NodeStatus, NodeAlert } from '../constants/types';
+import type { GraphEdgeType, GraphNodeKind, NodeStatus, NodeAlert } from '../constants/types';
+
+import type { ContainerSpec } from './containerSpec';
 
 declare module 'cytoscape' {
   interface NodeDataDefinition {
-    kind?: NodeKind; // mapped from upstream data.type
+    kind?: GraphNodeKind; // mapped from upstream data.type (may be an unknown backend kind)
     status?: NodeStatus; // mapped from upstream data.status; normalize defaults to 'normal'
     namespace?: string; // extracted from upstream data.labels.namespace
     ipAddress?: string[]; // mapped from upstream data.ipaddress (moved out of labels in 524057b)
-    alerts?: NodeAlert[]; // mapped from upstream data.alerts (omitted when absent/empty)
+    // ArgoCD application name carried on pod nodes by the backend; a synthesized
+    // controller takes it from its first valued owned pod in stable podId order
+    // (normalize.ts). Drives the detail panel's Application section and both
+    // detail-URL queries. Omitted when absent/empty.
+    application?: string;
+    // Container name/image specs carried on pod nodes (upstream `containers`); a
+    // synthesized controller carries the (name, image)-deduped union across its
+    // owned pods. Omitted when absent or nothing valid survives validation.
+    containers?: ContainerSpec[];
+    // A pod's controller owner (typed upstream `data.owner` passthrough). The
+    // detail-URL queries resolve a pod's controller kind/name from it; a pod
+    // without one queries as itself (standalone pod).
+    owner?: { kind: string; name: string };
+    // Mapped from upstream data.alerts (omitted when absent/empty). A synthesized
+    // controller aggregates its child pods' alerts here (normalize.ts) so its detail
+    // panel lists them — colour still comes from status/worstStatus, never alerts.
+    alerts?: NodeAlert[];
     labels?: Record<string, string>;
     // Compound (cluster) container nodes — see normalize.ts. The grouping
     // structure (the native `parent` field) comes from the backend untouched;
@@ -36,10 +54,17 @@ declare module 'cytoscape' {
     // It nests under its cluster, tints from that cluster's accent, and stays
     // interactive / collapsible.
     isStorageClass?: boolean;
+    // Panel-synthesized namespace compound — CONTROLLER MODE ONLY (applyNamespaceGrouping).
+    // Groups namespaced resources under their cluster: cluster > namespace >
+    // {controller > pod, service, storageclass > pvc}. Decorative (selectable:false),
+    // carries NO status / alerts / worstStatus; coloured by a stable hash of the
+    // namespace name. node mode draws no namespace, so neither flag appears there.
+    isNamespace?: boolean; // true only on a synthesized namespace box
+    namespaceColor?: string; // accent assigned in applyNamespaceGrouping so the stylesheet stays pure
   }
 
   interface EdgeDataDefinition {
-    edgeType?: EdgeType; // mapped from upstream data.type
+    edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)
     labels?: Record<string, string>;
   }
 
@@ -73,6 +98,8 @@ declare module 'cytoscape' {
   }
 
   interface Core {
-    expandCollapse(options: Partial<ExpandCollapseOptions>): ExpandCollapseApi;
+    // 'get' returns the already-initialised api WITHOUT re-running the extension's
+    // full init (which would stack an extra cue canvas + duplicate listeners).
+    expandCollapse(options: Partial<ExpandCollapseOptions> | 'get'): ExpandCollapseApi;
   }
 }

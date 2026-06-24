@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Datasource 整合策略
 
 系統 SHALL 透過 Grafana Infinity datasource(`yesoreyeram-infinity-datasource`)消費 `kube-state-graph` 後端 API,Panel 不直接呼叫外部 HTTP URL,所有 API 流量走 Grafana datasource proxy。
@@ -96,17 +94,22 @@ normalize MUST 同時容忍下列頂層形狀(因 Infinity datasource table flat
 
 ### Requirement: 載入與錯誤狀態傳遞
 
-`useGraphData` hook SHALL 對外公開 `{ elements, error }` 兩個欄位;載入狀態由 `PanelProps.data.state` 直接判斷(無需 hook 重複封裝),錯誤狀態由 `PanelProps.data.errors[0]` 或 normalize 失敗訊息提供。
+`useGraphData` hook SHALL 對外公開 `{ elements, error, hasPayload }` 三個欄位;載入狀態由 `PanelProps.data.state` 直接判斷(無需 hook 重複封裝),錯誤狀態由 `PanelProps.data.errors[0]` 或 normalize 失敗訊息提供。`hasPayload` MUST 區分「frames 中完全沒有可辨識的 graph payload」(空 series、隱藏/未執行的查詢、所有字串候選皆無法解析 → `false`)與「payload 成功載入但正規化出零元素」(真正的空 graph → `true`):帶副作用的下游消費者(如 pod-list 變數匯出)據此避免把「沒拿到資料」當成「graph 是空的」。
 
 #### Scenario: Hook 取資料並 normalize
 
 - **WHEN** Panel mount 並收到 `PanelProps.data.series` 含 JSON 欄位(Infinity datasource 預設形式)
-- **THEN** `useGraphData` 的 `extractJsonFromFrames` 掃描所有 frame/field,挑出**看起來像 graph payload 的值**(物件含 `elements` 或同時含 `nodes`/`edges`,或可 `JSON.parse` 為此形狀的字串),套 `normalizeGraph`,回傳 `{ elements: [...], error: undefined }`;掃描 MUST 略過 `apiVersion`(字串)與 `clusters`(陣列)等非 graph 欄位,避免誤取
+- **THEN** `useGraphData` 的 `extractJsonFromFrames` 掃描所有 frame/field,挑出**看起來像 graph payload 的值**(物件含 `elements` 或同時含 `nodes`/`edges`,或可 `JSON.parse` 為此形狀的字串),套 `normalizeGraph`,回傳 `{ elements: [...], error: undefined, hasPayload: true }`;掃描 MUST 略過 `apiVersion`(字串)與 `clusters`(陣列)等非 graph 欄位,避免誤取
 
 #### Scenario: Hook 在 normalize 失敗時公開 error
 
 - **WHEN** `normalizeGraph` 回傳含 errors 的結果(payload 形狀錯誤)
-- **THEN** `useGraphData` 回傳 `{ elements: [], error: '<first error message>' }`
+- **THEN** `useGraphData` 回傳 `{ elements: [], error: '<first error message>', hasPayload: true }`
+
+#### Scenario: 無 payload 與空 graph 可區分
+
+- **WHEN** `data.series` 為空陣列(隱藏/未執行的查詢),或所有候選字串皆無法解析
+- **THEN** `useGraphData` 回傳 `hasPayload: false`;而收到 `{ nodes: [], edges: [] }` 的合法空 payload 時回傳 `hasPayload: true`
 
 ### Requirement: Datasource Provisioning
 
@@ -143,7 +146,7 @@ v1 範圍內每個 panel 例項 MUST 綁定單一 datasource 實例;Panel 不負
 - 對每個這樣的 pod,系統 MUST 合成一條 `edgeType: 'controller-owns-pod'` 的邊,`source` = 該 controller 節點 id、`target` = pod id,邊 id 對 `(controllerId, podId)` 確定性。
 - 合成 MUST 為 immutable(產生新元素,不就地修改輸入),且對相同輸入位元組級確定(節點/邊排序穩定)。
 - 無 owner 的 pod MUST NOT 觸發任何 controller 節點或邊。
-- 系統 MUST 於每個合成的 controller 節點上彙整其**子 pod 的最差 status** 為 `data.worstStatus`(值域 `normal` / `warning` / `critical`;排序 critical > warning > normal;status 取自 pod 的 `data.status`,缺值 / 不合法預設 `normal`;當該最差為 `normal` 時 MUST 省略此欄)。**同一彙整亦施於每個 k8s `node` 容器**:其 `data.worstStatus` 取 **自身 status 與其各子 pod status 之最差**(worst-wins——絕不因子節點而降級到比自身 status 更輕);最差為 `normal` 時省略。此欄供 getStylesheet 對**收合的**容器(controller / k8s node)邊框上色(見 panel-rendering 規格);它**不**影響 owns 邊或去重。採 **status**(非 alert severity):後端為每個節點都給 status(uniform `normal/warning/critical`,預設 normal),故一個 pod 即使**不帶 alert**、只要 status 非 normal 仍會傳播(alert 另有 `info` 階且僅供 detail panel 的 alert 表)。
+- 系統 MUST 於每個合成的 controller 節點上彙整其**子 pod 的最差 status** 為 `data.worstStatus`(值域 `normal` / `warning` / `critical`;排序 critical > warning > normal;status 取自 pod 的 `data.status`,缺值 / 不合法預設 `normal`)。controller 必有至少一個子 pod,此欄 MUST **一律寫入**——最差為 `normal` 時寫入 `normal`(不省略),使旗下全健康的 controller 收合時畫明確的綠框。**同一彙整亦施於每個 k8s `node` 容器**:其 `data.worstStatus` 取 **自身 status 與其各子 pod status 之最差**(worst-wins——絕不因子節點而降級到比自身 status 更輕),於**有 status 資訊**時寫入(自身帶合法 `status`,或至少有一個子 pod);自身無 status 且無任何子 pod 時 MUST 省略此欄(「無資訊」不得偽裝成 normal)。此欄供 getStylesheet 對**收合的**容器(controller / k8s node)邊框上色(見 panel-rendering 規格);它**不**影響 owns 邊或去重。採 **status**(非 alert severity):後端為每個節點都給 status(uniform `normal/warning/critical`,預設 normal),故一個 pod 即使**不帶 alert**、只要 status 非 normal 仍會傳播(alert 另有 `info` 階且僅供 detail panel 的 alert 表)。
 
 合成後,`controller-owns-pod` 為 **synthesis-internal**、**永不繪製**:在 `node` 模式下 `applyPodParentMode` **drop** 掉所有合成的 controller 節點(`data.isController === true`)與其 `controller-owns-pod` 邊,呈現乾淨的 cluster > node > pod 基礎設施視圖(**不顯示 controller**);在 `controller` 模式下 `applyPodParentMode` 以這些 owns 邊把 pod re-parent 進 controller(owns 邊轉為 nesting,亦不繪製)(見 pod-parent-mode 規格)。
 
@@ -179,11 +182,15 @@ v1 範圍內每個 panel 例項 MUST 綁定單一 datasource 實例;Panel 不負
 - **WHEN** 某 controller 旗下唯一 pod `status: warning` 但**不帶任何 alert**
 - **THEN** `worstStatus` 為 `warning`(來源為 status,非 alert)
 - **WHEN** 某 controller 旗下所有 pod 皆 `normal`(或缺 / 不合法 status,預設 normal)
-- **THEN** 合成的 controller 節點 MUST 省略 `worstStatus` 欄
+- **THEN** 合成的 controller 節點 `data.worstStatus` 為 `normal`(一律寫入,收合時畫綠框)
 - **WHEN** 某 k8s `node`(自身 `status: normal`)旗下有一 pod `status: critical`
 - **THEN** 該 node `data.worstStatus` 為 `critical`(子節點 status 傳播)
 - **WHEN** 某 k8s `node`(自身 `status: critical`)旗下 pod 皆 `normal`
 - **THEN** 該 node `data.worstStatus` 為 `critical`(worst-wins,不被子節點降級)
+- **WHEN** 某 k8s `node` 自身 `status: normal` 且旗下 pod 皆 `normal`(或缺 status)
+- **THEN** 該 node `data.worstStatus` 為 `normal`(有 status 資訊即寫入)
+- **WHEN** 某 k8s `node` 自身無 `status` 且無任何子 pod
+- **THEN** 該 node MUST 省略 `worstStatus`(無 status 資訊)
 
 #### Scenario: 合成為純函式且確定性
 
@@ -199,3 +206,160 @@ v1 範圍內每個 panel 例項 MUST 綁定單一 datasource 實例;Panel 不負
 - **WHEN** 上游節點 `data.type === 'storageclass'`(帶 `parent` 指向其 cluster 容器),且其下 PVC 的 `parent` 指向該群組
 - **THEN** normalize 賦予 `kind: 'storageclass'` 與 `isStorageClass: true`,**無** `status`、**無** `alerts`(即使上游帶 `alerts` 亦丟棄),並原樣保留其 `parent` 與 `label`(= `name`)
 - **AND** 其下 PVC 的 `data.parent` 原樣指向該 storageclass 群組,且 PVC 仍攜帶自身的 `kind` 與 `status`(`cluster > storageclass > pvc`)
+
+### Requirement: 告警 (alerts) 正規化與 time_records 解析
+
+`normalizeGraph` SHALL 在 anti-corruption boundary(`parseAlerts`)將上游 leaf node 的選用欄位 `alerts`(陣列)正規化為 panel 內部 `NodeAlert[]`,並以 `timeRecords: number[]` 承載同一 alert 的**所有發生時間**(取代既有的單一 `time` scalar)。規則:
+
+- 每筆 alert MUST 至少帶非空 `name` 與非空 `severity`(自由字串),否則丟棄。
+- 發生時間自上游 wire 欄位 `time_records`(數字陣列)取得:MUST 僅保留有限(`Number.isFinite`)且 ≥ 0 的值,並**升序排序**後存為 `timeRecords`。
+- **相容舊後端**:缺 `time_records`(或其元素全部無效)時,MUST 退讀 legacy scalar 欄位 `time`(Unix 秒,須有限且 ≥ 0)→ `timeRecords: [time]`。
+- 經上述過濾後 `timeRecords` 仍為空的 alert MUST 丟棄(沿用 partial-parse 契約,不拋例外)。
+- `pod` / `service` / `id` 為選用字串,缺值則省略。
+- 分組容器(`cluster` / `isStorageClass`)MUST NOT 攜帶 `alerts`(即使上游帶亦丟棄)。
+
+下游(`AlertTable`)由 `timeRecords` 衍生:Count = `timeRecords.length`、Last occurred = `max(timeRecords)`(因升序故為末元素),不另存欄位。
+
+#### Scenario: time_records 解析為升序 timeRecords
+
+- **WHEN** 上游 node `alerts` 含 `{ name: 'HighMem', severity: 'critical', time_records: [1717500300, 1717500000] }`
+- **THEN** 產出 `NodeAlert.timeRecords` 為 `[1717500000, 1717500300]`(升序);其 Count 衍生為 `2`、last occurred 衍生為 `1717500300`
+
+#### Scenario: 相容 legacy scalar time
+
+- **WHEN** 上游 alert 僅帶 `time: 1717500000`(無 `time_records`)
+- **THEN** 產出 `timeRecords: [1717500000]`(等價單次發生),不報錯
+
+#### Scenario: 過濾非有限 / 負值發生時間
+
+- **WHEN** 上游 alert `time_records: [1717500000, -5, NaN, 1717500300]`
+- **THEN** 產出 `timeRecords: [1717500000, 1717500300]`(濾掉 `-5` 與 `NaN`,升序)
+
+#### Scenario: 丟棄無有效發生時間的 alert
+
+- **WHEN** 上游 alert 的 `time_records` 為 `[]` 或元素全部非有限 / 負值,且無有效 scalar `time`
+- **THEN** 該 alert 被丟棄,不出現於 `data.alerts`;同節點其餘合法 alert 不受影響
+
+#### Scenario: 缺 name / severity 的 alert 丟棄
+
+- **WHEN** 上游 alert 缺 `name` 或 `severity` 為空字串
+- **THEN** 該 alert 被丟棄(即使 `time_records` 有效),其餘合法 alert 正常解析
+
+#### Scenario: 分組容器不帶 alerts
+
+- **WHEN** 上游 `cluster` 或 `storageclass` 節點帶 `alerts`
+- **THEN** 正規化結果該節點 MUST NOT 有 `data.alerts`
+
+### Requirement: pod `application` / `containers` 透傳與 controller 聚合
+
+`normalizeGraph` SHALL 於 anti-corruption boundary 承載 backend 在 pod 節點輸出的兩個新欄位——**`application?: string`**(ArgoCD application name)與 **`containers?: Array<{ name: string; image: string }>`**(container 與其 image)——並為 panel 端**合成**的 controller 節點自子 pod 聚合兩者。兩欄位經 `src/shared/types/cytoscape.d.ts` declaration merging 宣告於 `NodeDataDefinition`,供 node-detail 面板顯示與 URL 查詢使用。URL 查詢本身**非** normalize 職責——它是 UI 端的非同步動作,經 Grafana runtime 發出(見 panel-rendering「Node Detail Application 與 Containers 區塊」)。規則:
+
+- **pod `application`**:backend 值為非空字串時原樣透傳;缺失或空字串時 MUST 省略該欄(`exactOptionalPropertyTypes`:不寫 `undefined` 值)。
+- **pod `containers`**:逐項驗證——`name` 與 `image` 皆為非空字串的項目保留,形狀不符的項目 MUST 丟棄(anti-corruption);驗證後為空陣列或欄位缺失時 MUST 省略該欄。
+- **controller `application`**(合成節點,`data.isController === true`,backend 不送):MUST 自其**子 pod** 的 `application` 聚合——取任一帶值的子 pod(以穩定排序確定性選取);無任何子 pod 帶值時 MUST 省略該欄。
+- **controller `containers`**:MUST 自其**所有子 pod** 的 `containers` 聯集聚合,以 **(name, image)** 去重、穩定排序;無任何子 pod 帶 containers 時 MUST 省略該欄。
+- 解析 / 聚合 MUST 為純函式、確定性、immutable(產生新元素,不就地修改輸入),與既有 controller 合成一致。
+- 兩欄位 MUST NOT 影響既有 `worstStatus` 彙整、controller 去重(`(cluster, namespace, ownerKind, ownerName)`)或 `controller-owns-pod` 邊。
+- 舊版 backend(不送這兩欄位)MUST 完全不受影響——產出與現行相同,無錯誤、無多餘欄位。
+
+#### Scenario: pod application 原樣透傳
+
+- **WHEN** backend 某 pod 節點 `data.application` 為 `"checkout"`
+- **THEN** 正規化後該 pod element 之 `data.application` 為 `"checkout"`
+
+#### Scenario: pod containers 原樣透傳
+
+- **WHEN** backend 某 pod 節點 `data.containers` 為 `[{ name: "app", image: "repo/app:1.2" }]`
+- **THEN** 正規化後該 pod element 之 `data.containers` 等值保留
+
+#### Scenario: 欄位缺失或空值時省略
+
+- **WHEN** backend 某 pod 節點無 `application`(或為空字串)且無 `containers`(或驗證後為空)
+- **THEN** 該 pod element MUST NOT 帶 `data.application` 與 `data.containers`
+
+#### Scenario: 形狀不符的 container 項目被丟棄
+
+- **WHEN** backend 某 pod 的 `containers` 為 `[{ name: "app", image: "repo/app:1.2" }, { name: "", image: "x" }, { name: "noimg" }]`
+- **THEN** 正規化後僅保留 `{ name: "app", image: "repo/app:1.2" }`
+
+#### Scenario: controller 自子 pod 聚合 application
+
+- **WHEN** 某 controller 旗下有子 pod 帶 `data.application: "mongo"`
+- **THEN** 合成的 controller 節點 `data.application` 為 `"mongo"`(controller 本身 backend 不送此欄)
+
+#### Scenario: controller 聚合 containers 並以 (name, image) 去重
+
+- **WHEN** 某 controller 旗下三個子 pod 皆帶 `containers: [{ name: "app", image: "repo/app:1.2" }]`,其中一個另帶 `{ name: "sidecar", image: "repo/sc:0.9" }`
+- **THEN** 合成的 controller 節點 `data.containers` 為兩項:`app`/`repo/app:1.2` 與 `sidecar`/`repo/sc:0.9`(去重後、穩定排序)
+
+#### Scenario: controller 無子 pod 帶值時省略
+
+- **WHEN** 某 controller 旗下無任一子 pod 帶 `application` 或 `containers`
+- **THEN** 合成的 controller 節點 MUST NOT 帶 `data.application` 與 `data.containers`
+
+#### Scenario: 聚合為純函式且確定性
+
+- **WHEN** 以相同 input 多次呼叫 `normalizeGraph`,且某 controller 有多個子 pod 帶不同 `application` 值
+- **THEN** 每次選取的 `data.application` 一致(穩定排序確定性選取),且輸入未被就地修改
+
+#### Scenario: 舊版 backend 不受影響
+
+- **WHEN** backend 回應的 pod 節點皆不含 `application` / `containers` 欄位
+- **THEN** `normalizeGraph` 產出與現行行為完全相同,`errors` 不含相關錯誤
+
+### Requirement: controller 告警(alerts)自子 pod 聚合
+
+`normalizeGraph` SHALL 於合成 controller 節點時,自其**子 pod** 的 `data.alerts` 聚合出該 controller 的 `data.alerts`(`NodeAlert[]`),使 node-detail 面板的告警表格對 controller 顯示旗下所有 pod 的告警。聚合僅及於 panel 合成的 controller 節點(`isController === true`);k8s `node` 容器與其他 backend 實體節點不在此列。規則:
+
+- **順序**:以子 pod 的穩定排序(podId 升冪)串接各 pod 的 alerts,pod 內保持解析後順序——對相同輸入確定性。
+- **pod 歸屬**:聚合項目缺 `pod` 欄時 MUST 以來源 pod 的 label 回填;已帶 `pod` 的項目 MUST 保留原值。回填 MUST 作用於新物件——來源 pod 元素自身的 `alerts` MUST NOT 被修改。
+- **去重**:帶 `id` 的項目 MUST 跨 pod 以 `id` 去重(穩定順序下首見者勝);無 `id` 的項目一律保留。
+- **省略**:無任一子 pod 帶 alerts 時,controller MUST NOT 帶 `alerts` 欄(不寫 `undefined` 值)。
+- **顏色與既有合成不受影響**:此聚合 MUST NOT 改變 `worstStatus` 彙整(**status 仍為唯一節點上色來源**;alerts 不參與 stylesheet)、controller 去重 key 或 `controller-owns-pod` 邊。
+
+#### Scenario: controller 聚合子 pod 告警
+
+- **WHEN** 某 controller 旗下兩個 pod 各帶一筆 alert(`HighMem` / `CrashLoop`)
+- **THEN** 合成的 controller 節點 `data.alerts` 含兩筆(podId 升冪串接),node-detail 告警表格對該 controller 顯示兩列
+
+#### Scenario: 缺 pod 欄的告警以來源 pod 回填
+
+- **WHEN** 子 pod(label `mongo-0`)的 alert 不帶 `pod` 欄
+- **THEN** controller 上的聚合副本 `pod` 為 `"mongo-0"`;該 pod 自身元素的 alert 仍不帶 `pod` 欄(輸入與 pod 元素未被修改)
+
+#### Scenario: 帶 id 的告警跨 pod 去重
+
+- **WHEN** 兩個子 pod 各帶 `id: "alert-1"` 的同一筆 alert
+- **THEN** controller 的 `data.alerts` 僅含一筆 `id: "alert-1"`(穩定順序首見者)
+
+#### Scenario: 無子 pod 帶告警時省略
+
+- **WHEN** 某 controller 旗下無任一子 pod 帶 `alerts`
+- **THEN** 合成的 controller 節點 MUST NOT 帶 `data.alerts`(告警表格顯示「No alerts」)
+
+#### Scenario: 告警聚合不影響 status 上色
+
+- **WHEN** 某 controller 旗下唯一 pod `status: normal` 但帶一筆 `severity: 'critical'` 的 alert
+- **THEN** controller 的 `data.alerts` 含該筆 alert,但 `worstStatus` 仍為 `normal`(alert 不升級 status——顏色仍由 status 決定);`controller-owns-pod` 邊與去重不變
+
+### Requirement: 合成 controller 節點攜帶 namespace
+
+`normalizeGraph` 於 `synthesizeControllers` 合成 controller 節點時,SHALL 在該節點 `data` 寫入 `namespace`。值取自其 owned pod 的 namespace:controller 以 `(cluster, namespace, ownerKind, ownerName)` 去重,故同一 controller 的所有 owned pod 共用同一 namespace;來源為 pod 的 `labels.namespace`,經 `PendingOwned.namespace` 帶上。namespace 為空字串(owned pod 無 namespace)時 MUST 省略該欄(`exactOptionalPropertyTypes`:不寫 `undefined`),比照 leaf 節點 `...(isString(namespace) ? { namespace } : {})` 慣例。
+
+此欄為 **mode-agnostic 的 leaf 事實**(controller 節點本即由 `normalizeGraph` 合成),寫於 normalize 不破壞其 mode-agnostic 性;它供下游 `applyNamespaceGrouping`(`controller` 模式)把 controller 收進其 namespace 盒(見 namespace-grouping 規格)。此欄 MUST NOT 影響既有 controller 去重 key、`worstStatus` 彙整、`controller-owns-pod` 邊,或 application / containers / alerts 聚合。
+
+#### Scenario: 合成 controller 攜帶其 namespace
+
+- **WHEN** 某 controller 旗下 pod 帶 `data.namespace: 'shop'`(owner 為 `{ kind: "Deployment", name: "checkout" }`)
+- **THEN** 合成的 controller 節點 `data.namespace` 為 `'shop'`
+
+#### Scenario: owned pod 無 namespace 時合成 controller 省略 namespace
+
+- **WHEN** 某 controller 旗下 pod 皆無 `labels.namespace`
+- **THEN** 合成的 controller 節點 MUST NOT 帶 `data.namespace`(不寫 `undefined`)
+
+#### Scenario: 不同 namespace 同名 owner 各自帶其 namespace(既有去重不變)
+
+- **WHEN** namespace `a` 與 namespace `b` 各有一個 owner 為 `{ kind: "Deployment", name: "api" }` 的 pod
+- **THEN** 合成兩個不同 controller 節點(沿用既有 `(cluster, namespace, ownerKind, ownerName)` 去重),其 `data.namespace` 分別為 `a` 與 `b`
+

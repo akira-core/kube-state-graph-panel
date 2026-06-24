@@ -5,6 +5,7 @@ import React, { useMemo } from 'react';
 
 import { severityColor } from '../../../../shared/constants/colorBySeverity';
 import type { NodeAlert } from '../../../../shared/constants/types';
+import { themeColors } from '../../../../shared/theme/themeColors';
 
 import type { AlertTableProps } from './AlertTable.types';
 
@@ -17,9 +18,7 @@ function getStyles(theme: GrafanaTheme2): {
   occurrenceList: string;
   timeButton: string;
 } {
-  const colors = theme.colors as unknown as {
-    text: { secondary: string; link: string };
-  };
+  const colors = themeColors(theme);
   return {
     empty: css({ color: colors.text.secondary, fontStyle: 'italic', padding: '4px 0' }),
     severityBadge: css({
@@ -47,7 +46,7 @@ function getStyles(theme: GrafanaTheme2): {
       border: `1px solid ${colors.text.secondary}`,
     }),
     occurrenceList: css({ display: 'flex', flexDirection: 'column', gap: 2, fontVariantNumeric: 'tabular-nums' }),
-    // Last seen renders as a link-styled button so the rewind affordance is obvious
+    // Last occurred renders as a link-styled button so the rewind affordance is obvious
     // and keyboard-accessible (not a bare clickable cell).
     timeButton: css({
       background: 'none',
@@ -63,9 +62,11 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-// Stable id per alert row so InteractiveTable (react-table) does not thrash.
+// Stable id per alert row so InteractiveTable (react-table) does not thrash. The
+// index suffix applies to the id path too: normalize does not dedupe a single
+// pod's alerts, so two entries sharing a backend id must not collide as React keys.
 function rowId(alert: NodeAlert, index: number): string {
-  return alert.id ?? `${alert.name}-${alert.timeRecords.join(',')}-${String(index)}`;
+  return `${alert.id ?? `${alert.name}-${alert.timeRecords.join(',')}`}-${String(index)}`;
 }
 
 // Last occurrence = max. timeRecords is ascending (normalize sorts it), so it is the
@@ -88,18 +89,30 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
   // columns + data must be memoized (InteractiveTable / react-table requirement).
   const data = useMemo(() => alerts, [alerts]);
 
+  // Column growth mirrors the detail tables' alignment rhythm (D8): identifier
+  // columns hug their content, the main text column (Alert) soaks up the
+  // remaining width, and the trailing status/action columns disableGrow so they
+  // sit flush right — vertically aligned with the detail view's Change Report
+  // column.
   const columns = useMemo<Array<Column<NodeAlert>>>(
     () => [
-      { id: 'pod', header: 'Pod', cell: ({ row }: CellProps<NodeAlert>) => row.original.pod ?? PLACEHOLDER },
+      {
+        id: 'pod',
+        header: 'Pod',
+        disableGrow: true,
+        cell: ({ row }: CellProps<NodeAlert>) => row.original.pod ?? PLACEHOLDER,
+      },
       {
         id: 'service',
         header: 'Service',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => row.original.service ?? PLACEHOLDER,
       },
       { id: 'name', header: 'Alert', cell: ({ row }: CellProps<NodeAlert>) => row.original.name },
       {
         id: 'severity',
         header: 'Severity',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => {
           const { severity } = row.original;
           // Known tier → its colour; any custom label → critical fallback (never blank).
@@ -114,6 +127,7 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
       {
         id: 'count',
         header: 'Count',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => {
           const { timeRecords } = row.original;
           // The badge shows the occurrence count; its tooltip enumerates every
@@ -137,7 +151,8 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
       },
       {
         id: 'lastSeen',
-        header: 'Last seen',
+        header: 'Last occurred',
+        disableGrow: true,
         cell: ({ row }: CellProps<NodeAlert>) => {
           const t = lastSeen(row.original);
           return (

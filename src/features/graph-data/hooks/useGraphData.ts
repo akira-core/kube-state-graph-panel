@@ -7,15 +7,18 @@ import { isPlainObject, normalizeGraph } from '../normalize';
 export interface UseGraphDataResult {
   elements: cytoscape.ElementDefinition[];
   error?: string;
+  // Distinguishes "no payload at all" from a payload that legitimately normalized
+  // to zero elements — an empty backend graph still has a payload (hasPayload true).
+  // Side-effecting consumers must not treat the former as "the graph is empty" —
+  // see pod-list-variable-export spec.
+  hasPayload: boolean;
 }
 
-// A graph payload is either the full backend response ({ elements: { nodes, edges } })
-// or an already-unwrapped { nodes, edges } object. This guard lets us skip sibling
-// columns (apiVersion string, clusters array) that Infinity's table flattening may
-// surface ahead of the graph data.
+// A graph payload is the full backend response ({ elements: { nodes, edges } }) or
+// an already-unwrapped { nodes, edges }. Lets us skip sibling columns (apiVersion,
+// clusters) that Infinity's table flattening may surface ahead of the graph data.
 function looksLikeGraphPayload(value: unknown): boolean {
-  // Reuse normalize's plain-object guard so the "what is a graph payload" rule
-  // lives in one place (the normalize anti-corruption boundary), not two.
+  // Reuse normalize's guard so "what is a graph payload" lives only at that boundary.
   if (!isPlainObject(value)) {
     return false;
   }
@@ -25,14 +28,11 @@ function looksLikeGraphPayload(value: unknown): boolean {
 function extractJsonFromFrames(series: DataFrame[]): unknown {
   let fallback: unknown;
   for (const frame of series) {
-    // Infinity's frontend "table" parser flattens the JSON object into fields
-    // (values[0]); its backend/JSON parser instead leaves fields empty and stashes
-    // the parsed response in meta.custom.data. Probe both shapes so the panel
-    // renders regardless of which Infinity parsing mode the query is configured for.
+    // Infinity quirk: the frontend "table" parser flattens JSON into fields
+    // (values[0]); the backend/JSON parser leaves fields empty and stashes the
+    // response in meta.custom.data. Probe both so either parsing mode renders.
     const candidates: unknown[] = frame.fields.map((field) => (field.values as unknown as ArrayLike<unknown>)[0]);
-    // @grafana/data types meta.custom as Record<string, any>, so this access is
-    // `any`; pin it to `unknown` at the boundary (the candidates array is unknown[]
-    // and every value is narrowed below before use).
+    // meta.custom is typed Record<string, any>; pin to unknown (narrowed below).
     const metaData: unknown = frame.meta?.custom?.data;
     if (metaData !== undefined) {
       candidates.push(metaData);
@@ -49,8 +49,8 @@ function extractJsonFromFrames(series: DataFrame[]): unknown {
       if (looksLikeGraphPayload(candidate)) {
         return candidate;
       }
-      // Remember the first parseable candidate so a wholly-invalid payload still
-      // reaches normalizeGraph and surfaces an error rather than rendering blank.
+      // Keep the first parseable candidate so an invalid payload still reaches
+      // normalizeGraph and surfaces an error rather than rendering blank.
       if (fallback === undefined) {
         fallback = candidate;
       }
@@ -60,16 +60,25 @@ function extractJsonFromFrames(series: DataFrame[]): unknown {
 }
 
 export function useGraphData(data: PanelData): UseGraphDataResult {
-  return useMemo<UseGraphDataResult>(() => {
+  // Grafana builds a NEW series array every refresh, so a memo keyed on it re-runs
+  // even when payload bytes are identical, invalidating every downstream memo.
+  // Two-stage memo: reduce series to a fingerprint string, then key the result memo
+  // on that string so a byte-identical refresh reuses the prior result object.
+  const fingerprint = useMemo<string | null>(() => {
     const payload = extractJsonFromFrames(data.series);
-    if (payload === undefined) {
-      return { elements: [] };
+    return payload === undefined ? null : JSON.stringify(payload);
+  }, [data.series]);
+
+  return useMemo<UseGraphDataResult>(() => {
+    if (fingerprint === null) {
+      return { elements: [], hasPayload: false };
     }
+    // Re-parse from the fingerprint string so the dep array carries no object identity.
+    const payload = JSON.parse(fingerprint) as unknown;
     const { elements, errors } = normalizeGraph(payload);
     const firstError = errors[0];
-    if (firstError !== undefined) {
-      return { elements, error: firstError };
-    }
-    return { elements };
-  }, [data.series]);
+    return firstError !== undefined
+      ? { elements, error: firstError, hasPayload: true }
+      : { elements, hasPayload: true };
+  }, [fingerprint]);
 }

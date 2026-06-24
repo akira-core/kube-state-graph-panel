@@ -1,6 +1,8 @@
 import type cytoscape from 'cytoscape';
 import { useEffect, useState } from 'react';
 
+import { clonePlain } from '../../../shared/clone/clonePlain';
+
 export interface HoveredElement {
   id: string;
   group: 'nodes' | 'edges';
@@ -71,7 +73,11 @@ export function useHoverElement({ cyRef, ready }: UseHoverElementProps): Hovered
         return;
       }
       const isNode = target.isNode();
-      const data = target.data() as Record<string, unknown>;
+      // target.data() returns cytoscape's LIVE internal object — the diff-patch
+      // (removeData/data writes) and expand-collapse's edge.move() rewires mutate
+      // it in place WITHOUT firing remove events, so React state must hold an
+      // immutable snapshot, never the live reference.
+      const data = clonePlain(target.data() as Record<string, unknown>);
       const next: HoveredElement = {
         id: target.id(),
         group: isNode ? 'nodes' : 'edges',

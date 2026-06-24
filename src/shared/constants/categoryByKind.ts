@@ -17,6 +17,7 @@ export const CATEGORY_BY_KIND: Record<NodeKind, NodeCategory> = {
   cronjob: 'Workloads',
   service: 'Networking',
   switch: 'Networking',
+  network: 'Networking',
   pvc: 'Storage',
   storageclass: 'Storage',
   node: 'Cluster',

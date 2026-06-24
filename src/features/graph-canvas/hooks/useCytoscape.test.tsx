@@ -3,6 +3,7 @@ import cytoscape from 'cytoscape';
 import React, { type MutableRefObject } from 'react';
 
 import type { PodParentMode } from '../../../shared/constants/types';
+import { diffElements } from '../sync/diffElements';
 
 import { useCytoscape, type CyStylesheet } from './useCytoscape';
 
@@ -154,6 +155,49 @@ describe('useCytoscape compound re-parenting', () => {
   });
 });
 
+describe('useCytoscape stale data-key removal', () => {
+  // data(obj) is extend-only: a key the incoming definition omits (a controller whose
+  // last alerting pod recovered no longer carries `alerts`) must be REMOVED from the
+  // live element, or it lingers forever and re-flags the element as changed on every
+  // diff cycle (perpetual no-op churn).
+  const withAlerts: cytoscape.ElementDefinition[] = [
+    {
+      group: 'nodes',
+      data: {
+        id: 'c1',
+        kind: 'deployment',
+        isController: true,
+        worstStatus: 'warning',
+        alerts: [{ name: 'HighMem', severity: 'warning', timeRecords: [1717500000] }],
+      },
+    },
+  ];
+  const withoutAlerts: cytoscape.ElementDefinition[] = [
+    { group: 'nodes', data: { id: 'c1', kind: 'deployment', isController: true } },
+  ];
+
+  it('drops data keys the incoming definition omits (alerts → no-alerts) and stops re-diffing', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: withAlerts });
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({ elements: props.elements, stylesheet: [] }),
+      { initialProps: { elements: withAlerts } }
+    );
+    result.current.cyRef.current = cy;
+
+    rerender({ elements: withoutAlerts });
+    const live = cy.getElementById('c1');
+    expect(live.data('alerts')).toBeUndefined();
+    expect(live.data('worstStatus')).toBeUndefined();
+    expect(live.data('kind')).toBe('deployment');
+    // The live element now matches the incoming definition exactly — no churn.
+    const next = diffElements(cy.elements().jsons() as cytoscape.ElementDefinition[], withoutAlerts);
+    expect(next.toUpdate).toHaveLength(0);
+
+    cy.destroy();
+  });
+});
+
 describe('useCytoscape pod-parent mode rebuild', () => {
   const nodeMode: cytoscape.ElementDefinition[] = [
     { group: 'nodes', data: { id: 'node-a', kind: 'node' } },
@@ -208,6 +252,99 @@ describe('useCytoscape pod-parent mode rebuild', () => {
   });
 });
 
+describe('useCytoscape patch application', () => {
+  const renderPatchHarness = (initial: cytoscape.ElementDefinition[]) => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: initial });
+    const hook = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({ elements: props.elements, stylesheet: [] }),
+      { initialProps: { elements: initial } }
+    );
+    hook.result.current.cyRef.current = cy;
+    return { cy, ...hook };
+  };
+
+  it('removes elements whose ids contain selector metacharacters ("/" and ":")', () => {
+    // Synthesized ids (ctrl/…, ppm:…, syn:…) are invalid in `#id` selector strings —
+    // one bad segment used to poison the whole comma-joined removal into a no-op.
+    const specials: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'plain' } },
+      { group: 'nodes', data: { id: 'ctrl/prod/db/x', isController: true } },
+      { group: 'nodes', data: { id: 'p1', parent: 'ctrl/prod/db/x', kind: 'pod' } },
+      { group: 'edges', data: { id: 'ppm:pod-runs-on-node:p1', source: 'p1', target: 'plain' } },
+    ];
+    const { cy, rerender } = renderPatchHarness(specials);
+
+    rerender({ elements: [{ group: 'nodes', data: { id: 'plain' } }] });
+
+    expect(cy.getElementById('ctrl/prod/db/x').length).toBe(0);
+    expect(cy.getElementById('p1').length).toBe(0);
+    expect(cy.getElementById('ppm:pod-runs-on-node:p1').length).toBe(0);
+    expect(cy.getElementById('plain').length).toBe(1);
+    cy.destroy();
+  });
+
+  it('keeps a child re-homed away from a parent removed in the same refresh', () => {
+    // K8s node A drained while its pod reschedules onto node B in one refresh: the
+    // pod must survive A's compound-cascade removal and land under B immediately.
+    const initial: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'nodeA', kind: 'node' } },
+      { group: 'nodes', data: { id: 'nodeB', kind: 'node' } },
+      { group: 'nodes', data: { id: 'p1', parent: 'nodeA', kind: 'pod' } },
+    ];
+    const { cy, rerender } = renderPatchHarness(initial);
+
+    rerender({
+      elements: [
+        { group: 'nodes', data: { id: 'nodeB', kind: 'node' } },
+        { group: 'nodes', data: { id: 'p1', parent: 'nodeB', kind: 'pod' } },
+      ],
+    });
+
+    expect(cy.getElementById('nodeA').length).toBe(0);
+    expect(cy.getElementById('p1').length).toBe(1);
+    expect(cy.getElementById('p1').parent().first().id()).toBe('nodeB');
+    cy.destroy();
+  });
+
+  it('rewires an edge whose target changed while keeping its id', () => {
+    const initial: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'a' } },
+      { group: 'nodes', data: { id: 'b' } },
+      { group: 'nodes', data: { id: 'c' } },
+      { group: 'edges', data: { id: 'e1', source: 'a', target: 'b' } },
+    ];
+    const { cy, rerender } = renderPatchHarness(initial);
+
+    rerender({
+      elements: [
+        { group: 'nodes', data: { id: 'a' } },
+        { group: 'nodes', data: { id: 'b' } },
+        { group: 'nodes', data: { id: 'c' } },
+        { group: 'edges', data: { id: 'e1', source: 'a', target: 'c' } },
+      ],
+    });
+
+    const live = cy.getElementById('e1');
+    expect(live.length).toBe(1);
+    expect(live.data('target')).toBe('c');
+    cy.destroy();
+  });
+
+  it('never lets cytoscape alias the React-side element data (clone on add)', () => {
+    const initial: cytoscape.ElementDefinition[] = [{ group: 'nodes', data: { id: 'a' } }];
+    const { cy, rerender } = renderPatchHarness(initial);
+
+    const addedDef: cytoscape.ElementDefinition = { group: 'nodes', data: { id: 'b', kind: 'pod' } };
+    rerender({ elements: [initial[0]!, addedDef] });
+
+    // Simulate an in-place mutation by the expand-collapse extension.
+    cy.getElementById('b').data('contaminated', true);
+    expect((addedDef.data as Record<string, unknown>).contaminated).toBeUndefined();
+    cy.destroy();
+  });
+});
+
 describe('useCytoscape collapse-aware diff-patch', () => {
   it('expands all, patches, then re-collapses present parents and reports prune in order', () => {
     const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
@@ -246,6 +383,100 @@ describe('useCytoscape collapse-aware diff-patch', () => {
     expect(states[0]).toBe(true);
     expect(suppressRef.current).toBe(false);
     expect(onCollapsedChange).not.toHaveBeenCalled();
+    cy.destroy();
+  });
+
+  it('seeds a refresh-added child near its parent (not the origin) so a collapsed controller is not dragged to (0,0)', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    // Give the existing child a real position so its parent 'cl' is NOT at origin.
+    cy.getElementById('p1').position({ x: 400, y: 250 });
+    const parentPos = cy.getElementById('cl').position();
+    expect(parentPos).not.toEqual({ x: 0, y: 0 });
+
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+
+    // Data refresh adds a new pod under the (collapsed) parent.
+    rerender({ elements: [...baseElements, { group: 'nodes', data: { id: 'p2', parent: 'cl', kind: 'pod' } }] });
+
+    const added = cy.getElementById('p2').position();
+    expect(added).toEqual({ x: parentPos.x, y: parentPos.y });
+    expect(added).not.toEqual({ x: 0, y: 0 });
+    cy.destroy();
+  });
+
+  it('requests one relayout when a refresh adds a wholly-new unanchorable family', () => {
+    // A brand-new controller + pod (no existing ancestor) cannot be seeded, so they
+    // would land at (0,0) and stack — useCytoscape asks GraphCanvas to relayout once.
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const onStructuralRelayout = jest.fn();
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+          onStructuralRelayout,
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+
+    // Refresh introduces a NEW top-level controller and a pod under it.
+    rerender({
+      elements: [
+        ...baseElements,
+        { group: 'nodes', data: { id: 'newPod', parent: 'newCtrl', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'newCtrl', isController: true } },
+      ],
+    });
+    expect(onStructuralRelayout).toHaveBeenCalledTimes(1);
+    cy.destroy();
+  });
+
+  it('does NOT request a relayout when a refresh adds a pod under an existing (anchorable) parent', () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: baseElements });
+    const api = { expandAll: jest.fn(), collapse: jest.fn() } as unknown as cytoscape.ExpandCollapseApi;
+    const apiRef = { current: api } as MutableRefObject<cytoscape.ExpandCollapseApi | null>;
+    const collapsedIdsRef = { current: new Set(['cl']) } as MutableRefObject<ReadonlySet<string>>;
+    const onStructuralRelayout = jest.fn();
+    const { result, rerender } = renderHook(
+      (props: { elements: cytoscape.ElementDefinition[] }) =>
+        useCytoscape({
+          elements: props.elements,
+          stylesheet: [],
+          apiRef,
+          collapsedIdsRef,
+          suppressRef: { current: false },
+          onCollapsedChange: jest.fn(),
+          onStructuralRelayout,
+        }),
+      { initialProps: { elements: baseElements } }
+    );
+    result.current.cyRef.current = cy;
+
+    rerender({ elements: [...baseElements, { group: 'nodes', data: { id: 'p2', parent: 'cl', kind: 'pod' } }] });
+    expect(onStructuralRelayout).not.toHaveBeenCalled(); // anchored add → D7 preserved
     cy.destroy();
   });
 

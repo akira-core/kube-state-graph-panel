@@ -3,8 +3,8 @@ import type { SwitchConstraints, SwitchFixedNode } from './types';
 // Vertical spacing (px) between adjacent switch levels, and horizontal spacing
 // between switches sharing a level. Sensible defaults; tune visually on the demo
 // (see design Open Questions).
-const TIER_GAP = 180;
-const COL_GAP = 180;
+const TIER_GAP = 120;
+const COL_GAP = 120;
 
 // Group switch ids by level, ids sorted within each level and levels ascending.
 // Determinism keeps the pinned positions (and thus the layout) stable for
@@ -29,9 +29,8 @@ function groupByLevel(levelById: ReadonlyMap<string, number>): { levels: number[
 /**
  * Turn a per-switch level mapping into a native fcose `fixedNodeConstraint` that
  * pins each levelled switch to an absolute position:
- * - `y = level * TIER_GAP` — lower levels sit above (smaller y). Levels MAY be
- *   negative (e.g. `-1` from `readNodeFabricTier`), placing those nodes ABOVE
- *   level 0 — `y = level * TIER_GAP` handles negative values naturally.
+ * - `y = -level * TIER_GAP` — higher levels sit above (smaller y), so the
+ *   highest-level switch (e.g. core) renders on top.
  * - `x = (i - (n - 1) / 2) * COL_GAP` — the i-th of n switches in a level, spread
  *   horizontally and centred on x = 0.
  *
@@ -52,7 +51,8 @@ export function buildSwitchConstraints(levelById: ReadonlyMap<string, number>): 
       continue;
     }
     const count = group.length;
-    const y = level * TIER_GAP;
+    // `level === 0` guard avoids emitting -0 from the negation.
+    const y = level === 0 ? 0 : -level * TIER_GAP;
     for (let i = 0; i < count; i += 1) {
       const nodeId = group[i];
       if (nodeId === undefined) {

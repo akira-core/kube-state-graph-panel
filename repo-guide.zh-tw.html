@@ -373,14 +373,16 @@
           <a href="#mental-model">3. 先建立心智模型</a>
           <a href="#architecture">4. 架構與資料流</a>
           <a href="#render-pipeline">5. 渲染管線與 cytoscape 格式</a>
-          <a href="#react-for-ts">6. React 新手速成</a>
-          <a href="#debug">7. Debug 怎麼跑</a>
-          <a href="#change-and-test">8. 修改後怎麼測</a>
-          <a href="#where-to-change">9. 常見修改位置</a>
-          <a href="#best-practices">10. Best Practices</a>
-          <a href="#testing-map">11. 測試地圖</a>
-          <a href="#troubleshooting">12. 常見問題</a>
-          <a href="#glossary">13. 名詞表</a>
+          <a href="#node-detail">6. Node Detail 面板</a>
+          <a href="#panel-options">7. Panel Options 與變數匯出</a>
+          <a href="#react-for-ts">8. React 新手速成</a>
+          <a href="#debug">9. Debug 怎麼跑</a>
+          <a href="#change-and-test">10. 修改後怎麼測</a>
+          <a href="#where-to-change">11. 常見修改位置</a>
+          <a href="#best-practices">12. Best Practices</a>
+          <a href="#testing-map">13. 測試地圖</a>
+          <a href="#troubleshooting">14. 常見問題</a>
+          <a href="#glossary">15. 名詞表</a>
         </nav>
       </aside>
 
@@ -390,12 +392,14 @@
           <h1>kube-state-graph-panel 使用方式、架構與修改指南</h1>
           <p class="lead">
             這份文件給「會 TypeScript，但對 React 不熟」的人。讀完後你應該知道這個 repo 怎麼跑、怎麼 debug、資料怎麼從
-            Grafana 進到 cytoscape graph、修改時該碰哪些檔案，以及哪些規則是這個專案的 best practice。
+            Grafana 進到 cytoscape graph、Node Detail / Change Report / pod 變數匯出怎麼運作、修改時該碰哪些檔案，以及哪些規則是這個專案的 best practice。
           </p>
           <div class="pill-row">
             <span class="pill">Panel-only repo</span>
             <span class="pill">資料來源：Infinity datasource</span>
             <span class="pill">圖形引擎：cytoscape.js</span>
+            <span class="pill">Node Detail + Change Report</span>
+            <span class="pill">Pod 清單變數匯出</span>
             <span class="pill">嚴格 TypeScript</span>
             <span class="pill">feature-first 架構</span>
           </div>
@@ -409,7 +413,7 @@
           </p>
           <p>
             這個 repo <strong>只做前端 panel</strong>，不包含 Go backend。產生 graph JSON 的服務是上游
-            <code>marz32one/kube-state-graph</code> Docker image。<strong>v0.0.14 backend 是從 PromQL（一個
+            <code>marz32one/kube-state-graph</code> Docker image。<strong>kube-state-graph backend 是從 PromQL（一個
             <code>[start,end]</code> 時間窗）衍生出整張拓撲圖，它<em>不</em>讀 Kubernetes API</strong>；資料實際來自一個
             Prometheus 相容的 metrics store。本 panel 透過 Grafana 的 Infinity datasource 呼叫 backend 的
             <code>GET /v1/graph</code>，再把回來的 JSON 正規化成 cytoscape elements。
@@ -420,9 +424,11 @@
               <h3>這個 repo 負責</h3>
               <ul>
                 <li>Grafana panel plugin 註冊與 options editor。</li>
-                <li>把 Grafana datasource response 轉成 graph elements。</li>
-                <li>用 cytoscape.js 顯示、layout、resize、tooltip、legend、filter。</li>
-                <li>提供本機 Docker Compose demo 與測試工具鏈。</li>
+                <li>把 Grafana datasource response 轉成 graph elements（含 controller 合成、switch fabric、alerts 聚合）。</li>
+                <li>用 cytoscape.js 顯示、layout、resize、tooltip、legend、filter、expand-collapse。</li>
+                <li>Node Detail 面板（Alerts / Application / Containers）與 lazy Change Report lookup。</li>
+                <li>Pod 名稱匯出至 dashboard 變數（供下游 logs panel 等 consumer）。</li>
+                <li>提供 Compose profile demo（Showcase 無 backend + Demo 全 stack）與測試工具鏈。</li>
               </ul>
             </article>
             <article class="card">
@@ -471,39 +477,90 @@
               </p>
             </article>
             <article class="card">
-              <h4>Terminal B：啟動整套 demo stack</h4>
-              <pre><code>docker compose up -d</code></pre>
+              <h4>Terminal B：啟動 demo stack</h4>
+              <pre><code># 僅 Grafana + Showcase（不需 backend）
+docker compose up -d
+
+# 完整 stack（VictoriaMetrics + seeder + backend）
+docker compose --profile backend up -d
+# 等同 npm run server（會先 build 再 up）</code></pre>
               <p class="muted">
-                不需要任何環境變數或 kubeconfig。一個指令會起 4 個 service（見下表）。
+                Compose 使用 <strong>profile</strong> 切換：<code>backend</code> profile 才會起 VictoriaMetrics、seeder 與
+                kube-state-graph。預設 <code>up</code> 只起 Grafana，足夠跑 <code>KSG Showcase</code>。
               </p>
             </article>
           </div>
 
-          <h4><code>docker compose up</code> 起了哪 4 個 service？</h4>
+          <h4>兩種 demo 模式</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dashboard</th>
+                  <th>URL</th>
+                  <th>需要 backend profile？</th>
+                  <th>說明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>KSG Showcase</code></td>
+                  <td><code>/d/ksg-switch-demo</code></td>
+                  <td>否</td>
+                  <td>
+                    Infinity <strong>INLINE</strong> target，內嵌合成拓撲 JSON；展示 switch fabric、StorageClass 分組、controller
+                    聚合等 panel 能力，<strong>零 backend</strong>。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>KSG Demo</code></td>
+                  <td><code>/d/ksg-demo</code></td>
+                  <td>是</td>
+                  <td>
+                    透過 provisioned Infinity datasource 打真實 <code>kube-state-graph</code> backend；含 template variables（cluster /
+                    namespace / name / edge_type）與 <code>pod_list</code> 變數匯出範例。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4><code>docker compose</code> 起了哪些 service？</h4>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Service</th>
+                  <th>Profile</th>
                   <th>角色</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td><code>grafana</code></td>
-                  <td>掛載 <code>dist/</code> 載入本 panel，並 provision <code>KSG Demo</code> dashboard 與 Infinity datasource。</td>
+                  <td>（永遠）</td>
+                  <td>
+                    掛載 <code>dist/</code> 載入本 panel，provision 兩份 dashboard（Showcase + Demo）與 Infinity datasource。
+                  </td>
                 </tr>
                 <tr>
                   <td><code>kube-state-graph</code>（<code>ksg-backend</code>）</td>
-                  <td>v0.0.14 backend；<code>KSG_PROM_URL</code> 指向 VictoriaMetrics。</td>
+                  <td><code>backend</code></td>
+                  <td>kube-state-graph backend；<code>KSG_PROM_URL</code> 指向 VictoriaMetrics。</td>
                 </tr>
                 <tr>
                   <td><code>victoriametrics</code></td>
+                  <td><code>backend</code></td>
                   <td>backend 的拓撲資料來源（PromQL）。</td>
                 </tr>
                 <tr>
                   <td><code>ksg-seeder</code></td>
-                  <td>每隔 <code>SEED_INTERVAL</code> 秒重新 push 合成 fixture（含遞增的 service-graph counter），讓 <code>last_over_time(...)</code> 與 <code>rate(...)</code> 維持新鮮。</td>
+                  <td><code>backend</code></td>
+                  <td>
+                    每隔 <code>SEED_INTERVAL</code> 秒重新 push 合成 fixture（含遞增的 service-graph counter、
+                    <code>argocd_tracking_id</code>、<code>container_info</code> 等），讓 <code>last_over_time(...)</code> 與
+                    <code>rate(...)</code> 維持新鮮，並餵足 node-detail 的 Application / Containers 區塊。
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -512,8 +569,8 @@
           <h3>打開 Grafana</h3>
           <pre><code>open http://localhost:3000</code></pre>
           <p>
-            Demo dashboard 名稱是 <code>KSG Demo</code>，裡面有一個 <code>Kube State Graph</code> panel。 Dashboard
-            query 會透過 Infinity datasource 打 <code>/v1/graph</code>。
+            依你啟動的 profile 選 dashboard：<code>KSG Showcase</code>（<code>/d/ksg-switch-demo</code>）隨時可用；
+            <code>KSG Demo</code>（<code>/d/ksg-demo</code>）需 <code>--profile backend</code>，否則 datasource 錯誤屬預期行為。
           </p>
 
           <div class="callout">
@@ -550,15 +607,22 @@
               <code>kind</code>、<code>label</code>、<code>ipAddress</code>。
             </div>
             <div class="flow-step">
-              <strong>5. GraphCanvas 管 cytoscape</strong>
+              <strong>6. View transforms（panel 端視圖）</strong>
+              <br />
+              <code>applyPodParentMode</code> 切換 pod 嵌在 K8s node 或 workload controller 底下；
+              <code>wrapSwitchFabric</code> 為無 parent 的 switch 合成 <code>network</code> 容器。
+            </div>
+            <div class="flow-step">
+              <strong>7. GraphCanvas 管 cytoscape</strong>
               <br />
               React 只建立容器與呼叫 hooks；真正的 graph 狀態在 cytoscape instance 裡。
             </div>
             <div class="flow-step">
-              <strong>6. hooks 負責 imperative 更新</strong>
+              <strong>8. hooks 負責 imperative 更新</strong>
               <br />
               <code>useCytoscape</code> 建 instance 與 diff elements； <code>useGraphLayout</code> 跑 layout；
-              <code>useElementFilter</code> 改 visibility； <code>HoverTooltip</code> 監聽 hover。
+              <code>useElementFilter</code> 改 visibility； <code>HoverTooltip</code> 監聽 hover；
+              tap / cxttap 驅動 NodeDetailPanel。
             </div>
           </div>
 
@@ -579,20 +643,22 @@
           <pre><code>src/
 ├── module.ts
 ├── panels/
-│   └── KsgPanel/
-│       ├── KsgPanel.tsx
-│       ├── KsgPanel.editor.tsx
-│       └── KsgPanel.types.ts
+│   └── KsgPanel/          # orchestrator、options editor、legend 衍生邏輯
 ├── features/
-│   ├── graph-data/
-│   ├── graph-canvas/
-│   ├── element-filter/
+│   ├── graph-data/        # normalize、useGraphData、wrapSwitchFabric
+│   ├── graph-canvas/      # cytoscape、layout、stylesheet、diff sync
+│   ├── element-filter/    # kind / edge type visibility
 │   ├── hover-tooltip/
-│   ├── legend/
+│   ├── legend/            # Node/Edge/Cluster/Status/Container swatches
+│   ├── node-detail/       # NodeDetailPanel、Alert/Application/Container 表格
+│   ├── variable-export/   # pod 名稱 → dashboard 變數
+│   ├── pod-parent-mode/   # node ↔ controller 視圖切換
+│   ├── switch-topology/   # switch fabric layout 約束
 │   └── theme/
 └── shared/
-    ├── constants/
-    └── types/</code></pre>
+    ├── constants/         # iconSvgByKind、colorByEdgeType、categoryByKind …
+    ├── types/
+    └── clone/</code></pre>
 
           <h3>Feature-first 是什麼？</h3>
           <p>
@@ -667,8 +733,37 @@
                 </tr>
                 <tr>
                   <td><code>features/legend</code></td>
-                  <td>依 shared constants 顯示 node / edge legend。</td>
-                  <td>調 legend 顯示方式或測試。</td>
+                  <td>
+                    依 shared constants 顯示 node / edge / cluster / status / container swatch legend；node kind 列含
+                    per-kind 眼睛切換（寫入 <code>visibleKinds</code> option）。
+                  </td>
+                  <td>調 legend 顯示、新增 swatch 區塊、kind 過濾 UX。</td>
+                </tr>
+                <tr>
+                  <td><code>features/node-detail</code></td>
+                  <td>
+                    浮動 NodeDetailPanel（Alerts / Application / Containers）；<code>useNodeDetailUrls</code> 以
+                    <code>getBackendSrv()</code> lazy 查 Change Report（含成功 promise 快取）；<code>resolveDetailEndpoint</code> 推導 REST base path。
+                  </td>
+                  <td>擴充 detail 區塊、調整右鍵行為、Change Report 查詢契約。</td>
+                </tr>
+                <tr>
+                  <td><code>features/variable-export</code></td>
+                  <td>從 graph elements 抽出 pod 名稱，寫入既有 dashboard 變數（<code>var-&lt;name&gt;</code> URL sync）。</td>
+                  <td>串接 logs panel 的 <code>${pod_list:lucene}</code> 等下游 consumer。</td>
+                </tr>
+                <tr>
+                  <td><code>features/pod-parent-mode</code></td>
+                  <td>
+                    在 <code>node</code> / <code>controller</code> 兩種 pod 父層視圖間 re-parent elements；影響哪些 edge
+                    被繪製、legend 顯示哪些 kind。
+                  </td>
+                  <td>調整 workload 聚合視圖 vs 基礎設施視圖。</td>
+                </tr>
+                <tr>
+                  <td><code>features/switch-topology</code></td>
+                  <td>switch fabric 的 layout 約束（fcose 參數）；與 <code>wrapSwitchFabric</code> 搭配。</td>
+                  <td>調整實體網路層在 canvas 上的間距與分層。</td>
                 </tr>
                 <tr>
                   <td><code>features/theme</code></td>
@@ -711,15 +806,16 @@ import {
               <h4>放 shared</h4>
               <p>真的被多個 feature 共用，而且代表跨功能契約的東西，才放 <code>shared</code>。</p>
               <ul>
-                <li><code>shared/constants/shapeByKind.ts</code></li>
+                <li><code>shared/constants/iconSvgByKind.ts</code></li>
                 <li><code>shared/constants/colorByEdgeType.ts</code></li>
+                <li><code>shared/constants/categoryByKind.ts</code></li>
                 <li><code>shared/types/cytoscape.d.ts</code></li>
               </ul>
             </article>
           </div>
           <div class="callout good">
             <strong>判斷口訣：</strong>如果你會說「我要改 filter 功能」，那它多半在 feature。 如果你會說「graph
-            style、legend、filter 都要共用同一份 node kind 對應表」，那它才適合進 shared。
+            style、legend、filter 都要共用同一份 node kind 圖示 map」，那它才適合進 shared。
           </div>
 
           <h3>主要檔案職責</h3>
@@ -740,18 +836,47 @@ import {
                 </tr>
                 <tr>
                   <td><code>src/panels/KsgPanel/KsgPanel.tsx</code></td>
-                  <td>Panel orchestrator：處理 loading、error、empty、legend、canvas。</td>
-                  <td>新增整體 UI 狀態、sidebar、panel-level 行為。</td>
+                  <td>
+                    Panel orchestrator：loading / error / empty、legend rail、GraphCanvas、NodeDetailPanel、variable export、
+                    pod-parent mode、collapse 狀態、detail URL 查詢接線。
+                  </td>
+                  <td>新增整體 UI 狀態、panel-level 行為、legend 與 detail 整合。</td>
                 </tr>
                 <tr>
                   <td><code>KsgPanel.editor.tsx</code></td>
-                  <td>Grafana panel options UI，例如 layout、legend、filter multi-select。</td>
+                  <td>
+                    Grafana panel options UI：layout、legend、filter multi-select、<code>detailEndpoint</code>、
+                    <code>podListVariable</code>。
+                  </td>
                   <td>新增使用者可設定的選項。</td>
                 </tr>
                 <tr>
                   <td><code>KsgPanel.types.ts</code></td>
-                  <td>Panel options 型別、預設值、可選 node kind / edge type 清單。</td>
+                  <td>
+                    Panel options 型別與預設值；<code>ALL_KINDS</code> / <code>ALL_EDGE_TYPES</code> 從 icon / edge style map 派生。
+                  </td>
                   <td>新增 option 或調整 default。</td>
+                </tr>
+                <tr>
+                  <td><code>features/node-detail/hooks/useNodeDetailUrls.ts</code></td>
+                  <td>
+                    imperative Change Report lookup：<code>openApplicationReport</code> / <code>openContainerReport</code>；lazy
+                    點擊才查；同一節點開啟期間每端點最多 HTTP 一次（成功 promise 快取）。
+                  </td>
+                  <td>調整 REST 契約、loading / error 狀態機。</td>
+                </tr>
+                <tr>
+                  <td><code>features/node-detail/components/NodeDetailPanel</code></td>
+                  <td>
+                    畫布底部浮動面板：<code>alerts</code> view（左鍵）與 <code>detail</code> view（右鍵）；內嵌 Alert / Application /
+                    Container 表格。
+                  </td>
+                  <td>擴充 detail 區塊 UI、調整 gating 條件。</td>
+                </tr>
+                <tr>
+                  <td><code>features/variable-export/useVariableExport.ts</code></td>
+                  <td>graph 成功載入後，把 pod 名稱 sync 到 dashboard 變數。</td>
+                  <td>調整 export 時機或 pod 名稱抽取規則。</td>
                 </tr>
                 <tr>
                   <td><code>features/graph-data/normalize.ts</code></td>
@@ -784,9 +909,9 @@ import {
                   <td>調整節點、邊、selected 樣式。</td>
                 </tr>
                 <tr>
-                  <td><code>shared/constants/shapeByKind.ts</code></td>
-                  <td>Node kind 到 cytoscape shape 的唯一資料源。</td>
-                  <td>新增或調整 Kubernetes resource kind 顯示方式。</td>
+                  <td><code>shared/constants/iconSvgByKind.ts</code></td>
+                  <td>Node kind → SVG 圖示的唯一資料源（leaf node 以 background-image 顯示）。</td>
+                  <td>新增或調整 Kubernetes resource kind 圖示。</td>
                 </tr>
                 <tr>
                   <td><code>shared/constants/colorByEdgeType.ts</code></td>
@@ -798,20 +923,37 @@ import {
           </div>
 
           <h3>資料契約</h3>
-          <p>上游目前的主要 node / edge 類型如下：</p>
+          <p>上游 node / edge 類型已隨 backend 擴充；panel 以 <code>shared/constants/types.ts</code> 為契約來源。</p>
           <div class="cards">
             <article class="card">
-              <h4>Node kind</h4>
+              <h4>Node kind（節錄）</h4>
               <p>
-                <code>pod</code>, <code>service</code>, <code>node</code>, <code>pvc</code>, <code>others</code>,
-                <code>external</code>
+                Workloads：<code>pod</code>、<code>deployment</code>、<code>statefulset</code>、<code>daemonset</code>、
+                <code>job</code>、<code>cronjob</code><br />
+                Infrastructure：<code>node</code>、<code>service</code>、<code>pvc</code>、<code>storageclass</code><br />
+                Network：<code>switch</code>、<code>network</code>（panel 可合成）<br />
+                Other：<code>external</code>、<code>cluster</code>（compound 容器，normalize 時標 <code>isCluster</code>）
               </p>
             </article>
             <article class="card">
-              <h4>Edge type</h4>
+              <h4>Edge type（節錄）</h4>
               <p>
-                <code>pod-runs-on-node</code>, <code>pod-mounts-pvc</code>, <code>pod-calls-pod</code>,
-                <code>service-selects-pod</code>
+                <code>pod-mounts-pvc</code>、<code>pod-calls-pod</code>、<code>pod-calls-service</code>、
+                <code>service-selects-pod</code>、<code>controller-owns-pod</code>、<code>switch-to-switch</code>、
+                <code>node-to-switch</code><br />
+                <code>pod-runs-on-node</code>：在預設 <code>node</code> pod-parent 模式下<strong>不畫 edge</strong>，以 parent
+                nesting 表達；切到 <code>controller</code> 模式時改為 drawn edge。
+              </p>
+            </article>
+          </div>
+          <div class="cards">
+            <article class="card">
+              <h4>Node detail 擴充欄位（pod / 合成 controller）</h4>
+              <p>
+                <code>application</code>：ArgoCD application name（backend 在 pod 節點輸出；controller 由子 pod 聚合）<br />
+                <code>containers</code>：<code>[{ name, image }]</code>（pod 原樣；controller 以 name+image 去重合併）<br />
+                <code>alerts</code>：告警表格資料（controller 由子 pod 聚合；含 <code>timeRecords[]</code>）<br />
+                欄位缺失時對應區塊<strong>優雅隱藏</strong>，不影響其餘面板功能。
               </p>
             </article>
           </div>
@@ -886,10 +1028,10 @@ import {
               <code>kind</code> / <code>label</code>，產出 <code>cytoscape.ElementDefinition[]</code>。
             </div>
             <div class="flow-step">
-              <strong>D. KsgPanel orchestrator</strong>
+              <strong>D. KsgPanel orchestrator + view transforms</strong>
               <br />
-              處理 loading / error / empty，同時用 <code>useGraphTheme</code> 算出 stylesheet，把
-              <code>elements</code> 與 filter options 傳給 <code>GraphCanvas</code>。
+              處理 loading / error / empty；<code>applyPodParentMode</code> + <code>wrapSwitchFabric</code> 產生畫布用
+              elements；<code>useGraphTheme</code> 算出 stylesheet；傳給 <code>GraphCanvas</code> 與 legend / detail panel。
             </div>
             <div class="flow-step">
               <strong>E. useCytoscape — 建立 instance</strong>
@@ -971,7 +1113,7 @@ import {
 
           <h4>Compound（巢狀）結構由 backend 決定</h4>
           <p>
-            v0.0.14 起 backend 會 emit compound nodes：<code>type: "cluster"</code> 的合成群組包住各 cluster 內資源；pod 嵌在 K8s
+            backend 會 emit compound nodes：<code>type: "cluster"</code> 的合成群組包住各 cluster 內資源；pod 嵌在 K8s
             node 底下。 <code>pod-runs-on-node</code> 關係<strong>不畫成 edge</strong>，而是以
             <code>parent</code> 巢狀表達（design D31）。panel 對 <code>parent</code> 欄位<strong>原樣 pass-through</strong>，只額外替
             <code>cluster</code> 容器加上 accent 色（<code>clusterColor</code>）。
@@ -1064,6 +1206,21 @@ import {
                   <td><code>data.labels</code></td>
                   <td><code>labels</code></td>
                   <td>tooltip 白名單欄位</td>
+                </tr>
+                <tr>
+                  <td><code>data.application</code></td>
+                  <td><code>application</code></td>
+                  <td>NodeDetailPanel Application 區塊、detail URL 查詢 input</td>
+                </tr>
+                <tr>
+                  <td><code>data.containers</code></td>
+                  <td><code>containers</code></td>
+                  <td>NodeDetailPanel Containers 區塊、code_changes map lookup</td>
+                </tr>
+                <tr>
+                  <td><code>data.alerts</code>（含 <code>time_records</code> wire 欄）</td>
+                  <td><code>alerts</code>（<code>timeRecords: number[]</code>）</td>
+                  <td>AlertTable、告警時間 rewind</td>
                 </tr>
                 <tr>
                   <td><code>edge.data.type</code></td>
@@ -1172,75 +1329,73 @@ cy.batch(() => {
               <tbody>
                 <tr>
                   <td><code>node</code></td>
-                  <td>所有節點（基底）</td>
-                  <td><code>shape</code> ← <code>SHAPE_BY_KIND[data.kind]</code>；背景/邊框來自 Grafana theme</td>
-                  <td><code>shapeByKind.ts</code></td>
+                  <td>所有 leaf 節點（基底）</td>
+                  <td>
+                    統一 <code>round-rectangle</code> 容器；<code>background-image</code> ←
+                    <code>iconSvgForKind(data.kind)</code> 經 theme tint
+                  </td>
+                  <td><code>iconSvgByKind.ts</code> + <code>tintSvgToDataUri</code></td>
                 </tr>
                 <tr>
                   <td><code>node:parent</code></td>
-                  <td>有子節點的 compound 容器</td>
-                  <td>半透明 round-rectangle 外框</td>
-                  <td>cytoscape meta-selector</td>
+                  <td>有子節點的 compound 容器（K8s node、controller、storageclass、cluster…）</td>
+                  <td>半透明 round-rectangle 外框；容器 label 繼承 cluster accent</td>
+                  <td>cytoscape meta-selector + <code>clusterColor</code></td>
                 </tr>
                 <tr>
                   <td><code>node[?isCluster]</code></td>
                   <td>cluster 容器</td>
-                  <td><code>data(clusterColor)</code>；<code>events: 'no'</code></td>
+                  <td><code>data(clusterColor)</code>；<code>events: 'no'</code>；無 resource icon</td>
                   <td><code>normalize.ts</code> + <code>clusterPalette.ts</code></td>
                 </tr>
                 <tr>
                   <td><code>node[kind="…"][status="…"]</code></td>
-                  <td>pod / node / pvc health border</td>
+                  <td>帶 health status 的 leaf（pod / node / pvc 等）</td>
                   <td><code>border-color</code> / width 3</td>
                   <td><code>colorByStatus.ts</code></td>
                 </tr>
                 <tr>
                   <td><code>node:selected</code></td>
                   <td>選中節點</td>
-                  <td>Grafana primary 粗邊框</td>
-                  <td><code>selectSingle</code></td>
+                  <td>Grafana primary 粗邊框；其餘元素加 <code>ksg-faded</code> class 淡化</td>
+                  <td><code>GraphCanvas</code> selection handler</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <h4>Node kind → shape（SHAPE_BY_KIND）</h4>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>kind</th><th>shape</th></tr>
-              </thead>
-              <tbody>
-                <tr><td><code>pod</code></td><td><code>ellipse</code></td></tr>
-                <tr><td><code>service</code></td><td><code>hexagon</code></td></tr>
-                <tr><td><code>node</code></td><td><code>round-rectangle</code></td></tr>
-                <tr><td><code>pvc</code></td><td><code>pentagon</code></td></tr>
-                <tr><td><code>others</code></td><td><code>diamond</code></td></tr>
-                <tr><td><code>external</code></td><td><code>star</code></td></tr>
-                <tr><td>未知</td><td><code>round-rectangle</code>（FALLBACK，filter 預設可見）</td></tr>
-              </tbody>
-            </table>
-          </div>
+          <h4>Node kind → icon（ICON_SVG_BY_KIND）</h4>
+          <p>
+            身份辨識改由<strong>圖示</strong>而非 cytoscape shape 承擔：所有 leaf node 共用同一容器形狀，kind 差異來自
+            <code>iconSvgByKind.ts</code> 的 SVG。Legend 的 <code>IconGlyph</code> 與 canvas 共用同一份 map。未知 kind 有
+            fallback glyph，filter 預設仍可見。
+          </p>
 
-          <h4>Edge 樣式（COLOR_BY_EDGE_TYPE）</h4>
+          <h4>Edge 樣式（EDGE_STYLE_BY_TYPE）</h4>
           <pre><code>style: {
   'line-color': (ele) => resolveEdgeStyle(ele.data('edgeType'), map).color,
   'line-style': (ele) => resolveEdgeStyle(…).lineStyle,
+  'curve-style': (ele) => map[edgeType].routing === 'taxi' ? 'taxi' : 'bezier',
 }</code></pre>
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>edgeType</th><th>顏色</th><th>線型</th><th>備註</th></tr>
+                <tr><th>edgeType</th><th>備註</th></tr>
               </thead>
               <tbody>
-                <tr><td><code>pod-mounts-pvc</code></td><td>#a855f7</td><td>dotted</td><td></td></tr>
-                <tr><td><code>pod-calls-pod</code></td><td>#f97316</td><td>solid</td><td></td></tr>
-                <tr><td><code>service-selects-pod</code></td><td>#10b981</td><td>dashed</td><td></td></tr>
+                <tr><td><code>pod-mounts-pvc</code></td><td>虛線；storage 關係</td></tr>
+                <tr><td><code>pod-calls-pod</code> / <code>pod-calls-service</code></td><td>服務呼叫；顏色/線型見 map</td></tr>
+                <tr><td><code>service-selects-pod</code></td><td>Service → Pod 選取</td></tr>
+                <tr><td><code>controller-owns-pod</code></td><td><code>controller</code> pod-parent 模式下為 nesting；<code>node</code> 模式下為 drawn edge</td></tr>
+                <tr><td><code>switch-to-switch</code> / <code>node-to-switch</code></td><td>實體 fabric；通常走 taxi routing</td></tr>
                 <tr>
                   <td><code>pod-runs-on-node</code></td>
-                  <td colspan="3">不繪製 — 以 parent nesting 表達，不在 stylesheet / legend / filter 中</td>
+                  <td>
+                    <code>node</code> 模式：不繪製（parent nesting）；<code>controller</code> 模式：drawn edge。實際是否出現在 legend 取決於
+                    目前 mode 下是否有此 edge。
+                  </td>
                 </tr>
-                <tr><td>未知</td><td>#94a3b8</td><td>solid</td><td>FALLBACK</td></tr>
+                <tr><td>未知</td><td>FALLBACK 灰色 solid</td></tr>
               </tbody>
             </table>
           </div>
@@ -1258,18 +1413,227 @@ cy.batch(() => {
             <li><code>useCytoscape</code> diff effect patch cytoscape。</li>
             <li><code>useGraphLayout</code> 只在 layout 或 collapse token 變動時重跑。</li>
             <li><code>useElementFilter</code> 更新 visibility。</li>
-            <li>Tooltip / NodeDetailPanel 讀 normalize 後的 <code>data.*</code> 顯示細節。</li>
+            <li><code>useElementFilter</code> 更新 visibility。</li>
+            <li>左鍵 tap → NodeDetailPanel <code>alerts</code> view；右鍵 cxttap → <code>detail</code> view + Change Report 查詢資格。</li>
+            <li>Tooltip 讀 normalize 後的 <code>data.*</code>；detail panel 讀 <code>resolveSelectedNode</code> 結果。</li>
           </ol>
 
           <div class="callout good">
             <strong>修改捷徑：</strong>上游 JSON → <code>normalize.ts</code>；Grafana frame → <code>useGraphData.ts</code>；
-            形狀/顏色 → <code>shapeByKind.ts</code> / <code>colorByEdgeType.ts</code> / <code>getStylesheet.ts</code>；
-            顯示/隱藏 → <code>computeVisibility.ts</code>；位置 → <code>useGraphLayout.ts</code>。
+            圖示/顏色 → <code>iconSvgByKind.ts</code> / <code>colorByEdgeType.ts</code> / <code>getStylesheet.ts</code>；
+            顯示/隱藏 → <code>computeVisibility.ts</code>；pod 視圖 → <code>pod-parent-mode</code>；switch 分組 →
+            <code>wrapSwitchFabric.ts</code>；位置 → <code>useGraphLayout.ts</code>。
           </div>
         </section>
 
+        <section id="node-detail" class="section">
+          <h2>6. Node Detail 面板</h2>
+          <p>
+            選取節點後，畫布底部會浮出 <code>NodeDetailPanel</code>（z-index 1000，高於 cytoscape 的透明 input canvas）。
+            這是 incident triage 的主要出口：從拓撲節點跳到告警時間軸、ArgoCD application、container image 詳情。
+          </p>
+
+          <h3>6.1 左鍵 vs 右鍵：兩種 view</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>手勢</th>
+                  <th>cytoscape 事件</th>
+                  <th>Panel view</th>
+                  <th>顯示內容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>左鍵 tap</td>
+                  <td><code>tap</code> → <code>onSelect</code></td>
+                  <td><code>alerts</code></td>
+                  <td>僅 <strong>Alerts</strong> 表格（Count / Last occurred / severity / 可點時間 rewind ±5 分鐘）</td>
+                </tr>
+                <tr>
+                  <td>右鍵</td>
+                  <td><code>cxttap</code> → <code>onContextSelect</code></td>
+                  <td><code>detail</code></td>
+                  <td>
+                    僅 <strong>Application</strong> + <strong>Containers</strong> 區塊（需 kind ∈ Workloads 且有對應資料）
+                  </td>
+                </tr>
+                <tr>
+                  <td>點背景 / 關閉</td>
+                  <td><code>tap</code> background / close button</td>
+                  <td>—</td>
+                  <td>清除選取與 detail 查詢意圖</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout">
+            <strong>右鍵必須抑制原生 context menu。</strong><code>GraphCanvas</code> 在 container 上監聽
+            <code>contextmenu</code> 並 <code>preventDefault()</code>，否則瀏覽器選單會蓋過 panel 互動。
+          </div>
+
+          <h3>6.2 哪些節點會顯示 Application / Containers？</h3>
+          <p>
+            <code>DETAIL_URL_KINDS</code> 從 <code>categoryByKind.ts</code> 的 Workloads 類別派生：<code>pod</code> 與五種
+            workload controller（<code>deployment</code>、<code>statefulset</code>、<code>daemonset</code>、<code>job</code>、
+            <code>cronjob</code>）。還需節點實際帶有 <code>application</code> / <code>containers</code> 欄位——舊版 backend 缺欄位時區塊自動隱藏。
+          </p>
+          <ul>
+            <li><strong>Application 區塊</strong>：InteractiveTable 欄位 Name / Change Report；一列 ArgoCD application name + lazy URL 按鈕。</li>
+            <li>
+              <strong>Containers 區塊</strong>：欄位 Name / Image / Change Report；name 單行不換行（<code>whiteSpace: nowrap</code>），image
+              以 <code>break-all</code> 折行；controller 的 containers 由 normalize 自子 pod 聚合去重。
+            </li>
+          </ul>
+
+          <h3>6.3 Lazy Change Report lookup</h3>
+          <p>
+            <code>useNodeDetailUrls</code> 採<strong>點擊才查</strong>（lazy）模式：右鍵開面板時<strong>不</strong>自動打 REST，預設只顯示可點的
+            Change Report 按鈕；使用者點擊後才查 backend，成功以 <code>window.open</code> 開新分頁，失敗在按鈕左側顯示錯誤（可重試）。
+          </p>
+          <div class="flow">
+            <div class="flow-step">
+              <strong>Endpoint 解析（<code>resolveDetailEndpoint</code>）</strong>
+              <br />
+              1) panel option <code>detailEndpoint</code> 非空 → 直接用；2) 否則從 dashboard query 的 datasource ref 推導 Grafana proxy base
+              （<code>/api/datasources/proxy/uid/&lt;uid&gt;</code>）；3) 皆無 → <code>enabled: false</code>，按鈕停用、永不發查詢。
+            </div>
+            <div class="flow-step">
+              <strong>查詢 input（右鍵當下凍結）</strong>
+              <br />
+              <code>{ application, kind, name, time }</code> — <code>time</code> 為右鍵當下 Unix 秒；pod 的 kind/name 取自
+              <code>owner</code>，controller 取自身。request key = endpoint + 上述四欄位，用於快取與 stale 防護。
+            </div>
+            <div class="flow-step">
+              <strong>Application 按鈕 → <code>GET …/api/v1/config_changes</code></strong>
+              <br />
+              回傳 <code>{ "url": string }</code>；成功開 ArgoCD app detail 頁。同一節點、面板仍開啟時，此端點<strong>最多 HTTP 一次</strong>（見 §6.3.1）。
+            </div>
+            <div class="flow-step">
+              <strong>Container 按鈕 → <code>GET …/api/v1/code_changes</code></strong>
+              <br />
+              回傳整包 <code>{ [containerName]: { "url": string } }</code>；以 container name 查 map，缺 key 顯示 Not Found。所有 container
+              列<strong>共用同一次</strong> <code>code_changes</code> 呼叫（見 §6.3.1）。
+            </div>
+          </div>
+          <p>
+            所有 HTTP 必須走 <code>@grafana/runtime</code> 的 <code>getBackendSrv()</code>（Grafana proxy），panel 不直連外部 URL。
+            換選節點、endpoint 變更或關閉 panel 時，狀態重置為 idle、abort in-flight 請求，並清除快取。
+          </p>
+
+          <h4>6.3.1 成功回應快取（design D6）</h4>
+          <p>
+            backend 的 <code>code_changes</code> 一次回傳<strong>整包</strong> container→URL map，因此 hook 以 request key 為界快取<strong>成功</strong>回應的
+            promise（<code>appCacheRef</code> / <code>codeCacheRef</code>）：
+          </p>
+          <ul>
+            <li>第一次點某端點 → 建立 in-flight promise 並快取；後續點擊（含其他 container 列、連續快點）<strong>重用同一 promise</strong>，不再發新 HTTP。</li>
+            <li><strong>失敗不入快取</strong>（404、格式錯誤、網路錯誤）— <code>promise.catch</code> 清 slot，使用者可再點重試。</li>
+            <li>
+              已成功快取的 map 中<strong>缺某 container key</strong> → 該列確定性 Not Found（用快取結果，不重打 API）。
+            </li>
+            <li>成功開分頁後按鈕回到 <code>idle</code>（無 resting success 狀態）；彈窗被擋時顯示 <code>Pop-up blocked</code>。</li>
+          </ul>
+          <div class="callout good">
+            <strong>仍屬 lazy：</strong>快取只在使用者<strong>第一次點擊</strong>後生效；右鍵開面板本身 never fetch。快取生命週期 = 同一節點 + 面板仍開啟。
+          </div>
+
+          <h3>6.4 元件分層</h3>
+          <pre><code>features/node-detail/
+├── components/
+│   ├── NodeDetailPanel/     # 浮動 shell + view 分流
+│   ├── AlertTable/          # InteractiveTable + 時間 rewind
+│   ├── ApplicationTable/    # Application + Change Report 按鈕
+│   └── ContainerTable/      # Name / Image / Change Report 按鈕
+├── hooks/useNodeDetailUrls.ts
+├── resolveDetailEndpoint.ts
+└── detailUrlKinds.ts</code></pre>
+          <p>
+            表格元件保持 presentational：狀態與 <code>open*Report</code> 觸發函式由 hook 提供。Change Report 欄位
+            <strong>釘在右緣</strong>，loading / error 提示渲染在按鈕左側，確保 Application 與 Containers 兩區塊按鈕上下對齊。
+          </p>
+        </section>
+
+        <section id="panel-options" class="section">
+          <h2>7. Panel Options 與變數匯出</h2>
+          <p>選項定義在 <code>KsgPanel.types.ts</code>，editor 在 <code>KsgPanel.editor.tsx</code>。</p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Option</th>
+                  <th>型別 / 預設</th>
+                  <th>用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>layout</code></td>
+                  <td><code>'fcose' | 'dagre'</code>，預設 fcose</td>
+                  <td>graph layout 演算法</td>
+                </tr>
+                <tr>
+                  <td><code>showLegend</code></td>
+                  <td>boolean，預設 true</td>
+                  <td>是否顯示左側 legend rail</td>
+                </tr>
+                <tr>
+                  <td><code>visibleKinds</code></td>
+                  <td><code>NodeKind[]</code>，預設全部</td>
+                  <td>
+                    過濾可見 node kind；與 legend 眼睛按鈕雙向同步（寫入 <code>onOptionsChange</code>，隨 dashboard 持久化）
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>visibleEdgeTypes</code></td>
+                  <td><code>EdgeType[]</code>，預設全部</td>
+                  <td>過濾可見 edge type（options editor multi-select）</td>
+                </tr>
+                <tr>
+                  <td><code>detailEndpoint</code></td>
+                  <td>string，預設 <code>''</code></td>
+                  <td>
+                    Change Report REST base path 覆寫；空字串時自動從 datasource proxy 推導（見 §6.3）
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>podListVariable</code></td>
+                  <td>string，預設 <code>''</code></td>
+                  <td>
+                    要把 graph 中 pod 名稱匯入的<strong>既有</strong> dashboard 變數名稱；空則停用。Demo 設為
+                    <code>pod_list</code> 供下游 Lucene query 使用
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>7.1 Pod 清單變數匯出</h3>
+          <p>
+            <code>useVariableExport</code> 在 graph <strong>成功載入</strong>後，從 <code>baseElements</code>（normalize 後、view transform
+            前）抽出 pod 名稱，透過 <code>writeDashboardVariable</code> 寫入 URL 的 <code>var-&lt;name&gt;</code> 參數。
+          </p>
+          <ul>
+            <li>Panel <strong>不能</strong>建立變數——dashboard 必須事先定義好目標變數（如 <code>pod_list</code>）。</li>
+            <li>
+              loading、query error、normalize 整包失敗時<strong>不寫入</strong>，避免把 transient 錯誤誤匯成「零 pods」。
+            </li>
+            <li>真正零 pod 的 graph 會寫入 Grafana 的 <code>$__empty</code> sentinel。</li>
+          </ul>
+
+          <h3>7.2 不持久化的 session 狀態</h3>
+          <p>以下狀態存在 React local state，<strong>不</strong>寫入 panel options：</p>
+          <ul>
+            <li><code>podParentMode</code>（<code>node</code> / <code>controller</code>）— legend 的 LayoutModeControl 切換</li>
+            <li><code>collapsedIds</code> — cluster / node|controller / storageclass compound 的 fold 狀態</li>
+            <li><code>selectedNodeId</code>、<code>detailRequest</code> — 選取與右鍵查詢意圖</li>
+          </ul>
+        </section>
+
         <section id="react-for-ts" class="section">
-          <h2>6. React 新手速成：用 TypeScript 角度看這個 repo</h2>
+          <h2>8. React 新手速成：用 TypeScript 角度看這個 repo</h2>
           <p>你如果懂 TypeScript，可以把 React component 想成「接收 props、回傳 JSX 的函式」。</p>
 
           <h3>Component = typed function</h3>
@@ -1421,7 +1785,7 @@ return (
           <p>
             讀 <code>KsgPanel.tsx</code> 時，可以先忽略細節，把 JSX 看成條件式 UI 描述： loading 時顯示
             <code>LoadingOverlay</code>，資料錯誤時顯示 <code>Alert</code>， 有資料時顯示
-            <code>GraphCanvas</code>，使用者開啟 legend 時顯示 <code>NodeLegend</code> 與 <code>EdgeLegend</code>。
+            <code>GraphCanvas</code> + 左側 legend rail，選取節點時顯示 <code>NodeDetailPanel</code>（左鍵 alerts / 右鍵 detail）。
           </p>
 
           <h3>何時新增 component？</h3>
@@ -1436,7 +1800,7 @@ return (
         </section>
 
         <section id="debug" class="section">
-          <h2>7. Debug 怎麼跑</h2>
+          <h2>9. Debug 怎麼跑</h2>
 
           <h3>Debug 第一層：確認 build watch</h3>
           <pre><code>npm run dev</code></pre>
@@ -1444,10 +1808,11 @@ return (
 
           <h3>Debug 第二層：確認 Grafana 與 backend</h3>
           <pre><code>docker compose ps
+docker compose --profile backend ps   # 確認 backend stack
 docker compose logs grafana
-docker compose logs kube-state-graph
-docker compose logs victoriametrics
-docker compose logs ksg-seeder</code></pre>
+docker compose --profile backend logs kube-state-graph
+docker compose --profile backend logs victoriametrics
+docker compose --profile backend logs ksg-seeder</code></pre>
           <ul>
             <li>Grafana 應該在 <code>localhost:3000</code>。</li>
             <li>Backend 應該在 compose network 中由 Grafana datasource 連到 <code>kube-state-graph:8080</code>。</li>
@@ -1460,14 +1825,15 @@ docker compose logs ksg-seeder</code></pre>
 
           <h3>Debug 第三層：確認 datasource / dashboard</h3>
           <ul>
-            <li>Dashboard 檔案：<code>provisioning/dashboards/ksg-demo.json</code></li>
+            <li>Dashboard 檔案：<code>provisioning/dashboards/ksg-demo.json</code>、<code>ksg-switch-demo.json</code></li>
             <li>Panel type：<code>marz32one-ksg-panel</code></li>
             <li>
-              Demo query URL：<code>/v1/graph?start=${__from:date:seconds}&amp;end=${__to:date:seconds}&amp;…</code>
-              加上 cluster / namespace / name / edge_type 等 scope 參數（由 template variable 展開）。
-              <strong><code>start</code>/<code>end</code> 時間窗是必要的</strong>，backend 靠它決定查詢區間（接受 Unix 秒或 RFC 3339）。
+              <code>KSG Demo</code> query URL：<code>/v1/graph?start=${__from:date:seconds}&amp;end=${__to:date:seconds}&amp;…</code>
+              加上 cluster / namespace / name / edge_type scope 參數。<strong><code>start</code>/<code>end</code> 是必要的</strong>。
             </li>
-            <li>Datasource UID：<code>ksg-default</code></li>
+            <li><code>KSG Showcase</code> 使用 Infinity INLINE JSON，不需 backend。</li>
+            <li>Datasource UID（Demo）：<code>ksg-default</code></li>
+            <li>Demo panel 預設 <code>podListVariable: "pod_list"</code> — 確認 dashboard 已定義同名變數。</li>
           </ul>
           <div class="callout">
             如果 Grafana 顯示 datasource 找不到，先檢查 Infinity datasource plugin 是否安裝，以及 provisioning
@@ -1507,7 +1873,7 @@ docker compose logs ksg-seeder</code></pre>
         </section>
 
         <section id="change-and-test" class="section">
-          <h2>8. 修改後怎麼測</h2>
+          <h2>10. 修改後怎麼測</h2>
 
           <h3>最常用驗證指令</h3>
           <pre><code>npm run typecheck
@@ -1559,6 +1925,19 @@ npx jest -t "edge auto-hides"</code></pre>
                   <td>確認 loading、empty、error、tooltip、legend 是否正確渲染。</td>
                 </tr>
                 <tr>
+                  <td>node-detail / Change Report</td>
+                  <td>
+                    <code>useNodeDetailUrls.test.ts</code> + <code>ApplicationTable.test.tsx</code> +
+                    <code>ContainerTable.test.tsx</code> + <code>NodeDetailPanel.test.tsx</code>
+                  </td>
+                  <td>lazy lookup 狀態機、endpoint 推導、右鍵 gating、每端點單次 HTTP 快取。</td>
+                </tr>
+                <tr>
+                  <td>variable export</td>
+                  <td><code>extractPodNames.test.ts</code> + <code>useVariableExport.test.ts</code></td>
+                  <td>確認只在成功載入時寫入、空 graph 送 $__empty。</td>
+                </tr>
+                <tr>
                   <td>Panel options</td>
                   <td><code>KsgPanel.test.tsx</code> + 手動在 Grafana options panel 操作</td>
                   <td>Grafana editor 行為通常還需要手動確認。</td>
@@ -1572,30 +1951,34 @@ npx jest -t "edge auto-hides"</code></pre>
 
           <h3>手動驗收 checklist</h3>
           <ul class="checklist">
-            <li>Grafana 能載入 <code>KSG Demo</code> dashboard。</li>
-            <li>Panel loading、empty、error 狀態符合預期。</li>
-            <li>有資料時 nodes / edges 顯示正常。</li>
-            <li>切換 <code>fcose</code> / <code>dagre</code> layout 有效果。</li>
+            <li>Grafana 能載入 <code>KSG Showcase</code>（無 backend）與 <code>KSG Demo</code>（需 <code>--profile backend</code>）。</li>
+            <li>Panel loading、empty、error 狀態符合預期；partial normalize warning 不阻擋渲染。</li>
+            <li>有資料時 nodes / edges 顯示正常；leaf node 圖示與 legend 一致。</li>
+            <li>切換 <code>fcose</code> / <code>dagre</code> layout 有效果；pod-parent mode（node ↔ controller）切換後 nesting / edge 關係正確。</li>
+            <li>Legend 眼睛按鈕可 hide/show kind，與 options editor 的 visible kinds 同步。</li>
             <li>取消某個 node kind 時，該 kind 隱藏，連到它的 edge 也隱藏。</li>
-            <li>取消所有 node kind 時，顯示 <code>All node types filtered</code>。</li>
+            <li>左鍵選 pod/controller → Alerts 表格；點告警時間可 rewind dashboard ±5 分鐘。</li>
+            <li>右鍵選帶 application/containers 的 workload → Application / Containers 區塊；Change Report 按鈕 lazy 查詢。</li>
+            <li><code>pod_list</code> 變數在 graph 載入後更新（Demo dashboard）。</li>
             <li>Hover node / edge 時 tooltip 顯示正確且不擋點擊。</li>
             <li>修改 source 後 webpack rebuild，瀏覽器 refresh 可看到新結果。</li>
           </ul>
         </section>
 
         <section id="where-to-change" class="section">
-          <h2>9. 常見修改位置</h2>
+          <h2>11. 常見修改位置</h2>
 
           <h3>新增一種 node kind</h3>
           <ol>
             <li>改 <code>src/shared/constants/types.ts</code> 的 <code>NodeKind</code> union。</li>
-            <li>改 <code>src/shared/constants/shapeByKind.ts</code> 加 shape。</li>
-            <li>補 <code>normalize.test.ts</code> 或相關 fixture，確認新 kind pass-through。</li>
+            <li>改 <code>src/shared/constants/iconSvgByKind.ts</code> 加 SVG 圖示（須含 XML header，見檔內註解）。</li>
+            <li>視需要更新 <code>categoryByKind.ts</code>（影響 legend 分組與 DETAIL_URL_KINDS gating）。</li>
+            <li>補 <code>normalize.test.ts</code> fixture，確認新 kind pass-through。</li>
             <li>跑 <code>getStylesheet.test.ts</code>、legend 測試、filter 測試。</li>
           </ol>
           <p>
-            因為 <code>ALL_KINDS</code> 來自 <code>SHAPE_BY_KIND</code> keys，legend、filter options、default options
-            都會跟著更新。
+            因為 <code>ALL_KINDS</code> 來自 <code>ICON_SVG_BY_KIND</code> keys（再經 <code>isFilterableKind</code> 過濾），legend、filter
+            options、default options 都會跟著更新。
           </p>
 
           <h3>新增一種 edge type</h3>
@@ -1610,8 +1993,8 @@ npx jest -t "edge auto-hides"</code></pre>
             優先改 <code>getStylesheet.ts</code>，不要在 component 裡直接呼叫 <code>cy.style().selector(...)</code>。
           </p>
           <ul>
-            <li>Node shape：通常從 <code>SHAPE_BY_KIND</code> 改。</li>
-            <li>Edge color / line style：通常從 <code>COLOR_BY_EDGE_TYPE</code> 改。</li>
+            <li>Node icon：從 <code>ICON_SVG_BY_KIND</code> 改（canvas 與 legend 共用）。</li>
+            <li>Edge color / line style / routing：從 <code>EDGE_STYLE_BY_TYPE</code> 改。</li>
             <li>通用 node / edge 樣式：改 <code>getStylesheet.ts</code>。</li>
             <li>Grafana theme 相關：看 <code>useGraphTheme.ts</code> 與 <code>getStylesheet.ts</code>。</li>
           </ul>
@@ -1647,6 +2030,17 @@ npx jest -t "edge auto-hides"</code></pre>
             <li>不要在 render 時反覆查 cytoscape instance；資料應由 hover hook 整理好。</li>
           </ul>
 
+          <h3>改 Node Detail / Change Report</h3>
+          <ol>
+            <li>UI 區塊：<code>NodeDetailPanel.tsx</code>、<code>ApplicationTable</code>、<code>ContainerTable</code>。</li>
+            <li>查詢邏輯：<code>useNodeDetailUrls.ts</code>（保持 lazy imperative 模式）。</li>
+            <li>Endpoint：<code>resolveDetailEndpoint.ts</code> 或 panel option <code>detailEndpoint</code>。</li>
+            <li>右鍵接線：<code>GraphCanvas.tsx</code> 的 <code>cxttap</code> + <code>KsgPanel.tsx</code> 的 <code>detailRequest</code>。</li>
+          </ol>
+
+          <h3>改 pod 清單變數匯出</h3>
+          <p>看 <code>features/variable-export/</code>：<code>extractPodNames.ts</code> 決定抽哪些 pod；<code>writeDashboardVariable.ts</code> 寫 URL。</p>
+
           <h3>上游 API schema 變了</h3>
           <p>先改測試，再改實作：</p>
           <ol>
@@ -1664,7 +2058,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="best-practices" class="section">
-          <h2>10. Best Practices</h2>
+          <h2>12. Best Practices</h2>
 
           <h3>專案邊界</h3>
           <ul>
@@ -1733,10 +2127,23 @@ npx jest -t "edge auto-hides"</code></pre>
 
           <h3>樣式與常數</h3>
           <ul>
-            <li><code>shapeByKind.ts</code> 與 <code>colorByEdgeType.ts</code> 是單一資料源。</li>
+            <li><code>iconSvgByKind.ts</code> 與 <code>colorByEdgeType.ts</code> 是 node / edge 視覺的單一資料源。</li>
             <li>Legend、filter option、stylesheet 都應從常數 map 派生。</li>
             <li>不要在三個地方分別手寫同一份 kind / edge type 清單。</li>
             <li>cytoscape stylesheet 用 pure factory，方便單測。</li>
+            <li>
+              panel 對外 HTTP 必須走 <code>getBackendSrv()</code> + Grafana datasource proxy，不要自建 fetch client 直連外部。
+            </li>
+          </ul>
+
+          <h3>Node Detail</h3>
+          <ul>
+            <li>左鍵 / 右鍵 view 分流保持互斥：alerts 與 Application/Containers 不要在同一 view 混排。</li>
+            <li>Change Report 維持 lazy：右鍵開面板不 eager fetch；成功用 <code>window.open</code>，不在 panel 內嵌 URL。</li>
+            <li>
+              成功回應可快取至換節點 / 關 panel：<code>code_changes</code> 整包 map 只打一次；失敗不入快取以便重試。
+            </li>
+            <li>表格元件 presentational，查詢狀態集中在 <code>useNodeDetailUrls</code>。</li>
           </ul>
 
           <h3>測試策略</h3>
@@ -1752,7 +2159,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="testing-map" class="section">
-          <h2>11. 測試地圖</h2>
+          <h2>13. 測試地圖</h2>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1796,7 +2203,31 @@ npx jest -t "edge auto-hides"</code></pre>
                 </tr>
                 <tr>
                   <td><code>KsgPanel.test.tsx</code></td>
-                  <td>panel loading / error / empty / graph 狀態。</td>
+                  <td>panel loading / error / empty / graph、detail panel、variable export、legend toggle、cxttap。</td>
+                </tr>
+                <tr>
+                  <td><code>useNodeDetailUrls.test.ts</code></td>
+                  <td>lazy Change Report、成功 promise 快取、失敗可重試、abort on node change。</td>
+                </tr>
+                <tr>
+                  <td><code>NodeDetailPanel.test.tsx</code></td>
+                  <td>alerts vs detail view 分流、kind gating、lookups disabled 預設。</td>
+                </tr>
+                <tr>
+                  <td><code>ApplicationTable.test.tsx</code> / <code>ContainerTable.test.tsx</code></td>
+                  <td>Change Report 按鈕 onClick、loading/error 提示 DOM 順序。</td>
+                </tr>
+                <tr>
+                  <td><code>extractPodNames.test.ts</code> / <code>useVariableExport.test.ts</code></td>
+                  <td>pod 名稱抽取、enabled gate、writeDashboardVariable 呼叫時機。</td>
+                </tr>
+                <tr>
+                  <td><code>wrapSwitchFabric.test.ts</code></td>
+                  <td>switch 合成 network 容器、已有 network 時 backoff。</td>
+                </tr>
+                <tr>
+                  <td><code>NodeLegend.test.tsx</code></td>
+                  <td>per-kind 眼睛 toggle、category 分組、dimmed 列。</td>
                 </tr>
               </tbody>
             </table>
@@ -1804,7 +2235,32 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="troubleshooting" class="section">
-          <h2>12. 常見問題</h2>
+          <h2>14. 常見問題</h2>
+
+          <h3>KSG Demo 顯示 datasource 錯誤，但 Showcase 正常</h3>
+          <p>
+            預期行為：未加 <code>--profile backend</code> 時 backend stack 未啟動，<code>KSG Demo</code> 的 Infinity proxy 會失敗。
+            執行 <code>docker compose --profile backend up -d</code> 或改用 <code>KSG Showcase</code>。
+          </p>
+
+          <h3>Change Report 按鈕永遠 disabled 或查詢 404</h3>
+          <ul>
+            <li>確認 backend 已實作 <code>/api/v1/config_changes</code> 與 <code>/api/v1/code_changes</code>。</li>
+            <li>檢查 <code>detailEndpoint</code> option 或 datasource proxy 推導是否正確（DevTools Network）。</li>
+            <li>節點需有 <code>application</code> 欄位且為右鍵觸發（左鍵不發查詢）。</li>
+            <li>backend 未就緒時 lazy 模式不會在開面板時顯示 Not Found——需<strong>點擊</strong>按鈕才會看到錯誤。</li>
+            <li>
+              DevTools 中同一節點第二次點不同 container 的 Change Report<strong>不應</strong>再出現第二個
+              <code>code_changes</code> 請求（正常：共用快取）；換節點或關 panel 後才應重新 fetch。
+            </li>
+          </ul>
+
+          <h3>pod_list 變數沒有更新</h3>
+          <ul>
+            <li>確認 panel option <code>podListVariable</code> 與 dashboard 變數名稱一致。</li>
+            <li>變數必須事先存在於 dashboard templating（panel 不能建立變數）。</li>
+            <li>query 失敗或 normalize 整包失敗時 intentionally 不寫入。</li>
+          </ul>
 
           <h3>Grafana 顯示 unsigned plugin warning</h3>
           <p>
@@ -1862,7 +2318,7 @@ npx jest -t "edge auto-hides"</code></pre>
         </section>
 
         <section id="glossary" class="section">
-          <h2>13. 名詞表</h2>
+          <h2>15. 名詞表</h2>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1909,6 +2365,25 @@ npx jest -t "edge auto-hides"</code></pre>
                   <td>cytoscape 的階層式 layout extension。</td>
                 </tr>
                 <tr>
+                  <td>PodParentMode</td>
+                  <td>
+                    <code>'node' | 'controller'</code>：決定 pod 嵌在 K8s node 還是 workload controller 下，以及哪些 edge 被繪製。
+                  </td>
+                </tr>
+                <tr>
+                  <td>Change Report</td>
+                  <td>
+                    Node Detail 中 lazy 觸發的 REST lookup（<code>config_changes</code> / <code>code_changes</code>），經 Grafana proxy
+                    開新分頁；同一節點開啟期間每端點最多 HTTP 一次（成功 promise 快取）。
+                  </td>
+                </tr>
+                <tr>
+                  <td>getBackendSrv</td>
+                  <td>
+                    <code>@grafana/runtime</code> 提供的 HTTP 客戶端；panel 對外 REST 必須走它（含 Change Report），不可直連外部 URL。
+                  </td>
+                </tr>
+                <tr>
                   <td>barrel</td>
                   <td><code>index.ts</code> re-export 對外 API，讓其他 feature 不需要 import 內部路徑。</td>
                 </tr>
@@ -1919,10 +2394,11 @@ npx jest -t "edge auto-hides"</code></pre>
 
         <footer>
           <p>
-            這份文件依據 repo 目前的 <code>README.md</code>、<code>package.json</code>、<code>src/**</code> 與
-            <code>openspec/changes/scaffold-ksg-panel</code> 整理。若實作與 OpenSpec
-            發散，請以目前程式碼與測試為準，並回頭更新 spec。
+            這份文件依據 <code>feat/node-detail-panel</code> 分支上的 <code>README.md</code>、<code>CLAUDE.md</code>、
+            <code>src/**</code> 與 <code>openspec/specs/</code> 整理（含 application-detail-panel、pod-list-variable-export、
+            lazy-change-report-lookup（含 D6 成功快取）等變更）。若實作與 OpenSpec 發散，請以目前程式碼與測試為準，並回頭更新 spec。
           </p>
+          <p class="muted">最後對照分支：<code>feat/node-detail-panel</code> · 2026-06-13（含 <code>73e75b8</code> Change Report cache）</p>
         </footer>
       </main>
     </div>
