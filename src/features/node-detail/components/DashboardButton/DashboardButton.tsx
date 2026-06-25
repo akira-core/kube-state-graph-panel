@@ -7,12 +7,13 @@ import type { DashboardButtonProps } from './DashboardButton.types';
 
 function getStyles(theme: GrafanaTheme2): { menuHost: string; menu: string } {
   return {
-    menuHost: css({ position: 'relative', display: 'inline-flex' }),
+    // z-index lifts the overflowed menu above the panel body (a later DOM sibling).
+    menuHost: css({ position: 'relative', display: 'inline-flex', zIndex: theme.zIndex.dropdown }),
     menu: css({
       position: 'absolute',
       top: '100%',
       left: 0,
-      zIndex: 1,
+      zIndex: theme.zIndex.dropdown,
       marginTop: 4,
       minWidth: 160,
       boxShadow: theme.shadows.z3,
@@ -53,21 +54,31 @@ export function DashboardButton({ state }: Readonly<DashboardButtonProps>): Reac
     );
   }
 
+  const stopPointerBubble = (event: React.MouseEvent): void => {
+    event.stopPropagation();
+  };
+
   return (
-    <div className={styles.menuHost} data-testid="node-detail-dashboards-menu">
-      <Button
-        size="sm"
-        variant="secondary"
-        fill="outline"
-        icon="external-link-alt"
-        onClick={(): void => {
-          setMenuOpen((open) => !open);
-        }}
+    <ClickOutsideWrapper onClick={(): void => setMenuOpen(false)}>
+      <div
+        className={styles.menuHost}
+        data-testid="node-detail-dashboards-menu"
+        onMouseDown={stopPointerBubble}
       >
-        Dashboards
-      </Button>
-      {menuOpen && (
-        <ClickOutsideWrapper onClick={(): void => setMenuOpen(false)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          fill="outline"
+          icon="external-link-alt"
+          onMouseDown={stopPointerBubble}
+          onClick={(event): void => {
+            stopPointerBubble(event);
+            setMenuOpen((open) => !open);
+          }}
+        >
+          Dashboards
+        </Button>
+        {menuOpen && (
           <div className={styles.menu}>
             <Menu ariaLabel="Node dashboards">
               {urls.map((link, index) => (
@@ -83,8 +94,8 @@ export function DashboardButton({ state }: Readonly<DashboardButtonProps>): Reac
               ))}
             </Menu>
           </div>
-        </ClickOutsideWrapper>
-      )}
-    </div>
+        )}
+      </div>
+    </ClickOutsideWrapper>
   );
 }
