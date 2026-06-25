@@ -3,24 +3,16 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { DashboardParams } from '../assembleDashboardParams';
 import { DETAIL_DASHBOARD_PATH } from '../detailPaths';
+import { parseDashboardLinks, type DashboardLink } from '../parseDashboardLinks';
 
 // 200-gated visibility: button renders only on 'ready'; 'loading'/'unavailable' render nothing.
-export type DashboardLookup = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
+export type DashboardLookup =
+  | { status: 'loading' }
+  | { status: 'ready'; urls: readonly DashboardLink[] }
+  | { status: 'unavailable' };
 
 const LOADING: DashboardLookup = { status: 'loading' };
 const UNAVAILABLE: DashboardLookup = { status: 'unavailable' };
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-// dashboard contract `{ "url": string }`: a non-empty `url` is the sole availability criterion; anything else → unavailable.
-function parseDashboardUrl(res: unknown): string | undefined {
-  if (isPlainObject(res) && typeof res.url === 'string' && res.url.length > 0) {
-    return res.url;
-  }
-  return undefined;
-}
 
 // Order-independent request key: an equal-value param map (fresh identity) must not refire the effect.
 function serializeParams(base: string, params: DashboardParams): string {
@@ -82,17 +74,17 @@ export function useNodeDashboardUrl(params: DashboardParams | undefined, endpoin
         abortSignal: controller.signal,
         showErrorAlert: false,
       })
-      .then((res): string => {
-        const url = parseDashboardUrl(res);
-        if (url === undefined) {
-          throw new Error('Not Found'); // malformed 200 / empty url → unavailable
+      .then((res): DashboardLink[] => {
+        const urls = parseDashboardLinks(res);
+        if (urls === undefined) {
+          throw new Error('Not Found'); // malformed 200 / empty links → unavailable
         }
-        return url;
+        return urls;
       })
       .then(
-        (url) => {
+        (urls) => {
           if (!controller.signal.aborted) {
-            setResult({ key: k, value: { status: 'ready', url } });
+            setResult({ key: k, value: { status: 'ready', urls } });
           }
         },
         () => {
