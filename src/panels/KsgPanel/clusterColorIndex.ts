@@ -1,9 +1,8 @@
 import type cytoscape from 'cytoscape';
 
 // Index each backend cluster container's accent colour by its node id, so the node /
-// controller / storageclass swatch derivations can tint a contained node from its
-// parent cluster. Single source for the `isCluster` → `clusterColor` scan that was
-// otherwise duplicated across deriveContainers + deriveStorageClassContainers.
+// controller swatch derivation can tint a contained node from its parent cluster.
+// Single source for the `isCluster` → `clusterColor` scan used by deriveContainers.
 export function buildClusterColorIndex(elements: readonly cytoscape.ElementDefinition[]): Map<string, string> {
   const byId = new Map<string, string>();
   for (const el of elements) {

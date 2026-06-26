@@ -61,20 +61,47 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('1.2.3')).toBeInTheDocument();
   });
 
-  it('shows synthesized context for a storageclass group (kind + cluster + grouped PVCs)', () => {
+  it('shows a storageclass leaf via the normal node path (own kind + provisioner, no synthesized PVC list)', () => {
     useHoverElement.mockReturnValue({
       id: 'prod/storageclass/fast-ssd',
       group: 'nodes',
-      data: { id: 'prod/storageclass/fast-ssd', label: 'fast-ssd', isStorageClass: true, labels: {} },
-      storageClass: { cluster: 'prod', pvcLabels: ['data-mongo-0', 'data-mongo-1', 'data-mongo-2'] },
+      data: {
+        id: 'prod/storageclass/fast-ssd',
+        label: 'fast-ssd',
+        kind: 'storageclass',
+        provisioner: 'rook-ceph.rbd.csi.ceph.com',
+        labels: { cluster: 'prod' },
+      },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByText('fast-ssd')).toBeInTheDocument(); // title (name)
-    expect(screen.getByText('storageclass')).toBeInTheDocument(); // synthesized kind value
-    expect(screen.getByText('cluster:')).toBeInTheDocument();
-    expect(screen.getByText('prod')).toBeInTheDocument();
-    expect(screen.getByText('PVCs (3):')).toBeInTheDocument();
-    expect(screen.getByText('data-mongo-0, data-mongo-1, data-mongo-2')).toBeInTheDocument();
+    expect(screen.getByText('storageclass')).toBeInTheDocument(); // its own kind
+    expect(screen.getByText('provisioner:')).toBeInTheDocument(); // MAY surface provisioner
+    expect(screen.getByText('rook-ceph.rbd.csi.ceph.com')).toBeInTheDocument();
+    // No synthesized "PVCs (N)" list (that path was removed when storageclass became a leaf).
+    expect(screen.queryByText(/^PVCs/)).toBeNull();
+  });
+
+  it('shows a synthetic kind for a kind-less application group (so hover is not just the bare name)', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/app/mongodb',
+      group: 'nodes',
+      data: { id: 'prod/app/mongodb', label: 'mongodb', isApplication: true, applicationColor: '#0ea5e9', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('mongodb')).toBeInTheDocument(); // title (name)
+    expect(screen.getByText('kind:')).toBeInTheDocument();
+    expect(screen.getByText('application')).toBeInTheDocument();
+  });
+
+  it('shows a synthetic kind for a kind-less namespace group', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/ns/shop',
+      group: 'nodes',
+      data: { id: 'prod/ns/shop', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('namespace')).toBeInTheDocument();
   });
 
   it('joins multiple ip addresses with a comma', () => {

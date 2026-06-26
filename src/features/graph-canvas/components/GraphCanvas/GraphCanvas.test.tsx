@@ -20,6 +20,11 @@ const elements: cytoscape.ElementDefinition[] = [
   { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0' } },
   // Cluster backplate: decorative, never selectable (mirrors normalize).
   { group: 'nodes', selectable: false, data: { id: 'cl', isCluster: true, label: 'demo' } },
+  // Namespace group: decorative, never selectable (mirrors normalize).
+  { group: 'nodes', selectable: false, data: { id: 'ns', isNamespace: true, label: 'shop' } },
+  // Controller group: detail-eligible, so it stays SELECTABLE (no selectable:false) — its
+  // clicks must reach the detail panel (mirrors normalize).
+  { group: 'nodes', data: { id: 'ctrl', isController: true, kind: 'statefulset', label: 'mongo' } },
 ];
 
 function renderCanvas(handlers: {
@@ -31,7 +36,7 @@ function renderCanvas(handlers: {
       elements={elements}
       stylesheet={[]}
       layout="fcose"
-      visibility={{ visibleNodeIds: new Set(['p1', 'cl']), visibleEdgeIds: new Set() }}
+      visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
       selectedId={null}
       {...handlers}
     />
@@ -56,12 +61,26 @@ describe('GraphCanvas right-click (cxttap) wiring', () => {
     expect(onContextSelect).toHaveBeenCalledWith('p1');
   });
 
-  it('ignores cxttap on the background and on non-selectable cluster backplates', () => {
+  it('ignores cxttap on the background and on non-selectable cluster / namespace backplates', () => {
     const onContextSelect = jest.fn();
     renderCanvas({ onContextSelect });
     mockCyRef.current!.emit('cxttap'); // background
-    mockCyRef.current!.getElementById('cl').emit('cxttap'); // decorative container
+    mockCyRef.current!.getElementById('cl').emit('cxttap'); // decorative cluster
+    mockCyRef.current!.getElementById('ns').emit('cxttap'); // decorative namespace group
     expect(onContextSelect).not.toHaveBeenCalled();
+  });
+
+  it('routes a selectable controller group through both tap and cxttap (detail panel must open)', () => {
+    // Regression: a controller is detail-eligible, so normalize keeps it selectable.
+    // If it were selectable:false (like the decorative groups) the canvas gate would
+    // silently drop every controller click and the detail panel would never open.
+    const onSelect = jest.fn();
+    const onContextSelect = jest.fn();
+    renderCanvas({ onSelect, onContextSelect });
+    mockCyRef.current!.getElementById('ctrl').emit('tap');
+    expect(onSelect).toHaveBeenCalledWith('ctrl');
+    mockCyRef.current!.getElementById('ctrl').emit('cxttap');
+    expect(onContextSelect).toHaveBeenCalledWith('ctrl');
   });
 
   it('does not route cxttap through the left-tap onSelect path (and vice versa)', () => {

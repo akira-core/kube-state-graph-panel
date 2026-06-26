@@ -313,12 +313,22 @@ describe('KsgPanel', () => {
   });
 
   it('collapses all k8s-node containers via the node legend toggle and passes collapsedIds to GraphCanvas', () => {
+    // D6: the pod nests under its cluster (no controller here) and carries labels.node;
+    // node mode re-parents it under demo/node-a, making node-a a container.
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
           { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
-          { data: { id: 'demo/p1', type: 'pod', name: 'web', parent: 'demo/node-a', labels: { cluster: 'demo' } } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'web',
+              parent: 'cluster:demo',
+              labels: { cluster: 'demo', node: 'demo/node-a' },
+            },
+          },
         ],
         edges: [],
       },
@@ -355,30 +365,37 @@ describe('KsgPanel', () => {
     expect(screen.getByLabelText('Controller')).toBeInTheDocument();
   });
 
-  it('defaults to controller mode: titles the section "Controllers" and default-collapses every controller on initial load', () => {
-    const payload = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
-          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
-          {
-            data: {
-              id: 'demo/p1',
-              type: 'pod',
-              name: 'mongo-0',
-              parent: 'demo/node-a',
-              owner: { kind: 'StatefulSet', name: 'mongo' },
-              labels: { cluster: 'demo', namespace: 'shop' },
-            },
+  // Backend D6 controller group: cluster > controller > pod (pod carries owner +
+  // labels.node so node mode can re-home it). The panel consumes + enriches this.
+  const d6ControllerPayload = {
+    elements: {
+      nodes: [
+        { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+        { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+        {
+          data: { id: 'demo/controller/StatefulSet/mongo', type: 'controller', name: 'mongo', parent: 'cluster:demo' },
+        },
+        {
+          data: {
+            id: 'demo/p1',
+            type: 'pod',
+            name: 'mongo-0',
+            parent: 'demo/controller/StatefulSet/mongo',
+            owner: { kind: 'StatefulSet', name: 'mongo' },
+            labels: { cluster: 'demo', namespace: 'shop', node: 'demo/node-a' },
           },
-        ],
-        edges: [],
-      },
-    };
+        },
+      ],
+      edges: [],
+    },
+  };
+  const D6_CONTROLLER_ID = 'demo/controller/StatefulSet/mongo';
+
+  it('defaults to controller mode: titles the section "Controllers" and default-collapses every controller on initial load', () => {
     const frame: DataFrame = {
       name: 'graph',
       length: 1,
-      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(d6ControllerPayload)] }],
     };
     render(
       <KsgPanel
@@ -392,37 +409,18 @@ describe('KsgPanel', () => {
     // on initial load — no toggle needed.
     const containerLegend = screen.getByTestId('node-container-legend');
     expect(within(containerLegend).getByRole('heading', { name: /Controllers/ })).toBeInTheDocument();
-    // …and the synthesized controller is default-collapsed (pushed to GraphCanvas)
+    // …and the backend controller is default-collapsed (pushed to GraphCanvas)
     // by the initial-load effect once the graph data is present.
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
     const lastCall = calls.at(-1)?.[0];
-    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+    expect(lastCall?.collapsedIds?.has(D6_CONTROLLER_ID)).toBe(true);
   });
 
   it('re-collapses controllers after leaving and re-entering controller mode', () => {
-    const payload = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
-          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
-          {
-            data: {
-              id: 'demo/p1',
-              type: 'pod',
-              name: 'mongo-0',
-              parent: 'demo/node-a',
-              owner: { kind: 'StatefulSet', name: 'mongo' },
-              labels: { cluster: 'demo', namespace: 'shop' },
-            },
-          },
-        ],
-        edges: [],
-      },
-    };
     const frame: DataFrame = {
       name: 'graph',
       length: 1,
-      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(d6ControllerPayload)] }],
     };
     render(
       <KsgPanel
@@ -432,7 +430,7 @@ describe('KsgPanel', () => {
         })}
       />
     );
-    // Leave controller mode (node mode drops the synthesized controller container).
+    // Leave controller mode (node mode drops the backend controller container).
     act(() => {
       fireEvent.click(screen.getByLabelText('Node'));
     });
@@ -442,33 +440,54 @@ describe('KsgPanel', () => {
     });
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
     const lastCall = calls.at(-1)?.[0];
-    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
+    expect(lastCall?.collapsedIds?.has(D6_CONTROLLER_ID)).toBe(true);
   });
 
-  it('renders a Namespaces legend section in controller mode (none in node mode) and does NOT default-collapse namespace boxes', () => {
-    const payload = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
-          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
-          {
-            data: {
-              id: 'demo/p1',
-              type: 'pod',
-              name: 'mongo-0',
-              parent: 'demo/node-a',
-              owner: { kind: 'StatefulSet', name: 'mongo' },
-              labels: { cluster: 'demo', namespace: 'shop' },
-            },
+  // Full backend D6 chain (cluster > namespace > application > controller > pod) for
+  // the mode-gated swatch sections + section ordering.
+  const d6FullChainPayload = {
+    elements: {
+      nodes: [
+        { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+        { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+        { data: { id: 'demo/namespace/shop', type: 'namespace', name: 'shop', parent: 'cluster:demo' } },
+        {
+          data: {
+            id: 'demo/application/checkout',
+            type: 'application',
+            name: 'checkout',
+            parent: 'demo/namespace/shop',
           },
-        ],
-        edges: [],
-      },
-    };
+        },
+        {
+          data: {
+            id: 'demo/controller/StatefulSet/mongo',
+            type: 'controller',
+            name: 'mongo',
+            parent: 'demo/application/checkout',
+          },
+        },
+        {
+          data: {
+            id: 'demo/p1',
+            type: 'pod',
+            name: 'mongo-0',
+            parent: 'demo/controller/StatefulSet/mongo',
+            owner: { kind: 'StatefulSet', name: 'mongo' },
+            labels: { cluster: 'demo', namespace: 'shop', node: 'demo/node-a' },
+          },
+        },
+      ],
+      // A pod-to-node edge so the Edge Types section renders (drawn in controller mode).
+      edges: [{ data: { id: 'e-ptn', type: 'pod-to-node', source: 'demo/p1', target: 'demo/node-a' } }],
+    },
+  };
+
+  it('renders a Namespaces legend section in controller mode (none in node mode) and does NOT default-collapse namespace boxes', () => {
     const frame: DataFrame = {
       name: 'graph',
       length: 1,
-      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(d6FullChainPayload)] }],
     };
     render(
       <KsgPanel
@@ -481,41 +500,61 @@ describe('KsgPanel', () => {
     // Controller mode (default): a Namespaces swatch section appears.
     const nsLegend = screen.getByTestId('namespace-legend');
     expect(within(nsLegend).getByRole('heading', { name: /Namespaces/ })).toBeInTheDocument();
-    // The synthesized controller IS default-collapsed, but its namespace box is NOT —
+    // The backend controller IS default-collapsed, but its namespace box is NOT —
     // namespace stays expanded so the grouped content is visible.
     const calls = graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>;
     const lastCall = calls.at(-1)?.[0];
-    expect(lastCall?.collapsedIds?.has('ctrl/demo/shop/statefulset/mongo')).toBe(true);
-    expect(lastCall?.collapsedIds?.has('nsbox/cluster:demo/shop')).toBe(false);
-    // Node mode draws no namespace → no section.
+    expect(lastCall?.collapsedIds?.has('demo/controller/StatefulSet/mongo')).toBe(true);
+    expect(lastCall?.collapsedIds?.has('demo/namespace/shop')).toBe(false);
+    // Node mode strips namespace groups → no section.
     act(() => {
       fireEvent.click(screen.getByLabelText('Node'));
     });
     expect(screen.queryByTestId('namespace-legend')).not.toBeInTheDocument();
   });
 
-  it('renders a "Storage classes" legend section and default-folds storage classes on load (toggle expands)', () => {
+  it('renders an Applications legend section in controller mode (none in node mode)', () => {
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(d6FullChainPayload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const appLegend = screen.getByTestId('application-legend');
+    expect(within(appLegend).getByRole('heading', { name: /Applications/ })).toBeInTheDocument();
+    fireEvent.click(within(appLegend).getByTestId('application-legend-fold-toggle'));
+    expect(within(appLegend).getByText('checkout')).toBeInTheDocument();
+    // Node mode strips application groups → no section.
+    act(() => {
+      fireEvent.click(screen.getByLabelText('Node'));
+    });
+    expect(screen.queryByTestId('application-legend')).not.toBeInTheDocument();
+  });
+
+  it('lists a backend D6 storageclass leaf as a NodeLegend glyph, with NO separate Storage Classes swatch section', () => {
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
           {
-            data: { id: 'demo/storageclass/fast-ssd', type: 'storageclass', name: 'fast-ssd', parent: 'cluster:demo' },
-          },
-          {
             data: {
-              id: 'demo/pvc-0',
-              type: 'pvc',
-              name: 'data-0',
-              parent: 'demo/storageclass/fast-ssd',
-              labels: { cluster: 'demo' },
+              id: 'demo/storageclass/fast-ssd',
+              type: 'storageclass',
+              name: 'fast-ssd',
+              parent: 'cluster:demo',
+              provisioner: 'ebs.csi.aws.com',
             },
           },
-          {
-            data: { id: 'demo/p0', type: 'pod', name: 'mongo-0', parent: 'cluster:demo', labels: { cluster: 'demo' } },
-          },
+          { data: { id: 'demo/pvc-0', type: 'pvc', name: 'data-0', parent: 'cluster:demo', labels: { cluster: 'demo' } } },
         ],
-        edges: [{ data: { id: 'e0', type: 'pod-mounts-pvc', source: 'demo/p0', target: 'demo/pvc-0' } }],
+        edges: [{ data: { id: 'e0', type: 'pvc-to-storageclass', source: 'demo/pvc-0', target: 'demo/storageclass/fast-ssd' } }],
       },
     };
     const frame: DataFrame = {
@@ -531,48 +570,17 @@ describe('KsgPanel', () => {
         })}
       />
     );
-    const legend = screen.getByTestId('storageclass-legend');
-    expect(within(legend).getByRole('heading', { name: /Storage Classes/ })).toBeInTheDocument();
-    fireEvent.click(within(legend).getByTestId('storageclass-legend-fold-toggle'));
-    expect(within(legend).getByText('fast-ssd')).toBeInTheDocument();
-    // Storage-class containers are DEFAULT-folded on first load (mode-independent),
-    // pushed to GraphCanvas without any user action.
-    const initial = (graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>).at(-1)?.[0];
-    expect(initial?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(true);
-    // The collapse-all toggle now EXPANDS (already collapsed) → removes the id.
-    fireEvent.click(screen.getByTestId('storageclass-collapse-toggle'));
-    const afterToggle = (graphCanvasSpy.mock.calls as Array<[{ collapsedIds?: Set<string> }]>).at(-1)?.[0];
-    expect(afterToggle?.collapsedIds?.has('demo/storageclass/fast-ssd')).toBe(false);
+    // The retired Storage Classes swatch section is gone entirely.
+    expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
+    // storageclass shows as a leaf glyph in the Node Kinds legend (Storage category).
+    expect(screen.getByTestId('node-legend-row-storageclass')).toBeInTheDocument();
   });
 
-  it('orders legend sections with the swatch sections (Clusters / Storage Classes) AFTER Status', () => {
-    const payload = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
-          {
-            data: { id: 'demo/storageclass/fast-ssd', type: 'storageclass', name: 'fast-ssd', parent: 'cluster:demo' },
-          },
-          {
-            data: {
-              id: 'demo/pvc-0',
-              type: 'pvc',
-              name: 'data-0',
-              parent: 'demo/storageclass/fast-ssd',
-              labels: { cluster: 'demo' },
-            },
-          },
-          {
-            data: { id: 'demo/p0', type: 'pod', name: 'mongo-0', parent: 'cluster:demo', labels: { cluster: 'demo' } },
-          },
-        ],
-        edges: [{ data: { id: 'e0', type: 'pod-mounts-pvc', source: 'demo/p0', target: 'demo/pvc-0' } }],
-      },
-    };
+  it('orders legend sections with the swatch sections (Clusters → Namespaces → Applications) AFTER Status', () => {
     const frame: DataFrame = {
       name: 'graph',
       length: 1,
-      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(d6FullChainPayload)] }],
     };
     render(
       <KsgPanel
@@ -588,9 +596,10 @@ describe('KsgPanel', () => {
     expect(idx(/node kinds/i)).toBeGreaterThanOrEqual(0);
     expect(idx(/node kinds/i)).toBeLessThan(idx(/edge types/i));
     expect(idx(/edge types/i)).toBeLessThan(idx(/status/i));
-    // … then the swatch sections, moved BELOW Status.
+    // … then the swatch sections, moved BELOW Status, in Clusters → Namespaces → Applications order.
     expect(idx(/status/i)).toBeLessThan(idx(/clusters/i));
-    expect(idx(/clusters/i)).toBeLessThan(idx(/storage classes/i));
+    expect(idx(/clusters/i)).toBeLessThan(idx(/namespaces/i));
+    expect(idx(/namespaces/i)).toBeLessThan(idx(/applications/i));
   });
 
   it('does not render the cluster legend when there are no clusters', () => {
@@ -598,7 +607,7 @@ describe('KsgPanel', () => {
     expect(screen.queryByTestId('cluster-legend')).not.toBeInTheDocument();
   });
 
-  it('does not render the storage-class legend when there are no storage classes', () => {
+  it('never renders the retired Storage Classes swatch section', () => {
     render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
     expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
   });
@@ -761,20 +770,23 @@ describe('KsgPanel', () => {
     expect(node?.alerts).toEqual(alerts);
   });
 
-  it('resolveSelectedNode opens for k8s-node + controller compounds, not cluster/namespace/storageclass (D2 scope)', () => {
+  it('resolveSelectedNode opens for k8s-node + controller + storageclass-leaf, not cluster/namespace/application (D6 scope)', () => {
     const elements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'node1', kind: 'node', label: 'ip-10' } },
       { group: 'nodes', data: { id: 'ctrl', kind: 'statefulset', label: 'mongo', isController: true } },
+      { group: 'nodes', data: { id: 'sc', kind: 'storageclass', label: 'fast', provisioner: 'ebs.csi.aws.com' } },
       { group: 'nodes', data: { id: 'cl', label: 'demo', isCluster: true } },
-      { group: 'nodes', data: { id: 'sc', kind: 'storageclass', label: 'fast', isStorageClass: true } },
       { group: 'nodes', data: { id: 'ns', label: 'shop', isNamespace: true } },
+      { group: 'nodes', data: { id: 'app', label: 'checkout', isApplication: true } },
     ];
-    const vis = new Set(['node1', 'ctrl', 'cl', 'sc', 'ns']);
+    const vis = new Set(['node1', 'ctrl', 'sc', 'cl', 'ns', 'app']);
     expect(resolveSelectedNode(elements, 'node1', vis)?.kind).toBe('node');
     expect(resolveSelectedNode(elements, 'ctrl', vis)?.kind).toBe('statefulset');
+    // storageclass is a D6 leaf — now detail-eligible.
+    expect(resolveSelectedNode(elements, 'sc', vis)?.kind).toBe('storageclass');
     expect(resolveSelectedNode(elements, 'cl', vis)).toBeNull();
-    expect(resolveSelectedNode(elements, 'sc', vis)).toBeNull();
     expect(resolveSelectedNode(elements, 'ns', vis)).toBeNull();
+    expect(resolveSelectedNode(elements, 'app', vis)).toBeNull();
   });
 
   it('rewinds the dashboard time range to a ±5m window when an alert time is clicked', () => {
@@ -822,16 +834,19 @@ describe('KsgPanel', () => {
   });
 
   describe('right-click detail-URL flow', () => {
+    const controllerId = 'demo/controller/StatefulSet/mongo';
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          // Backend D6 controller group — the pod nests under it (controller mode default).
+          { data: { id: controllerId, type: 'controller', name: 'mongo', parent: 'cluster:demo' } },
           {
             data: {
               id: 'demo/p1',
               type: 'pod',
               name: 'mongo-0',
-              parent: 'cluster:demo',
+              parent: controllerId,
               owner: { kind: 'StatefulSet', name: 'mongo' },
               application: 'checkout',
               containers: [{ name: 'app', image: 'repo/app:1.2' }],
@@ -850,7 +865,6 @@ describe('KsgPanel', () => {
       length: 1,
       fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
     };
-    const controllerId = 'ctrl/demo/shop/statefulset/mongo';
 
     type CanvasHandlers = {
       onSelect?: (id: string | null) => void;

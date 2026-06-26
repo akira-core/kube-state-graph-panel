@@ -2,8 +2,9 @@ import type cytoscape from 'cytoscape';
 
 import { normalizeGraph } from './normalize';
 
-// Fixtures mirror upstream kube-state-graph golden cytoscape payloads
-// (internal/api/testdata/golden/*-cytoscape.json).
+// Fixtures mirror the upstream kube-state-graph D6 cytoscape payload contract
+// (cluster > namespace > application > controller > pod; node + storageclass leaves
+// under the cluster; pvc / service under the namespace).
 const singleClusterGolden = {
   apiVersion: 'v1',
   clusters: ['cluster-alpha'],
@@ -23,7 +24,7 @@ const singleClusterGolden = {
       {
         data: {
           id: '781eb391-3e20-5ebf-9b56-36d42bf6d687',
-          type: 'pod-runs-on-node',
+          type: 'pod-to-node',
           source: 'cluster-alpha/p1',
           target: 'cluster-alpha/worker-0',
           labels: {},
@@ -63,7 +64,7 @@ describe('normalizeGraph', () => {
 
     const edge = result.elements[2];
     expect(edge?.group).toBe('edges');
-    expect(edge?.data.edgeType).toBe('pod-runs-on-node'); // mapped from data.type
+    expect(edge?.data.edgeType).toBe('pod-to-node'); // mapped from data.type
   });
 
   it('maps ipaddress array to data.ipAddress', () => {
@@ -159,7 +160,7 @@ describe('normalizeGraph', () => {
     const raw = {
       elements: {
         nodes: [{ data: { id: 'a', type: 'pod' } }],
-        edges: [{ data: { id: 'e1', source: 'a', target: 'ghost', type: 'pod-runs-on-node' } }],
+        edges: [{ data: { id: 'e1', source: 'a', target: 'ghost', type: 'pod-to-node' } }],
       },
     };
     const result = normalizeGraph(raw);
@@ -210,10 +211,6 @@ describe('normalizeGraph', () => {
     expect(result.errors).toEqual([]);
     expect(result.elements[0]?.data.kind).toBe('customresource');
     expect(result.elements[2]?.data.edgeType).toBe('future-relation');
-    // The cast-free assignments above (normalize.ts now writes `kind: type` / `edgeType:
-    // d.type` without `as NodeKind`/`as EdgeType`) are themselves the compile-time guard:
-    // this and normalize.ts fail `tsc` if GraphNodeKind/GraphEdgeType were ever narrowed
-    // back to the closed unions, since `type` is a plain string.
   });
 
   it('reports missing nodes/edges arrays', () => {
@@ -439,54 +436,199 @@ describe('normalizeGraph', () => {
     expect(elements.some((e) => (e.data as Record<string, unknown>).isCluster === true)).toBe(false);
   });
 
-  it('tags a storageclass group container (kind=storageclass, no status/alerts) and passes PVC nesting through', () => {
+  // ── Backend D6 decorative group nodes (namespace / application / controller) ──
+  describe('backend group-node recognition (D4)', () => {
+    const byId = (raw: unknown): Map<string, cytoscape.NodeDataDefinition> =>
+      new Map(normalizeGraph(raw).elements.map((e) => [e.data.id as string, e.data as cytoscape.NodeDataDefinition]));
+    const elById = (raw: unknown): Map<string, cytoscape.ElementDefinition> =>
+      new Map(normalizeGraph(raw).elements.map((e) => [e.data.id as string, e]));
+
+    it('normalizes a namespace group node: isNamespace + accent, no kind, selectable:false', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
+            { data: { id: 'prod/namespace/shop', type: 'namespace', name: 'shop', parent: 'cluster/prod', labels: {} } },
+          ],
+          edges: [],
+        },
+      };
+      const d = byId(raw).get('prod/namespace/shop');
+      expect(d?.isNamespace).toBe(true);
+      expect(d?.namespace).toBe('shop');
+      expect(typeof d?.namespaceColor).toBe('string');
+      expect(d?.kind).toBeUndefined();
+      expect(d?.parent).toBe('cluster/prod'); // passthrough verbatim
+      expect(elById(raw).get('prod/namespace/shop')?.selectable).toBe(false);
+    });
+
+    it('normalizes an application group node: isApplication + accent, no kind, selectable:false', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'prod/namespace/shop/application/checkout',
+                type: 'application',
+                name: 'checkout',
+                parent: 'prod/namespace/shop',
+                labels: {},
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      const d = byId(raw).get('prod/namespace/shop/application/checkout');
+      expect(d?.isApplication).toBe(true);
+      expect(d?.application).toBe('checkout');
+      expect(typeof d?.applicationColor).toBe('string');
+      expect(d?.kind).toBeUndefined();
+      expect(d?.parent).toBe('prod/namespace/shop');
+      expect(elById(raw).get('prod/namespace/shop/application/checkout')?.selectable).toBe(false);
+    });
+
+    it('normalizes a controller group node: isController, kind from child pod owner.kind, selectable:false', () => {
+      const ctrlId = 'prod/namespace/shop/application/mongo/controller/StatefulSet/mongo';
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
+            { data: { id: ctrlId, type: 'controller', name: 'mongo', parent: 'cluster/prod', labels: {} } },
+            {
+              data: {
+                id: 'prod/p1',
+                type: 'pod',
+                name: 'mongo-0',
+                parent: ctrlId,
+                owner: { kind: 'StatefulSet', name: 'mongo' },
+                labels: { cluster: 'prod', namespace: 'shop' },
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      const d = byId(raw).get(ctrlId);
+      expect(d?.isController).toBe(true);
+      expect(d?.kind).toBe('statefulset'); // lowercased child owner.kind
+      expect(d?.parent).toBe('cluster/prod');
+      // A controller is detail-eligible (resolveSelectedNode opens it) so it MUST stay
+      // selectable — unlike the purely-decorative cluster/namespace/application groups.
+      // selectable:false would make the canvas tap/cxttap gate drop every controller click.
+      expect(elById(raw).get(ctrlId)?.selectable).toBeUndefined();
+    });
+  });
+
+  // ── New backend edges pass through (D6) ──
+  it('maps the new backend edges pod-to-node and pvc-to-storageclass (not the unknown fallback)', () => {
     const raw = {
       elements: {
         nodes: [
           { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
-          {
-            data: {
-              id: 'prod/storageclass/fast-ssd',
-              type: 'storageclass',
-              name: 'fast-ssd',
-              parent: 'cluster/prod',
-              // A group node never carries alerts even if upstream sends them.
-              alerts: [{ name: 'x', severity: 'warning', time: 1 }],
-            },
-          },
-          {
-            data: {
-              id: 'pvc/data-0',
-              type: 'pvc',
-              name: 'data-0',
-              parent: 'prod/storageclass/fast-ssd',
-              status: 'warning',
-            },
-          },
+          { data: { id: 'prod/node-a', type: 'node', name: 'node-a', parent: 'cluster/prod' } },
+          { data: { id: 'prod/p1', type: 'pod', name: 'p1', parent: 'cluster/prod', labels: { node: 'prod/node-a' } } },
+          { data: { id: 'prod/pvc1', type: 'pvc', name: 'pvc1', parent: 'cluster/prod' } },
+          { data: { id: 'prod/storageclass/gp3', type: 'storageclass', name: 'gp3', parent: 'cluster/prod' } },
         ],
-        edges: [],
+        edges: [
+          { data: { id: 'e1', type: 'pod-to-node', source: 'prod/p1', target: 'prod/node-a' } },
+          { data: { id: 'e2', type: 'pvc-to-storageclass', source: 'prod/pvc1', target: 'prod/storageclass/gp3' } },
+        ],
       },
     };
     const { elements, errors } = normalizeGraph(raw);
     expect(errors).toEqual([]);
-    const byId = new Map(elements.map((e) => [e.data.id as string, e.data as Record<string, unknown>]));
-    const sc = byId.get('prod/storageclass/fast-ssd');
-    // Tagged as a storageclass container: it carries its `kind` (so it can show in the
-    // icon legend when collapsed + be filterable) AND the `isStorageClass` flag (own
-    // "Storage classes" section, excluded from detail). Like the K8s node container it
-    // is a grouping box — NO status, NO alerts. It is NOT a cluster, and keeps its
-    // backend parent + label.
-    expect(sc?.isStorageClass).toBe(true);
-    expect(sc?.kind).toBe('storageclass');
-    expect(sc?.status).toBeUndefined();
-    expect(sc?.alerts).toBeUndefined();
-    expect(sc?.isCluster).toBeUndefined();
-    expect(sc?.parent).toBe('cluster/prod');
-    expect(sc?.label).toBe('fast-ssd');
-    // The PVC nests under the storageclass group verbatim and keeps kind + status.
-    expect(byId.get('pvc/data-0')?.parent).toBe('prod/storageclass/fast-ssd');
-    expect(byId.get('pvc/data-0')?.kind).toBe('pvc');
-    expect(byId.get('pvc/data-0')?.status).toBe('warning');
+    const edges = elements.filter((e) => e.group === 'edges');
+    expect(edges.map((e) => (e.data as cytoscape.EdgeDataDefinition).edgeType).sort()).toEqual([
+      'pod-to-node',
+      'pvc-to-storageclass',
+    ]);
+  });
+
+  it('does not invent a pvc-to-storageclass edge for a PVC with no resolved storageclass', () => {
+    const raw = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
+          { data: { id: 'prod/pvc1', type: 'pvc', name: 'pvc1', parent: 'prod/namespace/db' } },
+        ],
+        edges: [],
+      },
+    };
+    const { elements } = normalizeGraph(raw);
+    expect(elements.some((e) => e.group === 'edges')).toBe(false);
+  });
+
+  // ── StorageClass is now a LEAF (D3) ──
+  describe('storageclass leaf', () => {
+    const byId = (raw: unknown): Map<string, cytoscape.NodeDataDefinition> =>
+      new Map(normalizeGraph(raw).elements.map((e) => [e.data.id as string, e.data as cytoscape.NodeDataDefinition]));
+
+    it('normalizes as a kind:storageclass leaf with provisioner/parameters, no isStorageClass, no status', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
+            {
+              data: {
+                id: 'prod/storageclass/fast-ssd',
+                type: 'storageclass',
+                name: 'fast-ssd',
+                parent: 'cluster/prod',
+                provisioner: 'rook-ceph.rbd.csi.ceph.com',
+                parameters: { pool: 'kube', fs: 'ext4' },
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      const sc = byId(raw).get('prod/storageclass/fast-ssd') as Record<string, unknown> | undefined;
+      expect(sc?.kind).toBe('storageclass');
+      expect(sc?.provisioner).toBe('rook-ceph.rbd.csi.ceph.com');
+      expect(sc?.parameters).toEqual({ pool: 'kube', fs: 'ext4' });
+      expect(sc !== undefined && 'isStorageClass' in sc).toBe(false);
+      expect(sc?.status).toBeUndefined();
+      expect(sc?.isCluster).toBeUndefined();
+      expect(sc?.parent).toBe('cluster/prod');
+      expect(sc?.label).toBe('fast-ssd');
+    });
+
+    it('omits provisioner / parameters for a bare (referenced-but-undefined) storageclass', () => {
+      const raw = {
+        elements: {
+          nodes: [{ data: { id: 'prod/storageclass/bare', type: 'storageclass', name: 'bare' } }],
+          edges: [],
+        },
+      };
+      const sc = byId(raw).get('prod/storageclass/bare') as Record<string, unknown> | undefined;
+      expect(sc?.kind).toBe('storageclass');
+      expect(sc !== undefined && 'provisioner' in sc).toBe(false);
+      expect(sc !== undefined && 'parameters' in sc).toBe(false);
+    });
+
+    it('drops parameters that fail the string-record shape, keeping the rest', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'prod/storageclass/sc',
+                type: 'storageclass',
+                name: 'sc',
+                provisioner: 'csi',
+                parameters: { pool: 'kube', bad: 7 }, // non-string value → whole map dropped
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      const sc = byId(raw).get('prod/storageclass/sc') as Record<string, unknown> | undefined;
+      expect(sc?.provisioner).toBe('csi');
+      expect(sc !== undefined && 'parameters' in sc).toBe(false);
+    });
   });
 
   describe('node alerts', () => {
@@ -588,13 +730,10 @@ describe('normalizeGraph', () => {
     it('omits the alerts field when absent, empty, or no entry has a valid occurrence time', () => {
       expect(withAlerts(undefined).elements[0]?.data.alerts).toBeUndefined();
       expect(withAlerts([]).elements[0]?.data.alerts).toBeUndefined();
-      // no time at all
       expect(withAlerts([{ name: 'x', severity: 'warning' }]).elements[0]?.data.alerts).toBeUndefined();
-      // empty record + no scalar
       expect(
         withAlerts([{ name: 'x', severity: 'warning', time_records: [] }]).elements[0]?.data.alerts
       ).toBeUndefined();
-      // all-invalid records + invalid scalar
       expect(
         withAlerts([{ name: 'x', severity: 'warning', time: -1, time_records: [NaN, -5] }]).elements[0]?.data.alerts
       ).toBeUndefined();
@@ -621,479 +760,100 @@ describe('normalizeGraph', () => {
   });
 });
 
-function podWithOwner(id: string, cluster: string, ns: string, owner: { kind: string; name: string }) {
-  return {
-    data: { id, name: id, type: 'pod', parent: `${cluster}/node-a`, owner, labels: { cluster, namespace: ns } },
-  };
-}
+// ── D8: node worstStatus aggregated via pod-to-node edges ──
+describe('normalizeGraph — node worstStatus via pod-to-node edges', () => {
+  const dataOf = (raw: unknown, id: string): cytoscape.NodeDataDefinition | undefined =>
+    normalizeGraph(raw).elements.find((e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).id === id)
+      ?.data;
+  const k8sNode = (id: string, status?: string) => ({
+    data: { id, name: id, type: 'node', parent: 'cluster/prod', ...(status !== undefined ? { status } : {}) },
+  });
+  const podNode = (id: string, status?: string) => ({
+    data: { id, name: id, type: 'pod', parent: 'cluster/prod', ...(status !== undefined ? { status } : {}) },
+  });
+  const podToNode = (podId: string, nodeId: string) => ({
+    data: { id: `e:${podId}:${nodeId}`, type: 'pod-to-node', source: podId, target: nodeId },
+  });
+  const graph = (nodes: Array<{ data: Record<string, unknown> }>, edges: Array<{ data: Record<string, unknown> }> = []): unknown => ({
+    elements: { nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster' } }, ...nodes], edges },
+  });
 
-describe('normalizeGraph — controller synthesis', () => {
-  // A collapsed controller's rectangle is tinted by the worst STATUS among its child
-  // pods (see getStylesheet); normalize aggregates it onto the synthesized controller
-  // as data.worstStatus (rank critical>warning>normal). STATUS — not alerts — drives
-  // the tint: every node carries a status (default normal), so a pod that is `warning`
-  // WITHOUT an alert still propagates.
-  const ownedPodWithStatus = (id: string, owner: { kind: string; name: string }, status?: string) => ({
+  it('takes the worst of pods reachable via pod-to-node (warning + critical → critical)', () => {
+    const raw = graph(
+      [k8sNode('node/w0', 'normal'), podNode('pod/a', 'warning'), podNode('pod/b', 'critical')],
+      [podToNode('pod/a', 'node/w0'), podToNode('pod/b', 'node/w0')]
+    );
+    expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+  });
+
+  it("never downgrades below the node's own status (critical node + normal reachable pod → critical)", () => {
+    const raw = graph([k8sNode('node/w0', 'critical'), podNode('pod/a', 'normal')], [podToNode('pod/a', 'node/w0')]);
+    expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
+  });
+
+  it('propagates a reachable warning onto a normal node (worst-wins → warning)', () => {
+    const raw = graph([k8sNode('node/w0', 'normal'), podNode('pod/a', 'warning')], [podToNode('pod/a', 'node/w0')]);
+    expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('warning');
+  });
+
+  it('writes worstStatus normal when the node and its reachable pods are all normal (green box, D10)', () => {
+    const raw = graph([k8sNode('node/w0', 'normal'), podNode('pod/a', 'normal')], [podToNode('pod/a', 'node/w0')]);
+    expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('normal');
+  });
+
+  it('writes worstStatus normal for a status-less node with a status-less reachable pod (has info)', () => {
+    const raw = graph([k8sNode('node/w0'), podNode('pod/a')], [podToNode('pod/a', 'node/w0')]);
+    expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('normal');
+  });
+
+  it('omits worstStatus for a node with no status and no reachable pod (no data is not normal)', () => {
+    const raw = graph([k8sNode('node/w0')]);
+    expect(dataOf(raw, 'node/w0')?.worstStatus).toBeUndefined();
+  });
+});
+
+// ── D5: controller enrichment (backend emits the group; normalize decorates it) ──
+describe('normalizeGraph — controller enrichment', () => {
+  const CTRL_ID = 'prod/namespace/shop/application/mongo/controller/StatefulSet/mongo';
+  const mongoOwner = { kind: 'StatefulSet', name: 'mongo' };
+  const controllerNode = (id = CTRL_ID, name = 'mongo', parent = 'cluster/prod') => ({
+    data: { id, name, type: 'controller', parent, labels: {} },
+  });
+  const childPod = (
+    id: string,
+    name: string,
+    extra: Record<string, unknown> = {},
+    owner: { kind: string; name: string } | undefined = mongoOwner,
+    controllerId = CTRL_ID
+  ) => ({
     data: {
       id,
-      name: id,
+      name,
       type: 'pod',
-      parent: 'cluster/prod',
-      owner,
+      parent: controllerId,
+      ...(owner !== undefined ? { owner } : {}),
       labels: { cluster: 'prod', namespace: 'shop' },
-      ...(status !== undefined ? { status } : {}),
+      ...extra,
     },
   });
-  const controllerOf = (raw: unknown): cytoscape.NodeDataDefinition | undefined => {
-    const controllers = normalizeGraph(raw).elements.filter(
-      (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
-    );
-    return controllers.length > 0 ? controllers[0]!.data : undefined;
-  };
-  const withControllerPods = (...pods: Array<ReturnType<typeof ownedPodWithStatus>>): unknown => ({
+  const enrichGraph = (...pods: Array<{ data: Record<string, unknown> }>): unknown => ({
     elements: {
-      nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
+      nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, controllerNode(), ...pods],
       edges: [],
     },
   });
+  const controllerOf = (raw: unknown): cytoscape.NodeDataDefinition | undefined =>
+    normalizeGraph(raw).elements.find((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)?.data;
 
-  it('tags the synthesized controller with the worst child-pod STATUS (warning + critical → critical)', () => {
-    const raw = withControllerPods(
-      ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'warning'),
-      ownedPodWithStatus('prod/p2', { kind: 'Deployment', name: 'api' }, 'critical')
-    );
-    expect(controllerOf(raw)?.worstStatus).toBe('critical');
+  it('derives the controller kind from a child pod owner.kind (lowercased) and flags isController', () => {
+    const ctrl = controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0')));
+    expect(ctrl?.isController).toBe(true);
+    expect(ctrl?.kind).toBe('statefulset');
+    expect(ctrl?.label).toBe('mongo');
+    expect(ctrl?.parent).toBe('cluster/prod');
   });
 
-  it('propagates a warning STATUS even when the pod carries no alert (status, not alerts)', () => {
-    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'warning'));
-    expect(controllerOf(raw)?.worstStatus).toBe('warning');
-  });
-
-  it('treats an unknown / absent status as normal (default), so worstStatus is normal (drawn too, D10)', () => {
-    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'bogus'));
-    expect(controllerOf(raw)?.worstStatus).toBe('normal');
-  });
-
-  it('writes worstStatus normal when every owned pod is normal (all-healthy collapses to green, D10)', () => {
-    const raw = withControllerPods(ownedPodWithStatus('prod/p1', { kind: 'Deployment', name: 'api' }, 'normal'));
-    expect(controllerOf(raw)?.worstStatus).toBe('normal');
-  });
-
-  // The SAME collapse-status propagation applies to a k8s `node` container: a collapsed
-  // node borders by the worst of its OWN status and its child pods' statuses (worst-wins,
-  // never downgraded). normalize tags it onto the node as data.worstStatus.
-  describe('collapsed k8s node status tint (data.worstStatus)', () => {
-    const dataOf = (raw: unknown, id: string): cytoscape.NodeDataDefinition | undefined =>
-      normalizeGraph(raw).elements.find(
-        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).id === id
-      )?.data;
-    const k8sNode = (id: string, status?: string) => ({
-      data: { id, name: id, type: 'node', parent: 'cluster/prod', ...(status !== undefined ? { status } : {}) },
-    });
-    const podUnder = (id: string, parent: string, status?: string) => ({
-      data: { id, name: id, type: 'pod', parent, ...(status !== undefined ? { status } : {}) },
-    });
-    const graph = (...nodes: Array<{ data: Record<string, unknown> }>): unknown => ({
-      elements: { nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster' } }, ...nodes], edges: [] },
-    });
-
-    it('tints a collapsed node by the worst child-pod status (normal node + critical pod → critical)', () => {
-      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'critical'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
-    });
-
-    it("never downgrades below the node's own status (critical node + normal pod → critical)", () => {
-      const raw = graph(k8sNode('node/w0', 'critical'), podUnder('pod/a', 'node/w0', 'normal'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
-    });
-
-    it('propagates a child warning onto a normal node (worst-wins → warning)', () => {
-      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'warning'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('warning');
-    });
-
-    it('takes the worst of own status and children (warning node + critical pod → critical)', () => {
-      const raw = graph(k8sNode('node/w0', 'warning'), podUnder('pod/a', 'node/w0', 'critical'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('critical');
-    });
-
-    it('writes worstStatus normal when the node and all its pods are normal (green box, D10)', () => {
-      const raw = graph(k8sNode('node/w0', 'normal'), podUnder('pod/a', 'node/w0', 'normal'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('normal');
-    });
-
-    it('writes worstStatus normal for a status-less node whose pods are all status-less (children = info)', () => {
-      const raw = graph(k8sNode('node/w0'), podUnder('pod/a', 'node/w0'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBe('normal');
-    });
-
-    it('omits worstStatus for a node with no status and no child pods (no data is not normal)', () => {
-      const raw = graph(k8sNode('node/w0'));
-      expect(dataOf(raw, 'node/w0')?.worstStatus).toBeUndefined();
-    });
-  });
-
-  // A controller's detail-panel alert table lists every owned pod's alerts: normalize
-  // concatenates them in stable podId order onto the synthesized controller. Entries
-  // missing `pod` are attributed to their source pod's label on a COPY (the pod
-  // element's own alerts stay untouched); entries carrying an `id` dedupe across pods.
-  // Colour stays STATUS-driven (worstStatus above) — alerts never tint.
-  describe('controller alert aggregation (data.alerts)', () => {
-    const alertPod = (id: string, name: string, alerts?: unknown, status?: string) => ({
-      data: {
-        id,
-        name,
-        type: 'pod',
-        parent: 'cluster/prod',
-        owner: { kind: 'StatefulSet', name: 'mongo' },
-        labels: { cluster: 'prod', namespace: 'shop' },
-        ...(alerts !== undefined ? { alerts } : {}),
-        ...(status !== undefined ? { status } : {}),
-      },
-    });
-    const graphOf = (...pods: Array<{ data: Record<string, unknown> }>): unknown => ({
-      elements: {
-        nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
-        edges: [],
-      },
-    });
-
-    it('concatenates child-pod alerts in stable podId order, attributing each to its pod', () => {
-      // raw order p2 before p1 — aggregation must still come out p1-first (podId sort).
-      const raw = graphOf(
-        alertPod('prod/p2', 'mongo-1', [{ name: 'CrashLoop', severity: 'warning', time_records: [1717500300] }]),
-        alertPod('prod/p1', 'mongo-0', [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }])
-      );
-      expect(controllerOf(raw)?.alerts).toEqual([
-        { name: 'HighMem', severity: 'critical', timeRecords: [1717500000], pod: 'mongo-0' },
-        { name: 'CrashLoop', severity: 'warning', timeRecords: [1717500300], pod: 'mongo-1' },
-      ]);
-    });
-
-    it('keeps an explicit backend pod attribution instead of backfilling', () => {
-      const raw = graphOf(
-        alertPod('prod/p1', 'mongo-0', [
-          { name: 'SvcDown', severity: 'critical', pod: 'other-pod', time_records: [1717500000] },
-        ])
-      );
-      expect(controllerOf(raw)?.alerts).toEqual([
-        { name: 'SvcDown', severity: 'critical', pod: 'other-pod', timeRecords: [1717500000] },
-      ]);
-    });
-
-    it('dedupes alerts sharing an id across pods (first in stable order wins); keeps id-less ones', () => {
-      const shared = { name: 'SvcDegraded', severity: 'warning', time_records: [1717500000], id: 'a1' };
-      const local = { name: 'Local', severity: 'info', time_records: [1717500100] };
-      const raw = graphOf(
-        alertPod('prod/p1', 'mongo-0', [shared, local]),
-        alertPod('prod/p2', 'mongo-1', [shared, local])
-      );
-      const alerts = controllerOf(raw)?.alerts;
-      expect(alerts?.filter((a) => a.id === 'a1')).toHaveLength(1);
-      expect(alerts?.[0]?.pod).toBe('mongo-0'); // first in stable podId order wins
-      expect(alerts?.filter((a) => a.name === 'Local')).toHaveLength(2); // no id → never deduped
-    });
-
-    it('omits controller alerts when no owned pod carries any', () => {
-      const raw = graphOf(alertPod('prod/p1', 'mongo-0'));
-      expect(controllerOf(raw)?.alerts).toBeUndefined();
-    });
-
-    it('keeps colour status-driven: a critical alert on a normal pod never escalates worstStatus', () => {
-      const raw = graphOf(
-        alertPod(
-          'prod/p1',
-          'mongo-0',
-          [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }],
-          'normal'
-        )
-      );
-      const ctrl = controllerOf(raw);
-      expect(ctrl?.alerts).toHaveLength(1);
-      expect(ctrl?.worstStatus).toBe('normal'); // STATUS (not alert severity) drives the tint
-    });
-
-    it('leaves owns-edge synthesis untouched by the aggregation (one edge per alerting pod)', () => {
-      const raw = graphOf(
-        alertPod('prod/p1', 'mongo-0', [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }]),
-        alertPod('prod/p2', 'mongo-1', [{ name: 'CrashLoop', severity: 'warning', time_records: [1717500300] }])
-      );
-      const owns = normalizeGraph(raw).elements.filter(
-        (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
-      );
-      expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
-    });
-
-    it('leaves the source pod element untouched by the backfill (no pod field added there)', () => {
-      const raw = graphOf(
-        alertPod('prod/p1', 'mongo-0', [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }])
-      );
-      const pod = normalizeGraph(raw).elements.find((e) => (e.data as cytoscape.NodeDataDefinition).id === 'prod/p1')
-        ?.data as cytoscape.NodeDataDefinition;
-      expect(pod.alerts).toEqual([{ name: 'HighMem', severity: 'critical', timeRecords: [1717500000] }]);
-    });
-  });
-
-  // Pods carry the backend's ArgoCD `application` + `containers` verbatim (validated);
-  // a synthesized controller aggregates both from its owned pods — application from the
-  // first valued pod in stable podId order, containers as the (name, image)-deduped
-  // union. Both fields are OMITTED (never undefined-valued) when nothing survives.
-  describe('application / containers passthrough and aggregation', () => {
-    const specPod = (id: string, extra: Record<string, unknown>, owner?: { kind: string; name: string }) => ({
-      data: {
-        id,
-        name: id,
-        type: 'pod',
-        parent: 'cluster/prod',
-        ...(owner !== undefined ? { owner } : {}),
-        labels: { cluster: 'prod', namespace: 'shop' },
-        ...extra,
-      },
-    });
-    const graphOf = (...pods: Array<{ data: Record<string, unknown> }>): unknown => ({
-      elements: {
-        nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } }, ...pods],
-        edges: [],
-      },
-    });
-    const dataOf = (raw: unknown, id: string): cytoscape.NodeDataDefinition | undefined =>
-      normalizeGraph(raw).elements.find(
-        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).id === id
-      )?.data;
-    const mongo = { kind: 'StatefulSet', name: 'mongo' };
-
-    it('passes a pod application and containers through verbatim', () => {
-      const raw = graphOf(
-        specPod('prod/p1', { application: 'checkout', containers: [{ name: 'app', image: 'repo/app:1.2' }] })
-      );
-      const pod = dataOf(raw, 'prod/p1');
-      expect(pod?.application).toBe('checkout');
-      expect(pod?.containers).toEqual([{ name: 'app', image: 'repo/app:1.2' }]);
-    });
-
-    it('omits both fields when absent or empty (old backend output stays unchanged)', () => {
-      const raw = graphOf(specPod('prod/p1', {}), specPod('prod/p2', { application: '', containers: [] }));
-      for (const id of ['prod/p1', 'prod/p2']) {
-        const pod = dataOf(raw, id);
-        expect(pod?.application).toBeUndefined();
-        expect(pod?.containers).toBeUndefined();
-        expect(pod !== undefined && 'application' in pod).toBe(false);
-        expect(pod !== undefined && 'containers' in pod).toBe(false);
-      }
-      expect(normalizeGraph(raw).errors).toEqual([]);
-    });
-
-    it('drops malformed container entries, keeping valid ones', () => {
-      const raw = graphOf(
-        specPod('prod/p1', {
-          containers: [
-            { name: 'app', image: 'repo/app:1.2' },
-            { name: '', image: 'x' }, // empty name
-            { name: 'noimg' }, // missing image
-            { name: 'numimg', image: 7 }, // image not a string
-            'nope', // not an object
-          ],
-        })
-      );
-      expect(dataOf(raw, 'prod/p1')?.containers).toEqual([{ name: 'app', image: 'repo/app:1.2' }]);
-    });
-
-    it('omits containers when no entry survives validation', () => {
-      const raw = graphOf(specPod('prod/p1', { containers: [{ name: '', image: '' }, 'junk'] }));
-      expect(dataOf(raw, 'prod/p1')?.containers).toBeUndefined();
-    });
-
-    it('aggregates application onto the controller from the first valued pod in stable podId order', () => {
-      // Raw order p2 (beta) before p1 (alpha) — the podId sort must still pick p1's value.
-      const raw = graphOf(
-        specPod('prod/p2', { application: 'beta' }, mongo),
-        specPod('prod/p1', { application: 'alpha' }, mongo)
-      );
-      expect(controllerOf(raw)?.application).toBe('alpha');
-    });
-
-    it('skips application-less pods when picking the controller application', () => {
-      const raw = graphOf(specPod('prod/p1', {}, mongo), specPod('prod/p2', { application: 'beta' }, mongo));
-      expect(controllerOf(raw)?.application).toBe('beta');
-    });
-
-    it('aggregates the containers union onto the controller, deduped by (name, image) and sorted', () => {
-      const app = { name: 'app', image: 'repo/app:1.2' };
-      const raw = graphOf(
-        specPod('prod/p1', { containers: [app] }, mongo),
-        specPod('prod/p2', { containers: [app, { name: 'sidecar', image: 'repo/sc:0.9' }] }, mongo),
-        specPod('prod/p3', { containers: [app] }, mongo)
-      );
-      expect(controllerOf(raw)?.containers).toEqual([
-        { name: 'app', image: 'repo/app:1.2' },
-        { name: 'sidecar', image: 'repo/sc:0.9' },
-      ]);
-    });
-
-    it('keeps same-named containers with different images apart (deduped by the PAIR)', () => {
-      const raw = graphOf(
-        specPod('prod/p1', { containers: [{ name: 'app', image: 'repo/app:1.2' }] }, mongo),
-        specPod('prod/p2', { containers: [{ name: 'app', image: 'repo/app:1.3' }] }, mongo)
-      );
-      expect(controllerOf(raw)?.containers).toEqual([
-        { name: 'app', image: 'repo/app:1.2' },
-        { name: 'app', image: 'repo/app:1.3' },
-      ]);
-    });
-
-    it('omits both controller fields when no owned pod carries a value', () => {
-      const raw = graphOf(specPod('prod/p1', {}, mongo));
-      const ctrl = controllerOf(raw);
-      expect(ctrl).toBeDefined();
-      expect(ctrl !== undefined && 'application' in ctrl).toBe(false);
-      expect(ctrl !== undefined && 'containers' in ctrl).toBe(false);
-    });
-
-    it('leaves worstStatus, dedup and owns edges untouched by the aggregation', () => {
-      const raw = graphOf(
-        specPod('prod/p1', { application: 'checkout', status: 'critical' }, mongo),
-        specPod('prod/p2', { containers: [{ name: 'app', image: 'repo/app:1.2' }] }, mongo)
-      );
-      const { elements } = normalizeGraph(raw);
-      const controllers = elements.filter(
-        (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
-      );
-      expect(controllers).toHaveLength(1); // dedup key unchanged
-      expect((controllers[0]!.data as cytoscape.NodeDataDefinition).worstStatus).toBe('critical');
-      const owns = elements.filter(
-        (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
-      );
-      expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
-    });
-
-    it('is deterministic and does not mutate the input across repeated calls', () => {
-      const raw = graphOf(
-        specPod('prod/p2', { application: 'beta', containers: [{ name: 'b', image: 'r/b:1' }] }, mongo),
-        specPod('prod/p1', { application: 'alpha', containers: [{ name: 'a', image: 'r/a:1' }] }, mongo)
-      );
-      const snapshot = JSON.stringify(raw);
-      const a = JSON.stringify(normalizeGraph(raw).elements);
-      const b = JSON.stringify(normalizeGraph(raw).elements);
-      expect(a).toBe(b);
-      expect(JSON.stringify(raw)).toBe(snapshot);
-    });
-  });
-
-  it('synthesizes one controller node + an owns edge per owned pod, deduped by (cluster,ns,kind,name)', () => {
-    const raw = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
-          {
-            data: {
-              id: 'prod/node-a',
-              name: 'node-a',
-              type: 'node',
-              parent: 'cluster/prod',
-              labels: { cluster: 'prod' },
-            },
-          },
-          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'StatefulSet', name: 'mongo' }),
-          podWithOwner('prod/p2', 'prod', 'shop', { kind: 'StatefulSet', name: 'mongo' }),
-        ],
-        edges: [],
-      },
-    };
-    const { elements } = normalizeGraph(raw);
-    const controllers = elements.filter(
-      (e) => e.group === 'nodes' && (e.data as cytoscape.NodeDataDefinition).isController === true
-    );
-    expect(controllers).toHaveLength(1);
-    const ctrl = controllers[0]!.data as cytoscape.NodeDataDefinition;
-    expect(ctrl.kind).toBe('statefulset');
-    expect(ctrl.label).toBe('mongo');
-    expect(ctrl.parent).toBe('cluster/prod');
-    const owns = elements.filter(
-      (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
-    );
-    expect(owns).toHaveLength(2);
-    expect(owns.map((e) => (e.data as cytoscape.EdgeDataDefinition).target).sort()).toEqual(['prod/p1', 'prod/p2']);
-    expect(owns.every((e) => (e.data as cytoscape.EdgeDataDefinition).source === ctrl.id)).toBe(true);
-  });
-
-  it('keeps same-named controllers in different namespaces separate', () => {
-    const raw = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
-          podWithOwner('prod/a1', 'prod', 'a', { kind: 'Deployment', name: 'api' }),
-          podWithOwner('prod/b1', 'prod', 'b', { kind: 'Deployment', name: 'api' }),
-        ],
-        edges: [],
-      },
-    };
-    const ctrls = normalizeGraph(raw).elements.filter(
-      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
-    );
-    expect(ctrls).toHaveLength(2);
-  });
-
-  it('tags the synthesized controller with its namespace (from owned pods)', () => {
-    const raw = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
-          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'Deployment', name: 'api' }),
-        ],
-        edges: [],
-      },
-    };
-    const ctrl = normalizeGraph(raw).elements.find(
-      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
-    )?.data as cytoscape.NodeDataDefinition | undefined;
-    expect(ctrl?.namespace).toBe('shop');
-  });
-
-  it('omits the controller namespace when owned pods carry none (exactOptionalPropertyTypes)', () => {
-    const raw = {
-      elements: {
-        nodes: [{ data: { id: 'p1', name: 'p1', type: 'pod', labels: { owner_kind: 'Job', owner_name: 'batch' } } }],
-        edges: [],
-      },
-    };
-    const ctrl = normalizeGraph(raw).elements.find(
-      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
-    )?.data as cytoscape.NodeDataDefinition | undefined;
-    expect(ctrl).toBeDefined();
-    expect(ctrl !== undefined && 'namespace' in ctrl).toBe(false);
-  });
-
-  it('gives same-named controllers in different namespaces their own namespace', () => {
-    const raw = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
-          podWithOwner('prod/a1', 'prod', 'a', { kind: 'Deployment', name: 'api' }),
-          podWithOwner('prod/b1', 'prod', 'b', { kind: 'Deployment', name: 'api' }),
-        ],
-        edges: [],
-      },
-    };
-    const namespaces = normalizeGraph(raw)
-      .elements.filter((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)
-      .map((e) => (e.data as cytoscape.NodeDataDefinition).namespace);
-    expect([...namespaces].sort()).toEqual(['a', 'b']);
-  });
-
-  it('does not synthesize for pods without an owner', () => {
-    const raw = {
-      elements: {
-        nodes: [{ data: { id: 'prod/p1', name: 'p1', type: 'pod', labels: { cluster: 'prod', namespace: 'x' } } }],
-        edges: [],
-      },
-    };
-    expect(
-      normalizeGraph(raw).elements.some((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)
-    ).toBe(false);
-  });
-
-  it('falls back to legacy labels.owner_kind / owner_name', () => {
+  it('does NOT synthesize controllers (an owned pod with no controller group yields none)', () => {
     const raw = {
       elements: {
         nodes: [
@@ -1104,74 +864,171 @@ describe('normalizeGraph — controller synthesis', () => {
               name: 'p1',
               type: 'pod',
               parent: 'cluster/prod',
-              labels: { cluster: 'prod', namespace: 'x', owner_kind: 'DaemonSet', owner_name: 'fluentd' },
+              owner: { kind: 'Deployment', name: 'api' },
+              labels: { cluster: 'prod', namespace: 'shop' },
             },
           },
         ],
         edges: [],
       },
     };
-    const ctrl = normalizeGraph(raw).elements.find(
-      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
-    )?.data as cytoscape.NodeDataDefinition | undefined;
-    expect(ctrl?.kind).toBe('daemonset');
-    expect(ctrl?.label).toBe('fluentd');
+    expect(
+      normalizeGraph(raw).elements.some((e) => (e.data as cytoscape.NodeDataDefinition).isController === true)
+    ).toBe(false);
   });
 
-  it('gives an owner-but-no-cluster pod a parentless (top-level) controller', () => {
-    const raw = {
-      elements: {
-        nodes: [
-          {
-            data: {
-              id: 'p1',
-              name: 'p1',
-              type: 'pod',
-              labels: { namespace: 'x', owner_kind: 'Job', owner_name: 'batch' },
-            },
-          },
-        ],
-        edges: [],
-      },
-    };
-    const ctrl = normalizeGraph(raw).elements.find(
-      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
-    )?.data as cytoscape.NodeDataDefinition | undefined;
-    expect(ctrl).toBeDefined();
-    expect(ctrl?.parent).toBeUndefined();
+  it('does NOT synthesize controller-owns-pod edges', () => {
+    const owns = normalizeGraph(enrichGraph(childPod('prod/p1', 'mongo-0'))).elements.filter(
+      (e) => e.group === 'edges' && (e.data as cytoscape.EdgeDataDefinition).edgeType === 'controller-owns-pod'
+    );
+    expect(owns).toHaveLength(0);
   });
 
-  it('is deterministic and does not mutate input', () => {
-    const raw = {
-      elements: {
-        nodes: [
-          { data: { id: 'cluster/prod', name: 'prod', type: 'cluster', labels: {} } },
-          podWithOwner('prod/p1', 'prod', 'shop', { kind: 'Deployment', name: 'web' }),
-        ],
-        edges: [],
-      },
-    };
+  describe('worstStatus (worst child-pod status, always written)', () => {
+    it('takes the worst child-pod status (warning + critical → critical)', () => {
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', { status: 'warning' }),
+        childPod('prod/p2', 'mongo-1', { status: 'critical' })
+      );
+      expect(controllerOf(raw)?.worstStatus).toBe('critical');
+    });
+
+    it('propagates a child warning without any alert (status, not alerts)', () => {
+      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0', { status: 'warning' })))?.worstStatus).toBe(
+        'warning'
+      );
+    });
+
+    it('treats unknown / absent status as normal (drawn green, D10)', () => {
+      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0', { status: 'bogus' })))?.worstStatus).toBe('normal');
+      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0')))?.worstStatus).toBe('normal');
+    });
+  });
+
+  describe('application / containers aggregation', () => {
+    it('aggregates application from the first valued child pod in stable podId order', () => {
+      // Raw order p2 (beta) before p1 (alpha) — the podId sort must still pick p1's value.
+      const raw = enrichGraph(
+        childPod('prod/p2', 'mongo-1', { application: 'beta' }),
+        childPod('prod/p1', 'mongo-0', { application: 'alpha' })
+      );
+      expect(controllerOf(raw)?.application).toBe('alpha');
+    });
+
+    it('skips application-less child pods when picking the controller application', () => {
+      const raw = enrichGraph(childPod('prod/p1', 'mongo-0'), childPod('prod/p2', 'mongo-1', { application: 'beta' }));
+      expect(controllerOf(raw)?.application).toBe('beta');
+    });
+
+    it('aggregates the containers union, deduped by (name, image) and sorted', () => {
+      const app = { name: 'app', image: 'repo/app:1.2' };
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', { containers: [app] }),
+        childPod('prod/p2', 'mongo-1', { containers: [app, { name: 'sidecar', image: 'repo/sc:0.9' }] }),
+        childPod('prod/p3', 'mongo-2', { containers: [app] })
+      );
+      expect(controllerOf(raw)?.containers).toEqual([
+        { name: 'app', image: 'repo/app:1.2' },
+        { name: 'sidecar', image: 'repo/sc:0.9' },
+      ]);
+    });
+
+    it('keeps same-named containers with different images apart (deduped by the PAIR)', () => {
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', { containers: [{ name: 'app', image: 'repo/app:1.2' }] }),
+        childPod('prod/p2', 'mongo-1', { containers: [{ name: 'app', image: 'repo/app:1.3' }] })
+      );
+      expect(controllerOf(raw)?.containers).toEqual([
+        { name: 'app', image: 'repo/app:1.2' },
+        { name: 'app', image: 'repo/app:1.3' },
+      ]);
+    });
+
+    it('omits both fields when no child pod carries a value', () => {
+      const ctrl = controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0')));
+      expect(ctrl).toBeDefined();
+      expect(ctrl !== undefined && 'application' in ctrl).toBe(false);
+      expect(ctrl !== undefined && 'containers' in ctrl).toBe(false);
+    });
+  });
+
+  describe('alert aggregation', () => {
+    it('concatenates child-pod alerts in stable podId order, attributing each to its pod', () => {
+      const raw = enrichGraph(
+        childPod('prod/p2', 'mongo-1', {
+          alerts: [{ name: 'CrashLoop', severity: 'warning', time_records: [1717500300] }],
+        }),
+        childPod('prod/p1', 'mongo-0', {
+          alerts: [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }],
+        })
+      );
+      expect(controllerOf(raw)?.alerts).toEqual([
+        { name: 'HighMem', severity: 'critical', timeRecords: [1717500000], pod: 'mongo-0' },
+        { name: 'CrashLoop', severity: 'warning', timeRecords: [1717500300], pod: 'mongo-1' },
+      ]);
+    });
+
+    it('keeps an explicit backend pod attribution instead of backfilling', () => {
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', {
+          alerts: [{ name: 'SvcDown', severity: 'critical', pod: 'other-pod', time_records: [1717500000] }],
+        })
+      );
+      expect(controllerOf(raw)?.alerts).toEqual([
+        { name: 'SvcDown', severity: 'critical', pod: 'other-pod', timeRecords: [1717500000] },
+      ]);
+    });
+
+    it('dedupes alerts sharing an id across pods (first in stable order wins); keeps id-less ones', () => {
+      const shared = { name: 'SvcDegraded', severity: 'warning', time_records: [1717500000], id: 'a1' };
+      const local = { name: 'Local', severity: 'info', time_records: [1717500100] };
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', { alerts: [shared, local] }),
+        childPod('prod/p2', 'mongo-1', { alerts: [shared, local] })
+      );
+      const alerts = controllerOf(raw)?.alerts;
+      expect(alerts?.filter((a) => a.id === 'a1')).toHaveLength(1);
+      expect(alerts?.find((a) => a.id === 'a1')?.pod).toBe('mongo-0'); // first in stable podId order wins
+      expect(alerts?.filter((a) => a.name === 'Local')).toHaveLength(2); // no id → never deduped
+    });
+
+    it('omits controller alerts when no child pod carries any', () => {
+      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0')))?.alerts).toBeUndefined();
+    });
+
+    it('keeps colour status-driven: a critical alert on a normal pod never escalates worstStatus', () => {
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', {
+          status: 'normal',
+          alerts: [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }],
+        })
+      );
+      const ctrl = controllerOf(raw);
+      expect(ctrl?.alerts).toHaveLength(1);
+      expect(ctrl?.worstStatus).toBe('normal');
+    });
+
+    it('leaves the source pod element untouched by the backfill (no pod field added there)', () => {
+      const raw = enrichGraph(
+        childPod('prod/p1', 'mongo-0', {
+          alerts: [{ name: 'HighMem', severity: 'critical', time_records: [1717500000] }],
+        })
+      );
+      const pod = normalizeGraph(raw).elements.find((e) => (e.data as cytoscape.NodeDataDefinition).id === 'prod/p1')
+        ?.data as cytoscape.NodeDataDefinition;
+      expect(pod.alerts).toEqual([{ name: 'HighMem', severity: 'critical', timeRecords: [1717500000] }]);
+    });
+  });
+
+  it('is deterministic and does not mutate the input across repeated calls', () => {
+    const raw = enrichGraph(
+      childPod('prod/p2', 'mongo-1', { application: 'beta', containers: [{ name: 'b', image: 'r/b:1' }] }),
+      childPod('prod/p1', 'mongo-0', { application: 'alpha', containers: [{ name: 'a', image: 'r/a:1' }] })
+    );
     const snapshot = JSON.stringify(raw);
     const a = JSON.stringify(normalizeGraph(raw).elements);
     const b = JSON.stringify(normalizeGraph(raw).elements);
     expect(a).toBe(b);
-    // Proves non-mutation: raw is byte-for-byte identical after both calls.
     expect(JSON.stringify(raw)).toBe(snapshot);
-  });
-
-  it("synthesizes a parentless controller when the pod's cluster label has no matching cluster node", () => {
-    // The pod references cluster "orphan-cluster" which has no cluster container in the payload.
-    const raw = {
-      elements: {
-        nodes: [podWithOwner('prod/p1', 'orphan-cluster', 'shop', { kind: 'ReplicaSet', name: 'api' })],
-        edges: [],
-      },
-    };
-    const ctrl = normalizeGraph(raw).elements.find(
-      (e) => (e.data as cytoscape.NodeDataDefinition).isController === true
-    )?.data as cytoscape.NodeDataDefinition | undefined;
-    expect(ctrl).toBeDefined();
-    // clusterIdByName.get('orphan-cluster') returns undefined → no parent assigned.
-    expect(ctrl?.parent).toBeUndefined();
   });
 });

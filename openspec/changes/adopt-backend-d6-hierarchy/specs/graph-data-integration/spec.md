@@ -159,7 +159,7 @@
 
 ### Requirement: Backend 群組節點識別(namespace / application / controller)與著色
 
-`normalizeGraph` SHALL 辨識 backend 直接輸出的三種 compound 群組節點(`data.type` 為 `namespace` / `application` / `controller`),比照既有 `cluster` flag-group 正規化為**裝飾性 compound parent**——除 `controller` 外**不**賦予 `kind`(故對 kind filter 與 icon legend 不可見,並由 `computeVisibility` 略過:無 kind ⇒ 恆可見,僅受 orphan cascade 影響)。三者皆 `selectable: false`(同 `cluster`),其 `data.parent` 一律**原樣穿透**(panel 結構無關,僅指派 accent 顏色)。映射:
+`normalizeGraph` SHALL 辨識 backend 直接輸出的三種 compound 群組節點(`data.type` 為 `namespace` / `application` / `controller`),比照既有 `cluster` flag-group 正規化為**裝飾性 compound parent**——除 `controller` 外**不**賦予 `kind`(故對 kind filter 與 icon legend 不可見,並由 `computeVisibility` 略過:無 kind ⇒ 恆可見,僅受 orphan cascade 影響)。其 `data.parent` 一律**原樣穿透**(panel 結構無關,僅指派 accent 顏色)。**可選取性**:`namespace` / `application` 為純裝飾、不開啟 detail 面板,故 `selectable: false`(同 `cluster`);**`controller` MUST 維持可選取**(不設 `selectable: false`),因其為 detail-eligible 節點(`resolveSelectedNode` 為其開啟面板、顯示 Dashboard 按鈕與 Application/Containers/alerts——見 panel-rendering / node-dashboard-url)——若設 `selectable: false`,canvas 的 tap / cxttap 守門(`single.selectable()`)會丟棄所有 controller 點擊,detail 面板永不開啟。映射:
 
 - `namespace` → `{ isNamespace, namespace: <label>, namespaceColor: colorForNamespace(<label>) }`——**重用**既有 `isNamespace` 旗標、palette、stylesheet selector 與 `NamespaceLegend`。
 - `application` → `{ isApplication, application: <label>, applicationColor: colorForApplication(<label>) }`——**新增** `isApplication` 旗標、`applicationPalette.ts`、stylesheet selector 與 `ApplicationLegend`。
@@ -177,10 +177,10 @@
 - **WHEN** 上游節點 `data.type === 'application'`、`name === 'checkout'`、`parent` 指向其 namespace 群組
 - **THEN** normalize 產出 `isApplication: true`、`application: 'checkout'`、`applicationColor: colorForApplication('checkout')`、`selectable: false`,**不**帶 `kind`,且 `parent` 原樣穿透
 
-#### Scenario: controller 群組標 isController 並由子 pod 取得 kind
+#### Scenario: controller 群組標 isController 並由子 pod 取得 kind(維持可選取)
 
 - **WHEN** 上游節點 `data.type === 'controller'`(無 `kind`),其旗下子 pod `owner.kind === 'StatefulSet'`
-- **THEN** normalize 產出 `isController: true`、`kind: 'statefulset'`、`selectable: false`,`parent` 原樣穿透
+- **THEN** normalize 產出 `isController: true`、`kind: 'statefulset'`,`parent` 原樣穿透,且 **MUST NOT** 設 `selectable: false`(controller 為 detail-eligible,須維持可選取以開啟 detail 面板)
 
 #### Scenario: 無 kind 的群組對 kind filter / icon legend 不可見
 

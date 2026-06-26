@@ -118,29 +118,32 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     const labelRaw = data.label;
     const idRaw = data.id;
     const title = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
-    // A storageclass compound group has no namespace/ipAddress/labels of its own, so
-    // surface context from its parent/children (cluster + grouped PVCs, from useHoverElement).
-    if (data.isStorageClass === true) {
-      const kindValue = typeof data.kind === 'string' ? data.kind : 'storageclass';
-      const scAttrs: TooltipRow[] = [{ key: 'kind', value: kindValue }];
-      const sc = hovered.storageClass;
-      if (sc?.cluster !== undefined && sc.cluster.length > 0) {
-        scAttrs.push({ key: 'cluster', value: sc.cluster });
-      }
-      if (sc !== undefined && sc.pvcLabels.length > 0) {
-        scAttrs.push({ key: `PVCs (${String(sc.pvcLabels.length)})`, value: sc.pvcLabels.join(', '), wrap: true });
-      }
-      return { title, attrs: scAttrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
-    }
     const attrs: TooltipRow[] = [];
-    if (typeof data.kind === 'string') {
-      attrs.push({ key: 'kind', value: data.kind });
+    // Backend D6 namespace / application groups are kind-LESS in data (so they stay
+    // invisible to the kind filter + icon legend), so surface a synthetic type here —
+    // otherwise hovering one shows only the bare name. A real `data.kind` (leaf / k8s node /
+    // enriched controller) wins. (cluster groups are skipped upstream in useHoverElement.)
+    const kindValue =
+      typeof data.kind === 'string'
+        ? data.kind
+        : data.isApplication === true
+          ? 'application'
+          : data.isNamespace === true
+            ? 'namespace'
+            : undefined;
+    if (kindValue !== undefined) {
+      attrs.push({ key: 'kind', value: kindValue });
     }
     if (typeof data.namespace === 'string') {
       attrs.push({ key: 'namespace', value: data.namespace });
     }
     if (Array.isArray(data.ipAddress) && data.ipAddress.length > 0) {
       attrs.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
+    }
+    // A storageclass leaf (backend D6) carries its own provisioner — surface it on the
+    // normal node path (no more synthesized-from-children context).
+    if (typeof data.provisioner === 'string' && data.provisioner.length > 0) {
+      attrs.push({ key: 'provisioner', value: data.provisioner });
     }
     return { title, attrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
   }

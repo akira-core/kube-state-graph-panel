@@ -20,9 +20,8 @@ function getStyles(): { list: string; row: string; glyph: string } {
 }
 
 // Short display labels for the edge-legend endpoints. Only `service` is
-// abbreviated; every other kind reads fine at full length. Accepts `'controller'`
-// as a display-only marker (passes through unchanged).
-function kindLabel(kind: NodeKind | 'controller'): string {
+// abbreviated; every other kind reads fine at full length.
+function kindLabel(kind: NodeKind): string {
   return kind === 'service' ? 'svc' : kind;
 }
 

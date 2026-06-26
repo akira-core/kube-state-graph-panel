@@ -264,45 +264,34 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
-  it('renders a storageclass group like a node container: icon-less when expanded, kind icon when collapsed/leaf', () => {
+  it('renders a backend D6 storageclass leaf with its disk glyph (always — never a compound box)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
       style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
       elements: [
         { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        // D6: storageclass is a LEAF under the cluster (no children), carrying provisioner/parameters.
         {
           group: 'nodes',
           data: {
             id: 'prod/storageclass/fast-ssd',
             label: 'fast-ssd',
             kind: 'storageclass',
-            isStorageClass: true,
             parent: 'cluster/prod',
+            provisioner: 'rook-ceph.rbd.csi.ceph.com',
           },
         },
-        {
-          group: 'nodes',
-          data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' },
-        },
-        // A childless storageclass models the collapsed/leaf state (it drops out of
-        // node:parent → base node styling resolves its kind icon).
-        { group: 'nodes', data: { id: 'sc-leaf', label: 'gp2', kind: 'storageclass', isStorageClass: true } },
+        // A PVC nests under its namespace now (not the storageclass).
+        { group: 'nodes', data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'cluster/prod' } },
       ],
     });
     const sc = cy.getElementById('prod/storageclass/fast-ssd');
-    // EXPANDED (a :parent) → labelled container box, NO icon (node:parent), and tinted
-    // with its parent cluster's accent — exactly like a K8s `node` container.
-    expect(sc.style('background-image')).toBe('none');
+    // A leaf (no children → never :parent) ALWAYS shows its storageclass disk glyph, with
+    // no expanded-vs-collapsed compound behaviour.
+    expect(sc.style('background-image')).toBe(tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor));
     expect(sc.style('shape')).toBe('round-rectangle');
-    expect(sc.style('background-color')).toBe(cy.getElementById('cluster/prod').style('background-color'));
-    expect(Number(sc.style('background-opacity'))).toBeCloseTo(0.1);
-    // COLLAPSED / leaf (childless) → shows its storageclass kind icon (the disk stack),
-    // just like a collapsed K8s node container shows its icon.
-    expect(cy.getElementById('sc-leaf').style('background-image')).toBe(
-      tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor)
-    );
-    // The PVC nested inside still carries its own kind icon.
+    // The PVC carries its own kind icon.
     expect(cy.getElementById('pvc/data-0').style('background-image')).toMatch(/^data:image\/svg\+xml,/);
     cy.destroy();
   });
@@ -411,7 +400,23 @@ describe('getStylesheet', () => {
     expect(nsIdx).toBeLessThan(selectors.indexOf('node:selected'));
   });
 
-  it('keeps a namespace box namespaceColor in both states; a split storageclass sub-box inherits the cluster tint', () => {
+  it('declares an application-box selector (data(applicationColor)) after node[?isNamespace], before node:selected', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const appIdx = selectors.indexOf('node[?isApplication]');
+    expect(appIdx).toBeGreaterThan(-1);
+    const app = sheet[appIdx]?.style ?? {};
+    expect(app['background-color']).toBe('data(applicationColor)');
+    expect(app['border-color']).toBe('data(applicationColor)');
+    expect(app['background-image']).toBe('none');
+    expect(appIdx).toBeGreaterThan(selectors.indexOf('node[?isNamespace]'));
+    expect(appIdx).toBeLessThan(selectors.indexOf('node:selected'));
+  });
+
+  it('keeps namespace / application accents in both expanded and collapsed states (no :parent dependency)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
@@ -431,22 +436,30 @@ describe('getStylesheet', () => {
         },
         {
           group: 'nodes',
-          data: { id: 'scsub', label: 'gp2', kind: 'storageclass', isStorageClass: true, parent: 'nsbox' },
+          data: {
+            id: 'appbox',
+            label: 'checkout',
+            isApplication: true,
+            application: 'checkout',
+            applicationColor: '#0ea5e9',
+            parent: 'nsbox',
+          },
         },
-        { group: 'nodes', data: { id: 'pvc', label: 'data-0', kind: 'pvc', parent: 'scsub' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'appbox' } },
       ],
     });
     const nsbox = cy.getElementById('nsbox');
-    // Expanded namespace box → border is its namespaceColor (direct node[?isNamespace] hit).
+    const appbox = cy.getElementById('appbox');
+    // Expanded → each box borders by its own accent (direct flag-selector hit, no icon).
     const nsBorderExpanded = nsbox.style('border-color') as string;
+    const appBorderExpanded = appbox.style('border-color') as string;
+    expect(appbox.style('background-image')).toBe('none');
+    expect(nsBorderExpanded).not.toBe(appBorderExpanded); // distinct accents
     nsbox.addClass('cy-expand-collapse-collapsed-node');
-    // Collapsed → STILL the namespaceColor (the selector does not depend on :parent).
+    appbox.addClass('cy-expand-collapse-collapsed-node');
+    // Collapsed → STILL their own accents (the selectors do not depend on :parent).
     expect(nsbox.style('border-color')).toBe(nsBorderExpanded);
-    // The split storageclass sub-box (parent = namespace box) inherits the CLUSTER tint
-    // via the ancestor walk — same backplate colour as the cluster box (one family).
-    expect(cy.getElementById('scsub').style('background-color')).toBe(
-      cy.getElementById('cluster/prod').style('background-color')
-    );
+    expect(appbox.style('border-color')).toBe(appBorderExpanded);
     cy.destroy();
   });
 });

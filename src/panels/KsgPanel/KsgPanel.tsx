@@ -6,8 +6,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { computeVisibility, isFilterableKind } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
-import { applyNamespaceGrouping, useGraphData, wrapSwitchFabric } from '../../features/graph-data';
+import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
 import {
+  ApplicationLegend,
   ClusterLegend,
   EdgeLegend,
   LayoutModeControl,
@@ -15,7 +16,7 @@ import {
   NodeContainerLegend,
   NodeLegend,
   StatusLegend,
-  StorageClassLegend,
+  type ApplicationLegendEntry,
   type ClusterLegendEntry,
   type NamespaceLegendEntry,
 } from '../../features/legend';
@@ -39,7 +40,6 @@ import { themeColors } from '../../shared/theme/themeColors';
 
 import { deriveLegendEntries } from './deriveLegendEntries';
 import { deriveContainers } from './deriveNodeContainers';
-import { deriveStorageClassContainers } from './deriveStorageClassContainers';
 import { ALL_KINDS, defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 import { useCollapseGroup } from './useCollapseGroup';
 
@@ -185,6 +185,8 @@ export function resolveSelectedNode(
         ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
         ...(d.application !== undefined ? { application: d.application } : {}),
         ...(d.containers !== undefined ? { containers: d.containers } : {}),
+        ...(d.provisioner !== undefined ? { provisioner: d.provisioner } : {}),
+        ...(d.parameters !== undefined ? { parameters: d.parameters } : {}),
         ...(queryTarget !== undefined ? { queryTarget } : {}),
       };
     }
@@ -232,12 +234,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // decision. 'controller' aggregates pods under their owning controller (default);
   // 'node' is the infrastructure view (cluster > node > pod).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
-  // View-transform pipeline (pure, mode-threaded): applyPodParentMode reshapes pod
-  // nesting; applyNamespaceGrouping inserts namespace compounds in CONTROLLER mode
-  // (no-op in node mode — namespace-grouping spec); wrapSwitchFabric synthesizes the
-  // virtual `network > switch` compound for parent-less switches (switch-tier-layout).
+  // View-transform pipeline (pure, mode-threaded): applyPodParentMode reshapes the
+  // backend D6 hierarchy (controller = payload as-is; node = re-parent pods under their
+  // K8s node, strip workload groups); wrapSwitchFabric synthesizes the virtual
+  // `network > switch` compound for parent-less switches (switch-tier-layout). Namespace
+  // / application grouping is backend-owned now — no client-side synthesis pass.
   const elements = useMemo(
-    () => wrapSwitchFabric(applyNamespaceGrouping(applyPodParentMode(baseElements, podParentMode), podParentMode)),
+    () => wrapSwitchFabric(applyPodParentMode(baseElements, podParentMode)),
     [baseElements, podParentMode]
   );
 
@@ -352,9 +355,9 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
-  // Namespace swatches (CONTROLLER mode only) from synthesized namespace boxes
-  // (data.namespaceColor from applyNamespaceGrouping). Deduped by name; SINGLE SOURCE
-  // with namespaceContainerIds below (both filter isNamespace === true).
+  // Namespace swatches (CONTROLLER mode only) from the backend namespace group nodes
+  // (data.namespaceColor assigned in normalize). Deduped by name; SINGLE SOURCE with
+  // namespaceContainerIds below (both filter isNamespace === true).
   const namespaceEntries = useMemo<NamespaceLegendEntry[]>(() => {
     const byName = new Map<string, string>();
     for (const el of elements) {
@@ -379,6 +382,39 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       }
       const d = el.data as cytoscape.NodeDataDefinition;
       if (d.isNamespace === true && typeof d.id === 'string') {
+        ids.push(d.id);
+      }
+    }
+    return ids;
+  }, [elements]);
+
+  // Application swatches (CONTROLLER mode only) from the backend application group nodes
+  // (data.applicationColor assigned in normalize). Sibling of namespaceEntries; SINGLE
+  // SOURCE with applicationContainerIds below (both filter isApplication === true).
+  const applicationEntries = useMemo<ApplicationLegendEntry[]>(() => {
+    const byName = new Map<string, string>();
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isApplication === true && typeof d.application === 'string' && typeof d.applicationColor === 'string') {
+        byName.set(d.application, d.applicationColor);
+      }
+    }
+    return [...byName].map(([name, color]) => ({ name, color }));
+  }, [elements]);
+
+  // Application box ids for the collapse-all group. Same isApplication filter as
+  // applicationEntries (single source) so toggle and swatch section can't diverge.
+  const applicationContainerIds = useMemo<string[]>(() => {
+    const ids: string[] = [];
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isApplication === true && typeof d.id === 'string') {
         ids.push(d.id);
       }
     }
@@ -441,26 +477,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, theme, podParentMode]
   );
 
-  // StorageClass compound groups (cluster > storageclass > pvc). Mode-INDEPENDENT: a
-  // StorageClass boxes its PVCs in both modes, so it gets its own swatch + collapse group.
-  const { containerEntries: storageClassEntries, containerIds: storageClassIds } = useMemo(
-    () => deriveStorageClassContainers(elements, themeColors(theme).border.weak),
-    [elements, theme]
-  );
-
-  // Default-fold storage classes on first load. Mode-INDEPENDENT; ref-guarded to fire once
-  // per mount so a user-expanded storageclass survives a later data refresh.
-  const storageClassesFoldedRef = useRef(false);
-  useEffect(() => {
-    if (storageClassesFoldedRef.current || storageClassIds.length === 0) {
-      return;
-    }
-    storageClassesFoldedRef.current = true;
-    setCollapsedIds((prev) => new Set([...prev, ...storageClassIds]));
-  }, [storageClassIds]);
-
-  // Icon Node-kinds legend rows — collapse-/container-aware (collapsing a storageclass
-  // swaps pvc → storageclass; node⇄pod / controller⇄pod likewise), UNIONED with kinds
+  // Icon Node-kinds legend rows — collapse-/container-aware (node⇄pod / controller⇄pod;
+  // a storageclass is a D6 leaf and always shows its glyph), UNIONED with kinds
   // visibleKinds currently hides so their eye-slash rows stay restorable (D11).
   const nodeLegendEntries = useMemo(
     () => deriveLegendEntries(elements, collapsedIds, visibleKinds),
@@ -510,15 +528,16 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     collapsedIds,
     setCollapsedIds
   );
-  const { allCollapsed: allStorageClassesCollapsed, toggle: toggleStorageClasses } = useCollapseGroup(
-    storageClassIds,
-    collapsedIds,
-    setCollapsedIds
-  );
   // Namespace collapse-all (controller mode). Namespace boxes are NOT default-collapsed,
   // so allNamespacesCollapsed starts false.
   const { allCollapsed: allNamespacesCollapsed, toggle: toggleNamespaces } = useCollapseGroup(
     namespaceContainerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
+  // Application collapse-all (controller mode). Like namespaces, NOT default-collapsed.
+  const { allCollapsed: allApplicationsCollapsed, toggle: toggleApplications } = useCollapseGroup(
+    applicationContainerIds,
     collapsedIds,
     setCollapsedIds
   );
@@ -573,13 +592,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          {podParentMode === 'controller' && (
-            <NamespaceLegend
-              namespaces={namespaceEntries}
-              onToggleCollapseAll={toggleNamespaces}
-              allCollapsed={allNamespacesCollapsed}
-            />
-          )}
           <NodeContainerLegend
             nodes={containerEntries}
             onToggleCollapseAll={toggleNodes}
@@ -587,11 +599,20 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             title={containerTitle}
             collapseNoun={collapseNoun}
           />
-          <StorageClassLegend
-            storageClasses={storageClassEntries}
-            onToggleCollapseAll={toggleStorageClasses}
-            allCollapsed={allStorageClassesCollapsed}
-          />
+          {podParentMode === 'controller' && (
+            <NamespaceLegend
+              namespaces={namespaceEntries}
+              onToggleCollapseAll={toggleNamespaces}
+              allCollapsed={allNamespacesCollapsed}
+            />
+          )}
+          {podParentMode === 'controller' && (
+            <ApplicationLegend
+              applications={applicationEntries}
+              onToggleCollapseAll={toggleApplications}
+              allCollapsed={allApplicationsCollapsed}
+            />
+          )}
         </aside>
       )}
       <div className={styles.canvasArea}>

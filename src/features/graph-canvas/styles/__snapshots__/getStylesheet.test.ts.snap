@@ -83,6 +83,26 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node[?isApplication]",
+    "style": {
+      "background-color": "data(applicationColor)",
+      "background-image": "none",
+      "background-opacity": 0.1,
+      "border-color": "data(applicationColor)",
+      "border-opacity": 0.7,
+      "border-width": 1.5,
+      "color": "data(applicationColor)",
+      "font-size": 13,
+      "font-weight": 600,
+      "label": "data(label)",
+      "padding": "12px",
+      "shape": "round-rectangle",
+      "text-halign": "center",
+      "text-margin-y": -3,
+      "text-valign": "top",
+    },
+  },
+  {
     "selector": "node.cy-expand-collapse-collapsed-node",
     "style": {
       "border-opacity": 0.9,

@@ -34,21 +34,18 @@ describe('useHoverElement', () => {
     cy.destroy();
   });
 
-  it('gathers cluster + grouped PVC labels for a storageclass compound group', () => {
+  it('captures a storageclass leaf via the normal node path (own kind + provisioner, no synthesized context)', () => {
     const cy = headlessCy([
       { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, cluster: 'prod' } },
       {
         group: 'nodes',
-        data: { id: 'prod/storageclass/fast-ssd', label: 'fast-ssd', isStorageClass: true, parent: 'cluster/prod' },
-      },
-      // Added out of order: the gathered list must be sorted (deterministic tooltip).
-      {
-        group: 'nodes',
-        data: { id: 'pvc/b', label: 'data-mongo-1', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' },
-      },
-      {
-        group: 'nodes',
-        data: { id: 'pvc/a', label: 'data-mongo-0', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' },
+        data: {
+          id: 'prod/storageclass/fast-ssd',
+          label: 'fast-ssd',
+          kind: 'storageclass',
+          provisioner: 'rook-ceph.rbd.csi.ceph.com',
+          parent: 'cluster/prod',
+        },
       },
     ]);
     const cyRef = { current: cy };
@@ -57,7 +54,11 @@ describe('useHoverElement', () => {
       cy.getElementById('prod/storageclass/fast-ssd').emit('mouseover');
     });
     expect(result.current?.id).toBe('prod/storageclass/fast-ssd');
-    expect(result.current?.storageClass).toEqual({ cluster: 'prod', pvcLabels: ['data-mongo-0', 'data-mongo-1'] });
+    // The storageclass leaf carries its own kind + provisioner — no synthesized
+    // storageClass field (that path was removed when storageclass became a leaf).
+    expect(result.current?.data.kind).toBe('storageclass');
+    expect(result.current?.data.provisioner).toBe('rook-ceph.rbd.csi.ceph.com');
+    expect(result.current).not.toHaveProperty('storageClass');
     cy.destroy();
   });
 

@@ -1,8 +1,10 @@
 import type cytoscape from 'cytoscape';
 
+import { colorForApplication } from '../../shared/constants/applicationPalette';
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import type { GraphNodeKind, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import { colorForNamespace } from '../../shared/constants/namespacePalette';
+import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
 import { isPlainObject } from '../../shared/guards/isPlainObject';
 import type { ContainerSpec } from '../../shared/types/containerSpec';
 
@@ -39,21 +41,48 @@ function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
 
-// Panel-side identity keyed off upstream `type`: `cluster` → kind-less decorative
-// container; `storageclass` → compound group carrying `kind` + `isStorageClass`, no
-// status; everything else → leaf carrying its kind plus `status` ONLY when the backend
-// sent one (data-driven — stylesheet borders `node[status]`, not a hardcoded kind list).
+// Backend D6 compound group `data.type` literals — all are kind-less at parse time and
+// carry no own alerts (a controller's alerts come from enrichControllers). `controller` is
+// later ENRICHED with a real `kind` from its child pods so its detail panel keeps working.
+function isGroupType(type: string): boolean {
+  return type === 'cluster' || type === 'namespace' || type === 'application' || type === 'controller';
+}
+
+// Purely DECORATIVE groups that never open the detail panel, so they are selectable:false
+// (a tap can't latch a selection ring / open the panel). The `controller` group is
+// DELIBERATELY excluded: it is detail-eligible (resolveSelectedNode opens it; Dashboard
+// button + Application/Containers/alerts — design D5), so it must stay tappable. Marking it
+// non-selectable would make the canvas tap/cxttap gate (GraphCanvas single.selectable())
+// drop every controller click.
+function isNonSelectableGroupType(type: string): boolean {
+  return type === 'cluster' || type === 'namespace' || type === 'application';
+}
+
+// Panel-side identity keyed off upstream `type` (backend D6):
+//   `cluster` / `namespace` / `application` → kind-less decorative accent group;
+//   `controller` → kind-less group flagged isController (kind added in enrichControllers);
+//   everything else → leaf carrying its kind plus `status` ONLY when the backend sent one
+//   (data-driven — stylesheet borders `node[status]`, not a hardcoded kind list). storageclass
+//   is now an ordinary leaf (D3) and falls through this last branch.
 type NodeIdentity =
   | { isCluster: true; cluster: string; clusterColor: string }
-  | { kind: NodeKind; isStorageClass: true }
+  | { isNamespace: true; namespace: string; namespaceColor: string }
+  | { isApplication: true; application: string; applicationColor: string }
+  | { isController: true }
   | { kind: GraphNodeKind; status?: NodeStatus };
 
 function resolveNodeIdentity(type: string, label: string, status: NodeStatus | undefined): NodeIdentity {
   if (type === 'cluster') {
     return { isCluster: true, cluster: label, clusterColor: colorForCluster(label) };
   }
-  if (type === 'storageclass') {
-    return { kind: 'storageclass', isStorageClass: true };
+  if (type === 'namespace') {
+    return { isNamespace: true, namespace: label, namespaceColor: colorForNamespace(label) };
+  }
+  if (type === 'application') {
+    return { isApplication: true, application: label, applicationColor: colorForApplication(label) };
+  }
+  if (type === 'controller') {
+    return { isController: true };
   }
   return { kind: type, ...(status !== undefined ? { status } : {}) };
 }
@@ -132,26 +161,9 @@ function rankToStatus(rank: number): NodeStatus {
   return rank >= 2 ? 'critical' : rank === 1 ? 'warning' : 'normal';
 }
 
-interface PendingOwned {
-  podId: string;
-  podLabel: string;
-  ownerKind: string;
-  ownerName: string;
-  cluster: string; // '' when absent
-  namespace: string; // '' when absent
-  podStatusRank: number; // aggregated onto the controller as its worst child status
-  podAlerts: NodeAlert[] | undefined; // aggregated onto the controller's detail-panel alert table
-  podApplication: string | undefined; // first valued pod (stable order) names the controller's
-  podContainers: ContainerSpec[] | undefined; // union-aggregated onto the controller, deduped by (name, image)
-}
-
-// OPAQUE dedup key — K8s names are slash-free (RFC 1123), so the `/`-joined form is unambiguous.
-function controllerIdFor(o: PendingOwned): string {
-  return `ctrl/${o.cluster}/${o.namespace}/${o.ownerKind.toLowerCase()}/${o.ownerName}`;
-}
-
 // Pod controller owner from typed `data.owner` or legacy `labels.owner_kind/_name`
-// (pre-f050092). undefined = none.
+// (pre-f050092). undefined = none. Passed through on pod nodes; enrichControllers reads
+// it from a controller's child pods to derive the controller's Workloads `kind`.
 function parseOwner(
   d: Record<string, unknown>,
   labels: Record<string, string> | undefined
@@ -179,37 +191,50 @@ function resolveContainer(raw: Record<string, unknown>): Record<string, unknown>
   return raw;
 }
 
-// Pre-pass: worst child-pod STATUS rank per parent container id (keyed by the pod's raw
-// `parent`), so a collapsed k8s node borders by the worst status it hides. Every parented
-// pod records an entry — including rank 0 — so map membership doubles as "has child pods"
-// (D10: write worstStatus only when there is status info at all).
-function computeChildWorstStatus(rawNodes: unknown[]): Map<string, number> {
-  const childWorstStatusRank = new Map<string, number>();
+// Pre-pass (D8): worst pod STATUS rank reachable from each k8s `node` via `pod-to-node`
+// edges — pods no longer nest under their node in the backend D6 (controller) payload, so
+// a collapsed node can no longer border from its children. Every node with ≥1 incident
+// `pod-to-node` edge records an entry (incl. rank 0) so map membership doubles as "has a
+// reachable pod" (write worstStatus only when there is status info at all). The `node`
+// pod-parent view re-nests pods under their node, where the same set of pods yields the
+// same worst — so this single normalize-time computation holds in both views.
+function computeNodeWorstViaPodToNode(rawNodes: unknown[], rawEdges: unknown[]): Map<string, number> {
+  const podStatusRank = new Map<string, number>();
   for (const entry of rawNodes) {
     if (!isPlainObject(entry)) {
       continue;
     }
     const d = unwrapData(entry);
-    if (d.type !== 'pod' || !isString(d.parent)) {
+    if (d.type !== 'pod' || !isString(d.id)) {
       continue;
     }
     const status: NodeStatus = isNodeStatus(d.status) ? d.status : FALLBACK_STATUS;
-    const r = STATUS_RANK[status];
-    const prev = childWorstStatusRank.get(d.parent);
+    podStatusRank.set(d.id, STATUS_RANK[status]);
+  }
+  const nodeWorst = new Map<string, number>();
+  for (const entry of rawEdges) {
+    if (!isPlainObject(entry)) {
+      continue;
+    }
+    const d = unwrapData(entry);
+    if (d.type !== 'pod-to-node' || !isString(d.source) || !isString(d.target)) {
+      continue;
+    }
+    const r = podStatusRank.get(d.source);
+    if (r === undefined) {
+      continue; // source is not a known pod
+    }
+    const prev = nodeWorst.get(d.target);
     if (prev === undefined || r > prev) {
-      childWorstStatusRank.set(d.parent, r);
+      nodeWorst.set(d.target, r);
     }
   }
-  return childWorstStatusRank;
+  return nodeWorst;
 }
 
 interface ParsedNodes {
   elements: cytoscape.ElementDefinition[];
-  // Accumulators for controller synthesis: owned pods + cluster-name → container-id map
-  // (a synthesized controller nests under its cluster). `nodeIds` is the edge-endpoint dedup set.
-  pendingOwned: PendingOwned[];
-  clusterIdByName: Map<string, string>;
-  nodeIds: Set<string>;
+  nodeIds: Set<string>; // the edge-endpoint dedup set
   errors: string[];
 }
 
@@ -218,16 +243,15 @@ interface ParsedEdges {
   errors: string[];
 }
 
-// Stage 1 — project raw nodes onto cytoscape node elements (payload order) + collect what
-// controller synthesis needs. Compound grouping STRUCTURE is the backend's: `parent` is
-// passed through untouched (panel is structure-agnostic). The one frontend concern kept
-// here is the cluster accent COLOUR (single source: data.clusterColor, read by legend swatches).
-function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<string, number>): ParsedNodes {
+// Stage 1 — project raw nodes onto cytoscape node elements (payload order). Compound
+// grouping STRUCTURE is the backend's: `parent` is passed through untouched (panel is
+// structure-agnostic). The frontend concerns kept here are the accent COLOUR for the
+// cluster / namespace / application decorative groups (single source: data.*Color, read by
+// legend swatches) and per-node `worstStatus` for the collapsed-container border tint.
+function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, number>): ParsedNodes {
   const elements: cytoscape.ElementDefinition[] = [];
   const errors: string[] = [];
   const nodeIds = new Set<string>();
-  const pendingOwned: PendingOwned[] = [];
-  const clusterIdByName = new Map<string, string>();
   for (const [index, entry] of rawNodes.entries()) {
     if (!isPlainObject(entry)) {
       errors.push(`nodes[${String(index)}] is not an object`);
@@ -251,35 +275,40 @@ function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<strin
     const labels = isStringRecord(d.labels) ? d.labels : undefined;
     const namespace = labels?.namespace;
     const label = isString(d.name) ? d.name : d.id;
-    const isCluster = d.type === 'cluster';
-    const isStorageClass = d.type === 'storageclass';
+    const isGroup = isGroupType(d.type);
+    const isNonSelectableGroup = isNonSelectableGroupType(d.type);
     // Data-driven status: keep only a valid backend status on the element (absent → no
     // `status` field → no border via `node[status]`). For worstStatus aggregation, an
     // absent status counts as FALLBACK_STATUS (normal).
     const rawStatus: NodeStatus | undefined = isNodeStatus(d.status) ? d.status : undefined;
     const ownStatusRank = STATUS_RANK[rawStatus ?? FALLBACK_STATUS];
     const identity = resolveNodeIdentity(d.type, label, rawStatus);
-    // Alerts ride on leaf nodes only; grouping containers (cluster / storageclass) never carry them.
-    const alerts = isCluster || isStorageClass ? undefined : parseAlerts(d.alerts);
-    // A collapsed k8s `node` borders by the worst of its own + child-pod statuses, incl.
-    // normal (D10). Set only when status info exists (own status or ≥1 child pod) — a bare
-    // node with neither must not pass "no data" off as normal.
-    const nodeChildRank = d.type === 'node' ? childWorstStatusRank.get(d.id) : undefined;
+    // Alerts ride on leaf nodes only; group nodes never carry their own (a backend
+    // controller's alerts are aggregated from its child pods in enrichControllers).
+    const alerts = isGroup ? undefined : parseAlerts(d.alerts);
+    // A collapsed k8s `node` borders by the worst of its own + reachable-pod statuses,
+    // incl. normal (D8/D10). Set only when status info exists (own status or ≥1 reachable
+    // pod) — a bare node with neither must not pass "no data" off as normal.
+    const nodeChildRank = d.type === 'node' ? nodeWorstFromPods.get(d.id) : undefined;
     const nodeHasStatusInfo = d.type === 'node' && (rawStatus !== undefined || nodeChildRank !== undefined);
     const nodeWorstRank = Math.max(ownStatusRank, nodeChildRank ?? 0);
     // ArgoCD application + containers + typed owner ride on POD nodes only (backend
-    // contract); the synthesized controller aggregates application+containers from its pods.
+    // contract); enrichControllers aggregates them onto the backend controller group.
     const isPod = d.type === 'pod';
     const application = isPod && isString(d.application) ? d.application : undefined;
     const containers = isPod ? parseContainers(d.containers) : undefined;
     const owner = isPod ? parseOwner(d, labels) : undefined;
+    // storageclass leaf structural fields (D3); omitempty — passed through when present.
+    const provisioner = isString(d.provisioner) ? d.provisioner : undefined;
+    const parameters = isStringRecord(d.parameters) ? d.parameters : undefined;
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
-      // Cluster boxes stay grabbable (draggable) but NOT selectable — a tap can't latch a
-      // selection ring or open the detail panel. Single source for "clusters aren't
-      // selectable": the canvas tap handler reads node.selectable(), not isCluster.
-      ...(isCluster ? { selectable: false } : {}),
+      // Purely decorative groups (cluster / namespace / application) stay grabbable
+      // (draggable) but NOT selectable — a tap can't latch a selection ring or open the
+      // detail panel. `controller` is excluded (selectable) so its detail panel opens.
+      // Single source: the canvas tap handler reads node.selectable().
+      ...(isNonSelectableGroup ? { selectable: false } : {}),
       data: {
         id: d.id,
         ...identity,
@@ -291,28 +320,14 @@ function parseNodes(rawNodes: unknown[], childWorstStatusRank: ReadonlyMap<strin
         ...(application !== undefined ? { application } : {}),
         ...(containers !== undefined ? { containers } : {}),
         ...(owner !== undefined ? { owner } : {}),
+        ...(provisioner !== undefined ? { provisioner } : {}),
+        ...(parameters !== undefined ? { parameters } : {}),
         ...(nodeHasStatusInfo ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),
         ...(labels !== undefined ? { labels } : {}),
       },
     });
-    if (isCluster) {
-      clusterIdByName.set(label, d.id);
-    } else if (isPod && owner !== undefined) {
-      pendingOwned.push({
-        podId: d.id,
-        podLabel: label,
-        ownerKind: owner.kind,
-        ownerName: owner.name,
-        cluster: labels?.cluster ?? '',
-        namespace: namespace ?? '',
-        podStatusRank: ownStatusRank,
-        podAlerts: alerts,
-        podApplication: application,
-        podContainers: containers,
-      });
-    }
   }
-  return { elements, pendingOwned, clusterIdByName, nodeIds, errors };
+  return { elements, nodeIds, errors };
 }
 
 // Stage 2 — project raw edges onto cytoscape edge elements (payload order). An edge whose
@@ -355,116 +370,93 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
   return { elements, errors };
 }
 
-// Stage 3 — synthesize deduped controller nodes + controller-owns-pod edges from pod owner
-// metadata (backend emits owners on pods only). Deterministic. Returns controller NODES
-// first, then owns EDGES — the order the prior single-pass version appended them.
-function synthesizeControllers(
-  pendingOwned: PendingOwned[],
-  clusterIdByName: ReadonlyMap<string, string>
-): cytoscape.ElementDefinition[] {
-  const controllerNodes: cytoscape.ElementDefinition[] = [];
-  const controllerSeen = new Set<string>();
-  const ownsEdges: cytoscape.ElementDefinition[] = [];
-  const sortedOwned = [...pendingOwned].sort((a, b) => a.podId.localeCompare(b.podId));
-  // Pre-pass: worst child-pod STATUS per controller (a controller has no status of its
-  // own — purely child-driven), so a collapsed controller borders in that colour.
-  const controllerWorstRank = new Map<string, number>();
-  for (const o of sortedOwned) {
-    const id = controllerIdFor(o);
-    if (o.podStatusRank > (controllerWorstRank.get(id) ?? 0)) {
-      controllerWorstRank.set(id, o.podStatusRank);
+// Stage 3 (D5) — enrich the backend's `controller` group nodes from their child pods so the
+// right-click detail panel (ApplicationTable / ContainerTable / dashboard URL) and the
+// collapsed-border tint keep working. The backend emits the controller group + its parent
+// chain directly (D1, no client synthesis); the panel only decorates it. Deterministic,
+// immutable: a NEW element is produced for each controller; child pod elements and the input
+// array are never mutated (alert pod-backfill copies the alert). Children = pods whose
+// `data.parent` is the controller id, taken in stable podId order.
+function enrichControllers(nodeElements: cytoscape.ElementDefinition[]): cytoscape.ElementDefinition[] {
+  const podsByParent = new Map<string, cytoscape.ElementDefinition[]>();
+  for (const el of nodeElements) {
+    const d = el.data as cytoscape.NodeDataDefinition;
+    if (d.kind === 'pod' && typeof d.parent === 'string') {
+      const arr = podsByParent.get(d.parent) ?? [];
+      arr.push(el);
+      podsByParent.set(d.parent, arr);
     }
   }
-  // Pre-pass: aggregate child-pod ALERTS per controller (stable podId order) for its
-  // detail-panel alert table. An entry missing `pod` is attributed to its source pod's
-  // label on a NEW object (the pod's own alerts stay untouched); entries with an `id`
-  // dedupe across pods (first wins).
-  const controllerAlerts = new Map<string, NodeAlert[]>();
-  const controllerAlertIds = new Map<string, Set<string>>();
-  for (const o of sortedOwned) {
-    if (o.podAlerts === undefined) {
-      continue;
+  return nodeElements.map((el) => {
+    const d = el.data as cytoscape.NodeDataDefinition;
+    if (d.isController !== true || typeof d.id !== 'string') {
+      return el;
     }
-    const id = controllerIdFor(o);
-    const agg = controllerAlerts.get(id) ?? [];
-    const seenIds = controllerAlertIds.get(id) ?? new Set<string>();
-    for (const alert of o.podAlerts) {
-      if (alert.id !== undefined) {
-        if (seenIds.has(alert.id)) {
-          continue;
+    const children = [...(podsByParent.get(d.id) ?? [])].sort((a, b) =>
+      String((a.data as cytoscape.NodeDataDefinition).id ?? '').localeCompare(
+        String((b.data as cytoscape.NodeDataDefinition).id ?? '')
+      )
+    );
+
+    let kind: string | undefined;
+    let worstRank: number | undefined; // undefined = no child pods (omit worstStatus)
+    let application: string | undefined;
+    const containersByKey = new Map<string, ContainerSpec>();
+    const alerts: NodeAlert[] = [];
+    const seenAlertIds = new Set<string>();
+
+    for (const child of children) {
+      const cd = child.data as cytoscape.NodeDataDefinition;
+      // kind: lowercased owner.kind of the first child pod that has one (stable order).
+      if (kind === undefined && cd.owner !== undefined && cd.owner.kind.length > 0) {
+        kind = cd.owner.kind.toLowerCase();
+      }
+      // worstStatus: worst child-pod status (always written once there is ≥1 child).
+      const r = STATUS_RANK[cd.status ?? FALLBACK_STATUS];
+      worstRank = worstRank === undefined ? r : Math.max(worstRank, r);
+      // application: first valued child pod in stable order.
+      if (application === undefined && cd.application !== undefined) {
+        application = cd.application;
+      }
+      // containers: union across child pods, deduped by (name, image).
+      if (cd.containers !== undefined) {
+        for (const c of cd.containers) {
+          containersByKey.set(`${c.name}/${c.image}`, c);
         }
-        seenIds.add(alert.id);
       }
-      agg.push(alert.pod === undefined ? { ...alert, pod: o.podLabel } : alert);
-    }
-    controllerAlerts.set(id, agg);
-    controllerAlertIds.set(id, seenIds);
-  }
-  // Pre-pass: aggregate ArgoCD application + containers per controller. application =
-  // first valued pod in stable podId order; containers = union across owned pods deduped
-  // by (name, image), sorted at materialization for stable output.
-  const controllerApplication = new Map<string, string>();
-  const controllerContainers = new Map<string, Map<string, ContainerSpec>>();
-  for (const o of sortedOwned) {
-    const id = controllerIdFor(o);
-    if (o.podApplication !== undefined && !controllerApplication.has(id)) {
-      controllerApplication.set(id, o.podApplication);
-    }
-    if (o.podContainers !== undefined) {
-      const byKey = controllerContainers.get(id) ?? new Map<string, ContainerSpec>();
-      for (const c of o.podContainers) {
-        byKey.set(`${c.name}/${c.image}`, c);
+      // alerts: concat in stable order; backfill missing pod from the source pod's label
+      // on a COPY (the pod element stays untouched); dedupe by id across pods (first wins).
+      if (cd.alerts !== undefined) {
+        const podLabel = typeof cd.label === 'string' ? cd.label : typeof cd.id === 'string' ? cd.id : '';
+        for (const alert of cd.alerts) {
+          if (alert.id !== undefined) {
+            if (seenAlertIds.has(alert.id)) {
+              continue;
+            }
+            seenAlertIds.add(alert.id);
+          }
+          alerts.push(alert.pod === undefined ? { ...alert, pod: podLabel } : alert);
+        }
       }
-      controllerContainers.set(id, byKey);
     }
-  }
-  for (const o of sortedOwned) {
-    const kindLower = o.ownerKind.toLowerCase();
-    const controllerId = controllerIdFor(o);
-    if (!controllerSeen.has(controllerId)) {
-      controllerSeen.add(controllerId);
-      const parent = o.cluster === '' ? undefined : clusterIdByName.get(o.cluster);
-      const worstRank = controllerWorstRank.get(controllerId) ?? 0;
-      const aggregatedAlerts = controllerAlerts.get(controllerId);
-      const aggregatedApplication = controllerApplication.get(controllerId);
-      const containersByKey = controllerContainers.get(controllerId);
-      const aggregatedContainers =
-        containersByKey === undefined
-          ? undefined
-          : [...containersByKey.values()].sort(
-              (a, b) => a.name.localeCompare(b.name) || a.image.localeCompare(b.image)
-            );
-      controllerNodes.push({
-        group: 'nodes',
-        data: {
-          id: controllerId,
-          kind: kindLower,
-          isController: true,
-          label: o.ownerName,
-          // Written so applyNamespaceGrouping (controller mode) can box the controller
-          // under its namespace. Omitted when owned pods carry no namespace.
-          ...(o.namespace !== '' ? { namespace: o.namespace } : {}),
-          ...(parent !== undefined ? { parent } : {}),
-          // Always written — a controller owns ≥1 pod, so an all-normal brood still
-          // collapses to an explicit green border (normal is drawn, D10).
-          worstStatus: rankToStatus(worstRank),
-          ...(aggregatedAlerts !== undefined ? { alerts: aggregatedAlerts } : {}),
-          ...(aggregatedApplication !== undefined ? { application: aggregatedApplication } : {}),
-          ...(aggregatedContainers !== undefined ? { containers: aggregatedContainers } : {}),
-        },
-      });
-    }
-    ownsEdges.push({
-      group: 'edges',
+
+    const containers =
+      containersByKey.size > 0
+        ? [...containersByKey.values()].sort((a, b) => a.name.localeCompare(b.name) || a.image.localeCompare(b.image))
+        : undefined;
+
+    return {
+      ...el,
       data: {
-        id: `syn:controller-owns-pod:${controllerId}:${o.podId}`,
-        source: controllerId,
-        target: o.podId,
-        edgeType: 'controller-owns-pod',
+        ...d,
+        ...(kind !== undefined ? { kind } : {}),
+        ...(worstRank !== undefined ? { worstStatus: rankToStatus(worstRank) } : {}),
+        ...(application !== undefined ? { application } : {}),
+        ...(containers !== undefined ? { containers } : {}),
+        ...(alerts.length > 0 ? { alerts } : {}),
       },
-    });
-  }
-  return [...controllerNodes, ...ownsEdges];
+    };
+  });
 }
 
 export function normalizeGraph(raw: unknown): NormalizeResult {
@@ -484,16 +476,17 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
     errors.push('payload.edges is missing or not an array');
   }
 
-  // Pure-function pipeline: child-status pre-pass → nodes → edges (validated against node
-  // ids) → synthesized controllers. Element order (nodes, edges, controllers) and error
-  // order (container-shape, node-parse, edge-parse) preserved from the prior single-pass version.
-  const childWorstStatusRank = computeChildWorstStatus(rawNodes);
-  const nodes = parseNodes(rawNodes, childWorstStatusRank);
+  // Pure-function pipeline (D2): node-worst pre-pass (pod-to-node edges) → nodes → edges
+  // (validated against node ids) → controller enrichment (decorate backend controllers from
+  // child pods). Element order = backend payload order (nodes then edges); error order
+  // (container-shape, node-parse, edge-parse) preserved.
+  const nodeWorstFromPods = computeNodeWorstViaPodToNode(rawNodes, rawEdges);
+  const nodes = parseNodes(rawNodes, nodeWorstFromPods);
   const edges = parseEdges(rawEdges, nodes.nodeIds);
-  const controllers = synthesizeControllers(nodes.pendingOwned, nodes.clusterIdByName);
+  const enrichedNodes = enrichControllers(nodes.elements);
 
   return {
-    elements: [...nodes.elements, ...edges.elements, ...controllers],
+    elements: [...enrichedNodes, ...edges.elements],
     errors: [...errors, ...nodes.errors, ...edges.errors],
   };
 }

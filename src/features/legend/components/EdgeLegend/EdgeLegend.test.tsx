@@ -30,11 +30,9 @@ describe('EdgeLegend', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     const label = (kind: string): string => (kind === 'service' ? 'svc' : kind);
-    // controller-owns-pod and pod-calls-pod are covered by their own dedicated tests
-    // below (pod-calls-pod carries the merged `pod ↔ pod/service` label, not `pod → pod`).
-    for (const edgeType of drawnEdgeTypesForMode('node').filter(
-      (t) => !SVC_PAIR.includes(t) && t !== 'controller-owns-pod' && t !== 'pod-calls-pod'
-    )) {
+    // pod-calls-pod is covered by its own dedicated test below (it carries the merged
+    // `pod ↔ pod/service` label, not `pod → pod`).
+    for (const edgeType of drawnEdgeTypesForMode('node').filter((t) => !SVC_PAIR.includes(t) && t !== 'pod-calls-pod')) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const { from, to } = EDGE_ENDPOINTS_BY_TYPE[edgeType];
       // pod→pod renders 'pod' twice, so count occurrences rather than getByText.
@@ -77,8 +75,7 @@ describe('EdgeLegend', () => {
   it('places a same-colour arrow glyph between the endpoints of every non-omitted drawn edge type', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
-    // Iterate the node-mode drawn set (controller-owns-pod is no longer drawn in
-    // node mode, so it has no row); the merged svc pair is covered separately.
+    // Iterate the node-mode drawn set; the merged svc pair is covered separately.
     for (const edgeType of drawnEdgeTypesForMode('node').filter((t) => !SVC_PAIR.includes(t))) {
       const row = within(legend).getByTestId(`edge-legend-row-${edgeType}`);
       const glyph = within(row).getByTestId('edge-glyph');
@@ -86,10 +83,11 @@ describe('EdgeLegend', () => {
     }
   });
 
-  it('does not list pod-runs-on-node as a drawn edge', () => {
+  it('does not list the retired panel-synthetic edges (pod-runs-on-node / controller-owns-pod)', () => {
     render(<EdgeLegend />);
     const legend = screen.getByTestId('edge-legend');
     expect(within(legend).queryByTestId('edge-legend-row-pod-runs-on-node')).toBeNull();
+    expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
   });
 
   it('renders no explanatory note', () => {
@@ -112,34 +110,23 @@ describe('EdgeLegend', () => {
   });
 
   describe('controller pod-parent mode', () => {
-    it('lists pod-runs-on-node and drops controller-owns-pod + the omitted svc pair', () => {
+    it('lists pod-to-node + pvc-to-storageclass and drops the omitted svc pair', () => {
       // The legend is list-only now; the mode is reflected by the edge types passed in.
       render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('controller')} />);
       const legend = screen.getByTestId('edge-legend');
-      expect(within(legend).getByTestId('edge-legend-row-pod-runs-on-node')).toBeInTheDocument();
-      expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
+      expect(within(legend).getByTestId('edge-legend-row-pod-to-node')).toBeInTheDocument();
+      expect(within(legend).getByTestId('edge-legend-row-pvc-to-storageclass')).toBeInTheDocument();
       // service edges are omitted from the legend in both modes (still drawn on canvas).
       expect(within(legend).queryByTestId('edge-legend-row-pod-svc')).toBeNull();
       expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
     });
-  });
 
-  describe('controller-owns-pod label', () => {
-    it('is no longer drawn in node mode (filtered out of the node drawn-set)', () => {
+    it('does not list pod-to-node in node mode (expressed as nesting there)', () => {
       render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('node')} />);
       const legend = screen.getByTestId('edge-legend');
-      expect(within(legend).queryByTestId('edge-legend-row-controller-owns-pod')).toBeNull();
-    });
-
-    it('still shows "controller" as the FROM label (not "deployment") when explicitly listed', () => {
-      // The type stays in the endpoint/style maps, so if it is ever passed in
-      // explicitly the label logic must still resolve to the generic "controller".
-      render(<EdgeLegend edgeTypes={['controller-owns-pod']} />);
-      const legend = screen.getByTestId('edge-legend');
-      const row = within(legend).getByTestId('edge-legend-row-controller-owns-pod');
-      expect(within(row).getByText('controller')).toBeInTheDocument();
-      expect(within(row).getByText('pod')).toBeInTheDocument();
-      expect(within(row).queryByText('deployment')).toBeNull();
+      expect(within(legend).queryByTestId('edge-legend-row-pod-to-node')).toBeNull();
+      // pvc-to-storageclass is drawn in both modes.
+      expect(within(legend).getByTestId('edge-legend-row-pvc-to-storageclass')).toBeInTheDocument();
     });
   });
 

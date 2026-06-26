@@ -13,12 +13,20 @@
 # read by the hover tooltip), so those are absent here (hard backend limits). It DOES
 # derive each pod's ArgoCD `application` (from the argocd_tracking_id label on
 # kube_pod_owner, below) and `containers` (from kube_pod_container_info, below); both
-# surface in the node-detail panel. Result: 20 nodes / 13 edges + 4 owners
-# (the +1 over the 19-node base is the synthesised `prod/storageclass/fast-ssd` group).
+# surface in the node-detail panel.
 #
-#   prod > {worker-0 > gateway, mongo-0, mongo-2; worker-1 > mongo-1; mongo-svc; fast-ssd > data-mongo-0/1/2}
-#   dr   > {worker-2 > consumer, nats-0, nats-1, nats-2; nats-svc}
-# pod-runs-on-node is NOT a drawn edge — it IS the cluster > node > pod nesting.
+# Backend design D6 (commit 787573b) owns the WHOLE hierarchy and emits, in the
+# /v1/graph cytoscape payload: `namespace` / `application` / `controller` group nodes,
+# the full parent chain `cluster > namespace > application > controller > pod`, a
+# `storageclass` LEAF under the cluster (from kube_storageclass_info, with provisioner),
+# `pod-to-node` edges (pod → its K8s node — no longer nesting), and `pvc-to-storageclass`
+# edges (pvc → storageclass). The panel consumes this verbatim (no client synthesis).
+#
+#   prod > ns/prod > {app mongodb > ctrl mongodb > mongo-0/1/2; app gateway > ctrl gateway > gateway; mongo-svc; data-mongo-0/1/2}
+#          + worker-0/1 (leaves) + storageclass fast-ssd (leaf)
+#   dr   > ns/dr > {app nats > ctrl nats > nats-0/1/2; app consumer > ctrl consumer > consumer; nats-svc}
+#          + worker-2 (leaf)
+# pod-to-node IS a drawn edge in controller view; node view re-nests pod under node.
 
 # =====================================================================
 # cluster: prod — MongoDB StatefulSet + gateway Deployment behind mongo-svc
@@ -63,14 +71,18 @@ kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-1",persistentvolumeclaim="data-mongo-1",volume="data"} 1
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-2",persistentvolumeclaim="data-mongo-2",volume="data"} 1
 
-# --- PVC StorageClass (kube_persistentvolumeclaim_info carries the `storageclass`
-#     label). The backend resolves (cluster,namespace,claim) → storageclass and
-#     synthesises a `prod/storageclass/fast-ssd` compound group, nesting each PVC as
-#     cluster > storageclass > pvc. All three mongo replicas share one StorageClass
-#     (a StatefulSet volumeClaimTemplate uses a single storageClassName). ---
+# --- PVC StorageClass. kube_persistentvolumeclaim_info carries each PVC's `storageclass`
+#     label; the backend (D6) draws a `pvc-to-storageclass` edge from each PVC to the
+#     matching storageclass LEAF. All three mongo replicas share one StorageClass (a
+#     StatefulSet volumeClaimTemplate uses a single storageClassName). ---
 kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-0",storageclass="fast-ssd"} 1
 kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-1",storageclass="fast-ssd"} 1
 kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-2",storageclass="fast-ssd"} 1
+
+# --- StorageClass definition. kube_storageclass_info materialises `fast-ssd` as a
+#     cluster-level LEAF carrying its `provisioner` (D6). The PVCs above link to it via
+#     pvc-to-storageclass edges; the node-detail Storage Class section shows the provisioner. ---
+kube_storageclass_info{cluster="prod",storageclass="fast-ssd",provisioner="rook-ceph.rbd.csi.ceph.com",reclaim_policy="Delete",volume_binding_mode="WaitForFirstConsumer"} 1
 
 # --- mongo-svc ClusterIP service. A 2-label `mongo-svc.prod.svc…` connection
 #     string resolves to this Service node + fans service-selects-pod to mongo-*. ---

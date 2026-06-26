@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 
 import { NodeDetailPanel } from './NodeDetailPanel';
@@ -33,6 +33,38 @@ describe('NodeDetailPanel', () => {
     const noAlerts: NodeDetailData = { id: 'p2', label: 'web', kind: 'pod' };
     render(<NodeDetailPanel node={noAlerts} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
     expect(screen.getByTestId('alert-table-empty')).toHaveTextContent('No alerts');
+  });
+
+  describe('Storage Class section (D6 storageclass leaf)', () => {
+    const storageclass: NodeDetailData = {
+      id: 'sc',
+      label: 'fast-ssd',
+      kind: 'storageclass',
+      provisioner: 'rook-ceph.rbd.csi.ceph.com',
+      parameters: { pool: 'kube', fs: 'ext4' },
+    };
+
+    it('renders the provisioner row + generic parameter key/value rows', () => {
+      render(<NodeDetailPanel node={storageclass} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      const section = screen.getByTestId('node-detail-section-storageclass');
+      expect(within(section).getByText('Storage Class')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-sc-provisioner')).toHaveTextContent('rook-ceph.rbd.csi.ceph.com');
+      // Parameters render generically — keys not hard-coded.
+      expect(screen.getByTestId('node-detail-sc-param-pool')).toHaveTextContent('kube');
+      expect(screen.getByTestId('node-detail-sc-param-fs')).toHaveTextContent('ext4');
+    });
+
+    it('omits a missing field row (provisioner only, no parameters)', () => {
+      const bare: NodeDetailData = { id: 'sc2', label: 'gp2', kind: 'storageclass', provisioner: 'ebs.csi.aws.com' };
+      render(<NodeDetailPanel node={bare} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.getByTestId('node-detail-sc-provisioner')).toBeInTheDocument();
+      expect(screen.queryByTestId(/node-detail-sc-param-/)).not.toBeInTheDocument();
+    });
+
+    it('does not render the Storage Class section for a non-storageclass kind', () => {
+      render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-section-storageclass')).not.toBeInTheDocument();
+    });
   });
 
   it('forwards alert time clicks to onAlertTimeClick (seconds)', () => {

@@ -28,6 +28,9 @@ function getStyles(theme: GrafanaTheme2): {
   sectionTitle: string;
   slot: string;
   staticBody: string;
+  kvRow: string;
+  kvKey: string;
+  kvVal: string;
 } {
   const colors = themeColors(theme);
   return {
@@ -139,6 +142,22 @@ function getStyles(theme: GrafanaTheme2): {
       '& thead th': { position: 'sticky', top: 0, zIndex: 1, background: colors.background.secondary },
     }),
     staticBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
+    // Storage Class key/value rows: a label column + a value that wraps (provisioner
+    // strings and selector parameters can be long).
+    kvRow: css({
+      display: 'flex',
+      gap: 8,
+      padding: '2px 0',
+      fontSize: theme.typography.bodySmall.fontSize,
+    }),
+    kvKey: css({
+      flex: '0 0 38%',
+      color: colors.text.secondary,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }),
+    kvVal: css({ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }),
   };
 }
 
@@ -164,6 +183,13 @@ export function NodeDetailPanel({
   const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
   const showContainers =
     view === 'detail' && isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
+  // Storage Class section (backend D6 storageclass leaf): provisioner row + the
+  // provisioner-dependent parameters map rendered generically (keys never hard-coded).
+  // Shown in BOTH views (it is intrinsic node info), only when kind === 'storageclass'
+  // AND there is at least one value to show — a bare storageclass shows no empty section.
+  const parameterEntries = node.kind === 'storageclass' && node.parameters !== undefined ? Object.entries(node.parameters) : [];
+  const showStorageClass =
+    node.kind === 'storageclass' && (node.provisioner !== undefined || parameterEntries.length > 0);
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
@@ -188,6 +214,25 @@ export function NodeDetailPanel({
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
       <div className={styles.body} data-testid="node-detail-scroll">
+        {showStorageClass && (
+          <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-storageclass">
+            <div className={styles.sectionTitle}>Storage Class</div>
+            <div className={styles.staticBody}>
+              {node.provisioner !== undefined && (
+                <div className={styles.kvRow} data-testid="node-detail-sc-provisioner">
+                  <span className={styles.kvKey}>provisioner</span>
+                  <span className={styles.kvVal}>{node.provisioner}</span>
+                </div>
+              )}
+              {parameterEntries.map(([k, v]) => (
+                <div key={k} className={styles.kvRow} data-testid={`node-detail-sc-param-${k}`}>
+                  <span className={styles.kvKey}>{k}</span>
+                  <span className={styles.kvVal}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {showApplication && node.application !== undefined && (
           <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
             <div className={styles.sectionTitle}>Application</div>

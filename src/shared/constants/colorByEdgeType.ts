@@ -17,39 +17,38 @@ export interface EdgeStyle {
 // Source → target node kinds for each edge type. The legend renders an edge type
 // as `<from> → <to>` (the arrow replacing the verb), so it needs the endpoints
 // explicitly rather than parsing the hyphenated wire string. Single source of
-// truth, keyed by the same `data.type` enum as `EDGE_STYLE_BY_TYPE`.
-// `'controller'` is a display-only label used when the edge originates from any
-// controller kind (StatefulSet/DaemonSet/Job/CronJob/Deployment); the real
-// controller kind is carried on the node's `data.kind`, not here.
+// truth, keyed by the same `data.type` enum as `EDGE_STYLE_BY_TYPE`. Every D6 edge
+// connects two real NodeKinds (no synthetic controller endpoints).
 export interface EdgeEndpoints {
-  from: NodeKind | 'controller';
-  to: NodeKind | 'controller';
+  from: NodeKind;
+  to: NodeKind;
 }
 
 export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
-  'pod-runs-on-node': { from: 'pod', to: 'node' },
+  'pod-to-node': { from: 'pod', to: 'node' },
   'pod-mounts-pvc': { from: 'pod', to: 'pvc' },
   'pod-calls-pod': { from: 'pod', to: 'pod' },
   'pod-calls-service': { from: 'pod', to: 'service' },
   'service-selects-pod': { from: 'service', to: 'pod' },
-  'controller-owns-pod': { from: 'controller', to: 'pod' },
+  'pvc-to-storageclass': { from: 'pvc', to: 'storageclass' },
   'switch-to-switch': { from: 'switch', to: 'switch' },
   'node-to-switch': { from: 'node', to: 'switch' },
 };
 
 // Single source of truth for edge styling, keyed by upstream edge `data.type`,
-// covering ALL wire edge types. The stylesheet resolves a colour/line-style per
-// edge from this map regardless of mode — styling an edge type that has no edges
-// in the current view is harmless. `pod-runs-on-node` only appears as a drawn
-// edge in `controller` pod-parent mode (features/pod-parent-mode); in the default
-// `node` mode the backend expresses it as compound nesting (design D31) so no
-// such edge exists. Which types are *drawn* (and shown in the legend) per mode is
-// derived by `drawnEdgeTypesForMode`.
+// covering ALL wire edge types (D6 — every type is backend-emitted). The stylesheet
+// resolves a colour/line-style per edge from this map regardless of mode — styling an
+// edge type that has no edges in the current view is harmless. `pod-to-node` only
+// appears as a drawn edge in the default `controller` pod-parent mode; in `node`
+// (infra) mode the panel expresses it as compound nesting (design D7) so no such edge
+// exists. Which types are *drawn* (and shown in the legend) per mode is derived by
+// `drawnEdgeTypesForMode`.
 // All edges are SOLID — direction is conveyed by the arrowhead, and same-direction
 // distinctions by colour. (No dashed/dotted strokes.) Same-colour pairs
-// (pod→service / service→pod share indigo) differ only by arrow direction.
+// (pod→service / service→pod share orange) differ only by arrow direction.
 export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
-  'pod-runs-on-node': { color: '#3b82f6', lineStyle: 'solid', routing: 'bezier' },
+  // Pod → K8s node (backend D6). Blue (#3b82f6), the old node-edge hue.
+  'pod-to-node': { color: '#3b82f6', lineStyle: 'solid', routing: 'bezier' },
   'pod-mounts-pvc': { color: '#a855f7', lineStyle: 'solid', routing: 'bezier' },
   'pod-calls-pod': { color: '#f97316', lineStyle: 'solid', routing: 'bezier' },
   // Service edges (pod→service / service→pod) share the SAME orange (#f97316) as
@@ -60,11 +59,10 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   // indigo; unified to the pod-calls-pod colour per the "still pod-to-pod" model.)
   'pod-calls-service': { color: '#f97316', lineStyle: 'solid', routing: 'bezier' },
   'service-selects-pod': { color: '#f97316', lineStyle: 'solid', routing: 'bezier' },
-  // Controller → pod ownership edge (controller-mode topology: cluster > controller > pod).
-  // Rose (#ec4899) is the "ownership" hue — distinct from blue/cyan (node edges),
-  // orange (pod-calls-pod & service edges), purple (pvc), and not the reserved
-  // status red.
-  'controller-owns-pod': { color: '#ec4899', lineStyle: 'solid', routing: 'bezier' },
+  // PVC → StorageClass (backend D6). Violet (#8b5cf6), DELIBERATELY distinct from
+  // pod-mounts-pvc's #a855f7 so the two storage edges read apart; not the reserved
+  // status red, and clear of node-edge blue / service orange.
+  'pvc-to-storageclass': { color: '#8b5cf6', lineStyle: 'solid', routing: 'bezier' },
   // Physical network fabric (backend v0.0.18). Both switch↔switch and node→switch
   // share the cyan infra colour + taxi routing — separating them by colour added
   // confusion without benefit now that direction is already conveyed by arrowhead.

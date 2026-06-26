@@ -4,13 +4,14 @@ import { applyPodParentMode } from './applyPodParentMode';
 
 type El = cytoscape.ElementDefinition;
 
-const node = (id: string, kind: string, parent?: string): El => ({
+const node = (id: string, kind: string, parent?: string, extra?: Record<string, unknown>): El => ({
   group: 'nodes',
-  data: { id, kind, ...(parent !== undefined ? { parent } : {}) },
+  data: { id, kind, ...(parent !== undefined ? { parent } : {}), ...extra },
 });
-const owns = (ctrl: string, pod: string): El => ({
-  group: 'edges',
-  data: { id: `o:${ctrl}:${pod}`, source: ctrl, target: pod, edgeType: 'controller-owns-pod' },
+const cluster = (id: string): El => ({ group: 'nodes', data: { id, isCluster: true } });
+const group = (id: string, flag: 'isNamespace' | 'isApplication' | 'isController', parent: string, extra?: Record<string, unknown>): El => ({
+  group: 'nodes',
+  data: { id, [flag]: true, parent, ...extra },
 });
 const edge = (id: string, source: string, target: string, edgeType: string): El => ({
   group: 'edges',
@@ -24,190 +25,144 @@ const edgeDatas = (els: El[]): cytoscape.EdgeDataDefinition[] =>
 const hasEdge = (els: El[], edgeType: string, source: string, target: string): boolean =>
   edgeDatas(els).some((d) => d.edgeType === edgeType && d.source === source && d.target === target);
 
+// A representative backend D6 payload: cluster > namespace > application > controller > pod;
+// node + storageclass leaves under the cluster; pvc / service under the namespace.
+const d6Graph = (): El[] => [
+  cluster('cl'),
+  group('ns', 'isNamespace', 'cl'),
+  group('app', 'isApplication', 'ns'),
+  group('c1', 'isController', 'app', { kind: 'statefulset' }),
+  node('n1', 'node', 'cl'),
+  node('sc', 'storageclass', 'cl'),
+  node('p1', 'pod', 'c1', { labels: { node: 'n1' } }),
+  node('pv1', 'pvc', 'ns'),
+  node('svc', 'service', 'ns'),
+  edge('e-ptn', 'p1', 'n1', 'pod-to-node'),
+  edge('e-pmp', 'p1', 'pv1', 'pod-mounts-pvc'),
+  edge('e-pts', 'pv1', 'sc', 'pvc-to-storageclass'),
+  edge('e-ssp', 'svc', 'p1', 'service-selects-pod'),
+  edge('e-pcs', 'p1', 'svc', 'pod-calls-service'),
+];
+
 describe('applyPodParentMode', () => {
-  it('drops synthesized controllers + controller-owns-pod edges in node mode, keeping everything else', () => {
-    const controller: El = {
-      group: 'nodes',
-      data: { id: 'c1', kind: 'deployment', parent: 'cl', isController: true },
-    };
-    const els = [
-      node('cl', 'node'),
-      node('p1', 'pod', 'n1'),
-      controller,
-      owns('c1', 'p1'),
-      edge('call', 'p1', 'other', 'pod-calls-pod'),
+  describe('controller mode (identity clone of the backend payload)', () => {
+    it('keeps the backend hierarchy verbatim — pods stay under their controller, pod-to-node stays drawn', () => {
+      const out = applyPodParentMode(d6Graph(), 'controller');
+      expect(nodeData(out, 'p1')?.parent).toBe('c1');
+      expect(nodeData(out, 'c1')?.isController).toBe(true);
+      expect(hasEdge(out, 'pod-to-node', 'p1', 'n1')).toBe(true);
+      // No re-parenting, no group teardown: same element count as the input.
+      expect(out).toHaveLength(d6Graph().length);
+    });
+
+    it('synthesizes no edges and re-parents nothing', () => {
+      const out = applyPodParentMode(d6Graph(), 'controller');
+      expect(edgeDatas(out).map((d) => d.edgeType).sort()).toEqual([
+        'pod-calls-service',
+        'pod-mounts-pvc',
+        'pod-to-node',
+        'pvc-to-storageclass',
+        'service-selects-pod',
+      ]);
+    });
+
+    it('returns every element as a fresh object (referentially distinct from the input)', () => {
+      const els = d6Graph();
+      const out = applyPodParentMode(els, 'controller');
+      for (const o of out) {
+        const original = els.find((e) => e.data.id === o.data.id);
+        expect(o).not.toBe(original);
+        expect(o.data).not.toBe(original?.data);
+      }
+    });
+  });
+
+  describe('node mode (infra view: cluster > node > pod)', () => {
+    it('re-parents pods to their K8s node and tears down the workload group tiers', () => {
+      const out = applyPodParentMode(d6Graph(), 'node');
+      // Workload group nodes are dropped.
+      expect(nodeData(out, 'ns')).toBeUndefined();
+      expect(nodeData(out, 'app')).toBeUndefined();
+      expect(nodeData(out, 'c1')).toBeUndefined();
+      // Pod re-parents under its labels.node.
+      expect(nodeData(out, 'p1')?.parent).toBe('n1');
+      // pvc / service members of the dropped namespace re-home under the cluster.
+      expect(nodeData(out, 'pv1')?.parent).toBe('cl');
+      expect(nodeData(out, 'svc')?.parent).toBe('cl');
+      // node + storageclass leaves under the cluster keep their parent.
+      expect(nodeData(out, 'n1')?.parent).toBe('cl');
+      expect(nodeData(out, 'sc')?.parent).toBe('cl');
+    });
+
+    it('drops every pod-to-node edge (now expressed as nesting); keeps service / storage edges', () => {
+      const out = applyPodParentMode(d6Graph(), 'node');
+      expect(edgeDatas(out).some((d) => d.edgeType === 'pod-to-node')).toBe(false);
+      expect(hasEdge(out, 'pod-mounts-pvc', 'p1', 'pv1')).toBe(true);
+      expect(hasEdge(out, 'pvc-to-storageclass', 'pv1', 'sc')).toBe(true);
+      expect(hasEdge(out, 'service-selects-pod', 'svc', 'p1')).toBe(true);
+      expect(hasEdge(out, 'pod-calls-service', 'p1', 'svc')).toBe(true);
+    });
+
+    it('leaves a pod under its cluster when labels.node is missing', () => {
+      const els: El[] = [
+        cluster('cl'),
+        group('c1', 'isController', 'cl'),
+        node('p1', 'pod', 'c1'), // no labels.node
+      ];
+      const out = applyPodParentMode(els, 'node');
+      expect(nodeData(out, 'p1')?.parent).toBe('cl');
+    });
+
+    it('leaves a pod under its cluster when labels.node points at a non-existent node', () => {
+      const els: El[] = [
+        cluster('cl'),
+        group('c1', 'isController', 'cl'),
+        node('p1', 'pod', 'c1', { labels: { node: 'ghost' } }),
+      ];
+      const out = applyPodParentMode(els, 'node');
+      expect(nodeData(out, 'p1')?.parent).toBe('cl');
+    });
+
+    it('does not invent a parent when the pod has no cluster ancestor (top-level)', () => {
+      const els: El[] = [group('c1', 'isController', 'orphan'), node('p1', 'pod', 'c1')];
+      const out = applyPodParentMode(els, 'node');
+      expect(nodeData(out, 'p1')?.parent).toBeUndefined();
+    });
+  });
+
+  it('leaves a cross-cluster pod-calls-pod edge untouched in both modes', () => {
+    const els: El[] = [
+      cluster('prod'),
+      cluster('dr'),
+      node('gw', 'pod', 'prod'),
+      node('cons', 'pod', 'dr'),
+      edge('x', 'gw', 'cons', 'pod-calls-pod'),
     ];
-    const out = applyPodParentMode(els, 'node');
-
-    // The synthesized controller node is dropped.
-    expect(nodeData(out, 'c1')).toBeUndefined();
-    // The controller-owns-pod edge is dropped.
-    expect(hasEdge(out, 'controller-owns-pod', 'c1', 'p1')).toBe(false);
-    // Everything else survives unchanged (non-controller nodes + unrelated edges).
-    expect(nodeData(out, 'cl')).toBeDefined();
-    expect(nodeData(out, 'p1')?.parent).toBe('n1');
-    expect(hasEdge(out, 'pod-calls-pod', 'p1', 'other')).toBe(true);
-    expect(out).toHaveLength(3);
+    for (const mode of ['controller', 'node'] as const) {
+      expect(hasEdge(applyPodParentMode(els, mode), 'pod-calls-pod', 'gw', 'cons')).toBe(true);
+    }
   });
 
-  it('passes non-controller node elements through in node mode (no isController nodes are dropped)', () => {
-    const els = [
-      node('cl', 'node'),
-      node('n1', 'node', 'cl'),
-      node('p1', 'pod', 'n1'),
-      node('svc', 'service', 'cl'),
-      edge('sel', 'svc', 'p1', 'service-selects-pod'),
-    ];
-    const out = applyPodParentMode(els, 'node');
-
-    // No isController nodes present → nothing is dropped; same set passes through.
-    expect(out).toHaveLength(els.length);
-    expect(nodeData(out, 'n1')?.parent).toBe('cl');
-    expect(nodeData(out, 'svc')).toBeDefined();
-    expect(hasEdge(out, 'service-selects-pod', 'svc', 'p1')).toBe(true);
+  it('does not mutate the input elements in either mode (fresh objects)', () => {
+    for (const mode of ['controller', 'node'] as const) {
+      const els = d6Graph();
+      const snapshot = JSON.stringify(els);
+      const out = applyPodParentMode(els, mode);
+      expect(out).not.toBe(els);
+      expect(JSON.stringify(els)).toBe(snapshot);
+    }
   });
 
-  it('does not mutate the input elements in node mode (filter returns a new array)', () => {
-    const controller: El = {
-      group: 'nodes',
-      data: { id: 'c1', kind: 'deployment', parent: 'cl', isController: true },
-    };
-    const els = [node('cl', 'node'), node('p1', 'pod', 'n1'), controller, owns('c1', 'p1')];
-    const snapshot = JSON.stringify(els);
-    const out = applyPodParentMode(els, 'node');
-    // A new array is returned (not the same reference), input is unchanged.
-    expect(out).not.toBe(els);
-    expect(JSON.stringify(els)).toBe(snapshot);
-  });
-
-  it('re-parents a pod under its controller and synthesises a pod-runs-on-node edge in controller mode', () => {
-    const els = [
-      node('n1', 'node', 'cl'),
-      node('p1', 'pod', 'n1'),
-      node('c1', 'deployment', 'cl'),
-      owns('c1', 'p1'),
-      edge('call', 'p1', 'other', 'pod-calls-pod'),
-    ];
-    const out = applyPodParentMode(els, 'controller');
-
-    expect(nodeData(out, 'p1')?.parent).toBe('c1');
-    expect(hasEdge(out, 'pod-runs-on-node', 'p1', 'n1')).toBe(true);
-    // The synthesised edge has the canonical id.
-    const synth = edgeDatas(out).find((d) => d.edgeType === 'pod-runs-on-node');
-    expect(synth?.id).toBe('ppm:pod-runs-on-node:p1');
-    // The controller-owns-pod edge becomes nesting and is removed.
-    expect(hasEdge(out, 'controller-owns-pod', 'c1', 'p1')).toBe(false);
-    // Unrelated edges survive.
-    expect(hasEdge(out, 'pod-calls-pod', 'p1', 'other')).toBe(true);
-  });
-
-  it('nests a multi-owner pod under the lexicographically smallest controller id', () => {
-    const els = [
-      node('n1', 'node', 'cl'),
-      node('p1', 'pod', 'n1'),
-      node('b-ctrl', 'deployment', 'cl'),
-      node('a-ctrl', 'deployment', 'cl'),
-      owns('b-ctrl', 'p1'),
-      owns('a-ctrl', 'p1'),
-    ];
-    const out = applyPodParentMode(els, 'controller');
-
-    expect(nodeData(out, 'p1')?.parent).toBe('a-ctrl');
-    // controller-owns-pod is not drawn in controller mode: all owns edges removed.
-    expect(edgeDatas(out).some((d) => d.edgeType === 'controller-owns-pod')).toBe(false);
-    expect(hasEdge(out, 'pod-runs-on-node', 'p1', 'n1')).toBe(true);
-  });
-
-  it('leaves a pod with no controller-owns-pod edge untouched (no re-parent, no synthesised edge)', () => {
-    const els = [
-      node('n2', 'node', 'cl'),
-      node('q', 'pod', 'n2'),
-      node('p1', 'pod', 'n1'),
-      node('c1', 'deployment', 'cl'),
-      owns('c1', 'p1'),
-    ];
-    const out = applyPodParentMode(els, 'controller');
-
-    expect(nodeData(out, 'q')?.parent).toBe('n2');
-    expect(hasEdge(out, 'pod-runs-on-node', 'q', 'n2')).toBe(false);
-  });
-
-  it('re-parents a pod whose original parent is a cluster container (not a node kind) but synthesises no edge', () => {
-    // The pod's original parent `cl` is a cluster container, not a K8s `node`. It is
-    // re-parented to its controller, but no pod-runs-on-node edge may point at a
-    // cluster — only a real `node`-kind node earns the synthesised edge.
-    const cluster: El = { group: 'nodes', data: { id: 'cl', isCluster: true } };
-    const els = [cluster, node('p1', 'pod', 'cl'), node('c1', 'deployment', 'cl'), owns('c1', 'p1')];
-    const out = applyPodParentMode(els, 'controller');
-
-    expect(nodeData(out, 'p1')?.parent).toBe('c1');
-    expect(edgeDatas(out).some((d) => d.edgeType === 'pod-runs-on-node')).toBe(false);
-  });
-
-  it('preserves service-selects-pod and pod-calls-service edges in controller mode', () => {
-    const els = [
-      node('n1', 'node', 'cl'),
-      node('p1', 'pod', 'n1'),
-      node('c1', 'deployment', 'cl'),
-      node('svc', 'service', 'cl'),
-      owns('c1', 'p1'),
-      edge('sel', 'svc', 'p1', 'service-selects-pod'),
-      edge('call', 'p1', 'svc', 'pod-calls-service'),
-    ];
-    const out = applyPodParentMode(els, 'controller');
-
-    expect(nodeData(out, 'p1')?.parent).toBe('c1');
-    expect(hasEdge(out, 'service-selects-pod', 'svc', 'p1')).toBe(true);
-    expect(hasEdge(out, 'pod-calls-service', 'p1', 'svc')).toBe(true);
-  });
-
-  it('does not mutate the input elements', () => {
-    const els = [
-      node('n1', 'node', 'cl'),
-      node('p1', 'pod', 'n1'),
-      node('c1', 'deployment', 'cl'),
-      node('svc', 'service', 'cl'),
-      owns('c1', 'p1'),
-      edge('sel', 'svc', 'p1', 'service-selects-pod'),
-    ];
-    const snapshot = JSON.stringify(els);
-    applyPodParentMode(els, 'controller');
-    expect(JSON.stringify(els)).toBe(snapshot);
-  });
-
-  // Regression: cytoscape ALIASES the data object handed to cy.add, and the
-  // expand-collapse extension re-routes a collapsed controller's edges by mutating
-  // data.source in place. Every returned element must own a fresh data object so
-  // that downstream mutation cannot leak back into the shared normalized input —
-  // otherwise toggling controller→node corrupts edge endpoints and the workload
-  // orphans (controller default-collapse → pod-mounts-pvc re-pointed to controller).
-  it('returns pass-through edges as fresh data so downstream mutation cannot corrupt the input (controller mode)', () => {
-    const pvcEdge = edge('e-pvc', 'p1', 'pv1', 'pod-mounts-pvc');
-    const els = [
-      node('n1', 'node', 'cl'),
-      node('p1', 'pod', 'n1'),
-      node('c1', 'statefulset', 'cl'),
-      node('pv1', 'pvc', 'cl'),
-      owns('c1', 'p1'),
-      pvcEdge,
-    ];
-    const out = applyPodParentMode(els, 'controller');
-    const outPvc = out.find((e) => e.data.id === 'e-pvc');
-    expect(outPvc?.data).not.toBe(pvcEdge.data);
-
-    // Simulate cytoscape re-routing the collapsed controller's edge in place.
-    (outPvc?.data as cytoscape.EdgeDataDefinition).source = 'c1';
-    expect((pvcEdge.data as cytoscape.EdgeDataDefinition).source).toBe('p1');
-  });
-
-  it('returns pass-through elements as fresh data in node mode', () => {
-    const pvcEdge = edge('e-pvc', 'p1', 'pv1', 'pod-mounts-pvc');
-    const els = [node('p1', 'pod', 'n1'), node('pv1', 'pvc', 'cl'), pvcEdge];
-    const out = applyPodParentMode(els, 'node');
-    const outPvc = out.find((e) => e.data.id === 'e-pvc');
-    expect(outPvc?.data).not.toBe(pvcEdge.data);
-
-    (outPvc?.data as cytoscape.EdgeDataDefinition).source = 'x';
-    expect((pvcEdge.data as cytoscape.EdgeDataDefinition).source).toBe('p1');
+  it('returns pass-through edges as fresh data so downstream mutation cannot corrupt the input', () => {
+    const els = d6Graph();
+    const pvcEdgeInput = els.find((e) => e.data.id === 'e-pmp');
+    for (const mode of ['controller', 'node'] as const) {
+      const out = applyPodParentMode(els, mode);
+      const outPvc = out.find((e) => e.data.id === 'e-pmp');
+      expect(outPvc?.data).not.toBe(pvcEdgeInput?.data);
+      // Simulate cytoscape / expand-collapse re-routing the edge in place.
+      (outPvc?.data as cytoscape.EdgeDataDefinition).source = 'mutated';
+      expect((pvcEdgeInput?.data as cytoscape.EdgeDataDefinition).source).toBe('p1');
+    }
   });
 });

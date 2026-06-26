@@ -28,9 +28,9 @@ function resolveIconUri(kind: string | undefined, iconColor: string): string {
 // cluster read as one family. A COLLAPSED node loses :parent (children removed) and
 // reverts to base node styling — the intended "white label once collapsed" behaviour.
 function resolveParentClusterColor(ele: cytoscape.NodeSingular, fallback: string): string {
-  // Walk the parent chain to the first ancestor with a clusterColor: a storageclass
-  // sub-box (controller mode) sits two levels under the cluster, so don't stop at the
-  // immediate parent.
+  // Walk the parent chain to the first ancestor with a clusterColor: a controller box
+  // sits several levels under the cluster (cluster > namespace > application > controller),
+  // so don't stop at the immediate parent.
   let cur: cytoscape.NodeCollection = ele.parent();
   for (let guard = 0; cur.nonempty() && guard < 64; guard++) {
     const c = cur.data('clusterColor') as unknown;
@@ -175,10 +175,10 @@ export function getStylesheet({
       },
     },
     {
-      // Panel-synthesized namespace compound (controller mode), accent in
-      // data.namespaceColor. Matches node[?isNamespace] DIRECTLY (not via :parent) so
-      // the colour holds in both expanded and collapsed states. Declared after
-      // node[?isCluster], before node:selected.
+      // Backend D6 namespace group, accent in data.namespaceColor. Matches
+      // node[?isNamespace] DIRECTLY (not via :parent) so the colour holds in both
+      // expanded and collapsed states. Declared after node[?isCluster], before
+      // node[?isApplication] / node:selected.
       selector: 'node[?isNamespace]',
       style: {
         shape: 'round-rectangle',
@@ -190,6 +190,30 @@ export function getStylesheet({
         'border-opacity': 0.7,
         label: 'data(label)',
         color: 'data(namespaceColor)',
+        'font-size': 13,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -3,
+        padding: '12px',
+      },
+    },
+    {
+      // Backend D6 application group (ArgoCD app), accent in data.applicationColor. The
+      // innermost decorative box (cluster > namespace > application > controller > pod);
+      // clone of node[?isNamespace] keyed on the application accent. Matches directly so
+      // the colour holds expanded or collapsed. Declared after node[?isNamespace].
+      selector: 'node[?isApplication]',
+      style: {
+        shape: 'round-rectangle',
+        'background-image': 'none',
+        'background-color': 'data(applicationColor)',
+        'background-opacity': 0.1,
+        'border-color': 'data(applicationColor)',
+        'border-width': 1.5,
+        'border-opacity': 0.7,
+        label: 'data(label)',
+        color: 'data(applicationColor)',
         'font-size': 13,
         'font-weight': 600,
         'text-valign': 'top',

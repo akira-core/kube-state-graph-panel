@@ -63,6 +63,12 @@ services:
 
   kube-state-graph:
     profiles: ['backend']
+    # Defaults to :latest (locally built via `make docker-build` in the backend repo, or
+    # pulled from Docker Hub) so `docker compose --profile backend up` runs out-of-the-box.
+    # The FULL D6 hierarchy (namespace/application/controller groups, storageclass leaf,
+    # pod-to-node / pvc-to-storageclass edges) needs a backend at design D6 (commit 787573b
+    # or later) — point KSG_BACKEND_TAG at that image once published. A pre-D6 backend still
+    # renders (the panel degrades gracefully), just without the new groups/edges.
     image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
     container_name: ksg-backend
     depends_on:

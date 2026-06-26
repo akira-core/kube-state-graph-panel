@@ -10,12 +10,14 @@ describe('resolveSelectedNode', () => {
   const elements = [
     node('p1', 'pod'),
     node('cl', 'node', { isCluster: true }),
-    // StorageClass group: a grouping container that DOES carry a kind but is still
-    // excluded from the detail panel via the isStorageClass flag (mirrors normalize).
+    // StorageClass is a backend D6 leaf now — detail-eligible, carrying provisioner/parameters.
     {
       group: 'nodes',
-      data: { id: 'sc', label: 'fast-ssd', kind: 'storageclass', isStorageClass: true },
+      data: { id: 'sc', label: 'fast-ssd', kind: 'storageclass', provisioner: 'ebs.csi.aws.com', parameters: { type: 'gp3' } },
     } as unknown as El,
+    // Decorative backend groups never open the detail panel.
+    node('ns', 'node', { isNamespace: true }),
+    node('app', 'node', { isApplication: true }),
   ];
 
   it('returns the node detail when the selected node is visible', () => {
@@ -37,8 +39,21 @@ describe('resolveSelectedNode', () => {
     expect(resolveSelectedNode(elements, 'cl', new Set(['cl']))).toBeNull();
   });
 
-  it('returns null for a storageclass group container even if visible (pure grouping box, no detail)', () => {
-    expect(resolveSelectedNode(elements, 'sc', new Set(['sc']))).toBeNull();
+  it('resolves a storageclass leaf with provisioner/parameters (now detail-eligible, no queryTarget)', () => {
+    const result = resolveSelectedNode(elements, 'sc', new Set(['sc']));
+    // storageclass is not a Workloads DETAIL_URL kind, so no per-kind queryTarget.
+    expect(result).toEqual({
+      id: 'sc',
+      label: 'fast-ssd',
+      kind: 'storageclass',
+      provisioner: 'ebs.csi.aws.com',
+      parameters: { type: 'gp3' },
+    });
+  });
+
+  it('returns null for the decorative namespace / application groups even if visible', () => {
+    expect(resolveSelectedNode(elements, 'ns', new Set(['ns']))).toBeNull();
+    expect(resolveSelectedNode(elements, 'app', new Set(['app']))).toBeNull();
   });
 
   describe('collapse awareness (the panel never describes an off-canvas node)', () => {

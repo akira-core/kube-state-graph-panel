@@ -13,6 +13,10 @@ export interface NodeDetailData {
   alerts?: NodeAlert[]; // node's alerts; absent/empty → "No alerts"
   application?: string; // ArgoCD application (pod passthrough / controller aggregate)
   containers?: ContainerSpec[]; // pod containers / controller (name,image)-deduped union
+  // StorageClass leaf structural fields (backend D6), surfaced in the Storage Class
+  // section when kind === 'storageclass'. Omitted on every other kind / when absent.
+  provisioner?: string;
+  parameters?: Record<string, string>;
   // Controller identity both detail-URL queries use (design D4): a pod resolves
   // it from data.owner, a controller from itself, a standalone pod from its own
   // kind/name. Present only on the DETAIL_URL_KINDS the queries may fire for.

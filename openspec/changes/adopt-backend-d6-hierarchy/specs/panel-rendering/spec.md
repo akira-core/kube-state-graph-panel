@@ -80,6 +80,11 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 - **WHEN** 使用者 hover 於一個 storageclass leaf 節點(自帶 `kind: storageclass`、`labels.cluster`、`provisioner`)
 - **THEN** `HoverTooltip` 以一般 node 路徑顯示其 `name` 與 `kind`(`storageclass`),並 MAY 顯示 `provisioner`;MUST NOT 以子 PVC 節點合成 `PVCs (N)` 清單(該合成路徑已隨 storageclass 改為 leaf 而移除)
 
+#### Scenario: Hover kind-less 群組(namespace / application)顯示合成 kind
+
+- **WHEN** 使用者 hover 於一個 backend `namespace` 或 `application` 群組節點(kind-less:無 `data.kind`,僅帶 `isNamespace` / `isApplication` 旗標)
+- **THEN** `HoverTooltip` MUST 由該旗標推導出一個合成 `kind` row(`isApplication` → `application`、`isNamespace` → `namespace`)並顯示,使 hover 不致只剩裸 name;此 row 為純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見)。`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用
+
 #### Scenario: Hover 邊顯示邊 metadata
 
 - **WHEN** 使用者滑鼠 hover 於任一邊
