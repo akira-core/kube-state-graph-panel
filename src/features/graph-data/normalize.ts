@@ -3,6 +3,7 @@ import type cytoscape from 'cytoscape';
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
 import type { GraphNodeKind, NodeAlert, NodeKind, NodeStatus } from '../../shared/constants/types';
+import { isPlainObject } from '../../shared/guards/isPlainObject';
 import type { ContainerSpec } from '../../shared/types/containerSpec';
 
 export interface NormalizeResult {
@@ -14,9 +15,9 @@ function isString(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0;
 }
 
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
+// Re-exported so existing intra-feature importers (useGraphData) keep working after
+// the guard moved to shared/.
+export { isPlainObject };
 
 function isStringRecord(v: unknown): v is Record<string, string> {
   if (!isPlainObject(v)) {

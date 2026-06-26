@@ -53,15 +53,61 @@ describe('parseDashboardLinks', () => {
     ]);
   });
 
+  it('derives label from a relative Grafana URL path (resolved against origin)', () => {
+    expect(parseDashboardLinks({ urls: [{ url: '/d/uid/node-metrics' }] })).toEqual([
+      { label: 'node-metrics', url: '/d/uid/node-metrics' },
+    ]);
+  });
+
   it('uses Dashboard / Dashboard N when label and pathname are unusable', () => {
+    // Empty-pathname URLs yield no path segment, so the numeric fallback applies.
     expect(
       parseDashboardLinks({
-        urls: [{ url: 'not-a-valid-url' }, { url: 'also-invalid' }],
+        urls: [{ url: 'https://grafana' }, { url: 'https://grafana.test' }],
       })
     ).toEqual([
-      { label: 'Dashboard', url: 'not-a-valid-url' },
-      { label: 'Dashboard 2', url: 'also-invalid' },
+      { label: 'Dashboard', url: 'https://grafana' },
+      { label: 'Dashboard 2', url: 'https://grafana.test' },
     ]);
+  });
+
+  it('numbers fallback labels by display position, not raw input index', () => {
+    // A leading invalid entry must not push the first valid link to "Dashboard 2".
+    expect(parseDashboardLinks({ urls: [null, { url: 'https://grafana' }] })).toEqual([
+      { label: 'Dashboard', url: 'https://grafana' },
+    ]);
+    // A dropped middle entry must not leave a numbering gap.
+    expect(parseDashboardLinks({ urls: [{ url: 'https://a' }, { url: '' }, { url: 'https://b' }] })).toEqual([
+      { label: 'Dashboard', url: 'https://a' },
+      { label: 'Dashboard 2', url: 'https://b' },
+    ]);
+  });
+
+  it('disambiguates duplicate derived labels', () => {
+    expect(
+      parseDashboardLinks({
+        urls: [{ url: 'https://a/d/x/metrics' }, { url: 'https://b/d/y/metrics' }],
+      })
+    ).toEqual([
+      { label: 'metrics', url: 'https://a/d/x/metrics' },
+      { label: 'metrics (2)', url: 'https://b/d/y/metrics' },
+    ]);
+  });
+
+  it('drops non-http(s) urls (javascript:, data:) from the links array', () => {
+    expect(
+      parseDashboardLinks({
+        urls: [
+          { label: 'Evil', url: 'javascript:alert(1)' },
+          { label: 'Ok', url: 'https://ok' },
+          { label: 'Data', url: 'data:text/html,x' },
+        ],
+      })
+    ).toEqual([{ label: 'Ok', url: 'https://ok' }]);
+  });
+
+  it('treats a legacy non-http(s) url as unavailable', () => {
+    expect(parseDashboardLinks({ url: 'javascript:alert(1)' })).toBeUndefined();
   });
 
   it('returns undefined for empty url, empty urls, or non-objects', () => {

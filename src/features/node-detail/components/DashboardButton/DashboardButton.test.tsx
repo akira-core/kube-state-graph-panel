@@ -37,6 +37,50 @@ describe('DashboardButton', () => {
     expect(logs).toHaveAttribute('target', '_blank');
   });
 
+  it('exposes menu semantics on the multi-link trigger', () => {
+    render(
+      <DashboardButton
+        state={{
+          status: 'ready',
+          urls: [
+            { label: 'Metrics', url: 'https://dash/metrics' },
+            { label: 'Logs', url: 'https://dash/logs' },
+          ],
+        }}
+      />
+    );
+    const trigger = screen.getByRole('button', { name: /Dashboards/i });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('renders the open menu outside the trigger container so it can escape an overflow:hidden ancestor', () => {
+    const { container } = render(
+      <DashboardButton
+        state={{
+          status: 'ready',
+          urls: [
+            { label: 'Metrics', url: 'https://dash/metrics' },
+            { label: 'Logs', url: 'https://dash/logs' },
+          ],
+        }}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Dashboards/i }));
+    const link = screen.getByTestId('node-detail-dashboard-link-0');
+    // The menu is portaled to the document body, not nested inside the component subtree.
+    expect(container).not.toContainElement(link);
+  });
+
+  it('renders nothing when ready with zero links', () => {
+    const { container } = render(<DashboardButton state={{ status: 'ready', urls: [] }} />);
+    expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('node-detail-dashboards-menu')).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('renders nothing while loading', () => {
     const { container } = render(<DashboardButton state={{ status: 'loading' }} />);
     expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
