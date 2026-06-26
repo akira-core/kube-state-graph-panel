@@ -10,7 +10,7 @@ describe('ApplicationTable (eager-prefetch Change Report)', () => {
     const state: DetailLookup = { status: 'ready', url: 'https://x' };
     render(<ApplicationTable application="checkout" state={state} />);
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Name', 'Current Change Time', 'Previous Change Time', 'Deployment Changes']);
+    expect(headers).toEqual(['Name', 'Current Version Time', 'Previous Version Time', 'Deployment Changes']);
     expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();
     expect(screen.getByText('checkout')).toBeInTheDocument();
   });

@@ -73,7 +73,10 @@ describe('NodeDetailPanel', () => {
   });
 
   describe('Dashboard button (header, both views)', () => {
-    const ready = { status: 'ready', url: 'https://dash/n1' } as const;
+    const ready = {
+      status: 'ready',
+      urls: [{ label: 'Dashboard', url: 'https://dash/n1' }],
+    } as const;
 
     it('renders the Dashboard button beside the name in the alerts (left-click) view when ready', () => {
       render(

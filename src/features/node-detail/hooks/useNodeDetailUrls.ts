@@ -1,6 +1,7 @@
 import { getBackendSrv } from '@grafana/runtime';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { isPlainObject } from '../../../shared/guards/isPlainObject';
 import { DETAIL_CODE_CHANGES_PATH, DETAIL_CONFIG_CHANGES_PATH } from '../detailPaths';
 
 // Shared input of both detail-URL queries (D2). `time` is Unix SECONDS, not ms.
@@ -61,10 +62,6 @@ export const IDLE_NODE_DETAIL_LOOKUPS: NodeDetailLookups = {
 // Space-joined: K8s names and URLs are NUL/space-free, so the key is unambiguous.
 function requestKeyFor(base: string, input: NodeDetailQueryInput): string {
   return [base, input.application, input.kind, input.name, String(input.time)].join(' ');
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 // Optional diff timestamps, best-effort: key kept ONLY for a non-empty string, else

@@ -11,6 +11,7 @@ export {
   type DetailLookup,
 } from './hooks/useNodeDetailUrls';
 export { useNodeDashboardUrl, type DashboardLookup } from './hooks/useNodeDashboardUrl';
+export { parseDashboardLinks, type DashboardLink } from './parseDashboardLinks';
 export { assembleDashboardParams, isDashboardEligible, type DashboardParams } from './assembleDashboardParams';
 export { DETAIL_URL_KINDS } from './detailUrlKinds';
 export { resolveDetailEndpoint, type ResolveDetailEndpointInput } from './resolveDetailEndpoint';

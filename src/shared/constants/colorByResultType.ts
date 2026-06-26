@@ -4,7 +4,7 @@
 // background). Hardcoded hex (not theme-semantic) to match the panel's STATUS_COLOR /
 // SEVERITY_COLOR product decision — one theme-independent palette, the same family the
 // legend and status borders draw from.
-export const RESULT_TYPES = ['UNCHANGED', 'UPDATED', 'REPLACED', 'ADDED', 'REMOVED', 'RENAMED'] as const;
+export const RESULT_TYPES = ['UNCHANGED', 'UPDATED', 'REPLACED', 'ADDED', 'REMOVED', 'RENAMED', 'REVERTED'] as const;
 export type ResultType = (typeof RESULT_TYPES)[number];
 
 export const RESULT_TYPE_COLOR: Record<ResultType, string> = {
@@ -14,6 +14,7 @@ export const RESULT_TYPE_COLOR: Record<ResultType, string> = {
   ADDED: '#73BF69', // green (same green as STATUS_COLOR.normal)
   REMOVED: '#E02F44', // red (same red as SEVERITY_COLOR.critical)
   RENAMED: '#B877D9', // purple
+  REVERTED: '#F2CC0C', // yellow (same yellow as SEVERITY_COLOR.warning)
 };
 
 // Unknown result_type (not one of the known enum values): a NEUTRAL grey. The value

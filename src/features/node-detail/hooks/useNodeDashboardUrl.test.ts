@@ -23,7 +23,10 @@ describe('useNodeDashboardUrl (eager prefetch, open-driven)', () => {
     mockGet.mockResolvedValue({ url: 'https://dash/n1' });
     const { result } = renderHook(() => useNodeDashboardUrl(params, '/api/ds/proxy/1'));
     await waitFor(() => {
-      expect(result.current).toEqual({ status: 'ready', url: 'https://dash/n1' });
+      expect(result.current).toEqual({
+        status: 'ready',
+        urls: [{ label: 'Dashboard', url: 'https://dash/n1' }],
+      });
     });
     expect(mockGet).toHaveBeenCalledTimes(1);
     expect(mockGet).toHaveBeenCalledWith(
@@ -47,7 +50,29 @@ describe('useNodeDashboardUrl (eager prefetch, open-driven)', () => {
     mockGet.mockResolvedValue({ url: 'https://dash/n1' });
     const { result } = renderHook(() => useNodeDashboardUrl(params, '/proxy'));
     await waitFor(() => {
-      expect(result.current).toEqual({ status: 'ready', url: 'https://dash/n1' });
+      expect(result.current).toEqual({
+        status: 'ready',
+        urls: [{ label: 'Dashboard', url: 'https://dash/n1' }],
+      });
+    });
+  });
+
+  it('200 + urls array → ready with labeled links', async () => {
+    mockGet.mockResolvedValue({
+      urls: [
+        { label: 'Metrics', url: 'https://dash/metrics' },
+        { label: 'Logs', url: 'https://dash/logs' },
+      ],
+    });
+    const { result } = renderHook(() => useNodeDashboardUrl(params, '/proxy'));
+    await waitFor(() => {
+      expect(result.current).toEqual({
+        status: 'ready',
+        urls: [
+          { label: 'Metrics', url: 'https://dash/metrics' },
+          { label: 'Logs', url: 'https://dash/logs' },
+        ],
+      });
     });
   });
 
@@ -104,7 +129,10 @@ describe('useNodeDashboardUrl (eager prefetch, open-driven)', () => {
     rerender({ p: { ...params } });
     rerender({ p: { ...params } });
     await waitFor(() => {
-      expect(result.current).toEqual({ status: 'ready', url: 'https://dash/n1' });
+      expect(result.current).toEqual({
+        status: 'ready',
+        urls: [{ label: 'Dashboard', url: 'https://dash/n1' }],
+      });
     });
     expect(mockGet).toHaveBeenCalledTimes(1);
   });

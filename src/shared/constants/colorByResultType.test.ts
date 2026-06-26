@@ -15,6 +15,7 @@ describe('colorByResultType', () => {
       ADDED: '#73BF69',
       REMOVED: '#E02F44',
       RENAMED: '#B877D9',
+      REVERTED: '#F2CC0C',
     });
   });
 

@@ -114,7 +114,7 @@ export function ContainerTable({ containers, lookups, timeZone }: Readonly<Conta
       },
       {
         id: 'current',
-        header: 'Current Change Time',
+        header: 'Current Version Time',
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => {
           const lk = rowLookup(lookups, row.original.name);
@@ -130,7 +130,7 @@ export function ContainerTable({ containers, lookups, timeZone }: Readonly<Conta
       },
       {
         id: 'previous',
-        header: 'Previous Change Time',
+        header: 'Previous Version Time',
         disableGrow: true,
         cell: ({ row }: CellProps<ContainerRow>) => {
           const lk = rowLookup(lookups, row.original.name);

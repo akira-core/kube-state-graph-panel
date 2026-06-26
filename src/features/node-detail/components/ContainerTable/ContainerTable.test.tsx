@@ -25,8 +25,8 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
       'Name',
       'Image',
       'Change Type',
-      'Current Change Time',
-      'Previous Change Time',
+      'Current Version Time',
+      'Previous Version Time',
       'Code Changes',
     ]);
     expect(screen.queryByRole('columnheader', { name: 'Change Report' })).not.toBeInTheDocument();

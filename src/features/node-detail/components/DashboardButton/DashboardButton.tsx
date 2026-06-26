@@ -1,30 +1,74 @@
-import { LinkButton } from '@grafana/ui';
+import { css } from '@emotion/css';
+import { Button, Dropdown, LinkButton, Menu, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import type { DashboardButtonProps } from './DashboardButton.types';
 
-// The per-node Dashboard URL button shown beside the node name in the detail panel
-// header (both the alert and detail views). Strictly 200-gated: renders an
-// `@grafana/ui` LinkButton (a real <a>, opening in a new tab) ONLY when the lookup is
-// 'ready'; while loading or unavailable it renders nothing — no spinner, no error
-// (the absence of a URL is simply an absent button). testid: node-detail-dashboard-button.
+function getStyles(): { host: string } {
+  return { host: css({ display: 'inline-flex' }) };
+}
+
+// Per-node Dashboard URL control beside the node name (alerts + detail views).
+// Single link → LinkButton "Dashboard". Multiple links → "Dashboards" Dropdown menu.
 export function DashboardButton({ state }: Readonly<DashboardButtonProps>): React.JSX.Element | null {
+  const styles = useStyles2(getStyles);
+
   if (state.status !== 'ready') {
     return null;
   }
+
+  const { urls } = state;
+  if (urls.length <= 1) {
+    const [only] = urls;
+    if (only === undefined) {
+      return null; // zero links → nothing to render.
+    }
+    return (
+      <LinkButton
+        href={only.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        icon="external-link-alt"
+        size="sm"
+        variant="secondary"
+        fill="outline"
+        tooltip="Open node dashboard"
+        data-testid="node-detail-dashboard-button"
+      >
+        Dashboard
+      </LinkButton>
+    );
+  }
+
+  const menu = (
+    <Menu ariaLabel="Node dashboards">
+      {urls.map((link, index) => (
+        <Menu.Item
+          key={`${link.url}-${index}`}
+          label={link.label}
+          url={link.url}
+          target="_blank"
+          icon="external-link-alt"
+          testId={`node-detail-dashboard-link-${index}`}
+        />
+      ))}
+    </Menu>
+  );
+
+  // Dropdown portals the menu out of the panel's `overflow: hidden` box and owns
+  // open/close + outside-dismiss + the trigger's `aria-expanded`. The wrapper's
+  // stopPropagation keeps the trigger click from deselecting the node behind the panel.
   return (
-    <LinkButton
-      href={state.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      icon="external-link-alt"
-      size="sm"
-      variant="secondary"
-      fill="outline"
-      tooltip="Open node dashboard"
-      data-testid="node-detail-dashboard-button"
+    <div
+      className={styles.host}
+      data-testid="node-detail-dashboards-menu"
+      onMouseDown={(event): void => event.stopPropagation()}
     >
-      Dashboard
-    </LinkButton>
+      <Dropdown overlay={menu} placement="bottom-start">
+        <Button size="sm" variant="secondary" fill="outline" icon="external-link-alt" aria-haspopup="menu">
+          Dashboards
+        </Button>
+      </Dropdown>
+    </div>
   );
 }
