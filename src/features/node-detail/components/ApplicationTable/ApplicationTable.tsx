@@ -56,7 +56,7 @@ export function ApplicationTable({ application, state, timeZone }: Readonly<Appl
       },
       {
         id: 'current',
-        header: 'Current Change Time',
+        header: 'Current Version Time',
         disableGrow: true,
         cell: () => {
           const iso = state.status === 'ready' ? state.currentTime : undefined;
@@ -71,7 +71,7 @@ export function ApplicationTable({ application, state, timeZone }: Readonly<Appl
       },
       {
         id: 'previous',
-        header: 'Previous Change Time',
+        header: 'Previous Version Time',
         disableGrow: true,
         cell: () => {
           const iso = state.status === 'ready' ? state.previousTime : undefined;
