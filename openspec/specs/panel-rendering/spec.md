@@ -149,6 +149,25 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 - **WHEN** 一個 `controller` / k8s `node` / `storageclass` compound 被收合
 - **THEN** 其中央 icon 維持為該 kind 的 icon,folder 選擇器 MUST NOT 套用其上
 
+### Requirement: Legend 面板可收合至側邊
+
+當 `options.showLegend` 為 true 時,Panel SHALL 提供一顆 `<` 收合鈕(`angle-left` `IconButton`,testid `legend-collapse`),置於 `LayoutModeControl` 的「Layout」標籤列右端(經其 `action` slot)——而非獨立的 header 列,以省去額外的 rail 高度與分隔線。點擊後將**整個** legend `<aside>` 自版面移除,使畫布(`canvasArea`,既有 `flex: 1`)取回釋出的寬度。收合狀態下 Panel MUST 僅渲染一顆浮動的 `>` 還原鈕(`angle-right` `IconButton`,testid `legend-expand`),絕對定位於 `canvasArea` 左上角、疊於畫布之上,點擊後還原 legend `<aside>`。該還原鈕的 `z-index` MUST 高於 `cytoscape-expand-collapse` 的 overlay canvas(`.expand-collapse-canvas`,`z-index: 999`)——否則該 canvas 會吃掉點擊使還原鈕失效;同時 MUST 維持低於 Grafana 的 panel menu / tooltip 層(`theme.zIndex` ≥ 1030)。此收合狀態為 panel-local 且 ephemeral(`useState`,**不**寫入 panel options、不跨 reload 保存)。整個收合 / 還原機制 MUST 受 `options.showLegend` 管轄:`showLegend` 為 false 時既無 legend、亦無任一收合 / 還原鈕。
+
+#### Scenario: 收合 legend 面板
+
+- **WHEN** legend 面板顯示中,使用者點擊「Layout」列右端的 `<` 收合鈕(`legend-collapse`)
+- **THEN** legend `<aside>` 自 DOM 移除(畫布取回其寬度),且改為僅渲染浮動的 `>` 還原鈕(`legend-expand`)
+
+#### Scenario: 還原 legend 面板
+
+- **WHEN** legend 面板已收合,使用者點擊浮動的 `>` 還原鈕(`legend-expand`)
+- **THEN** legend `<aside>` 連同其全部區段重新渲染,浮動還原鈕消失,「Layout」列的 `<` 收合鈕回歸
+
+#### Scenario: showLegend 關閉時無收合鈕
+
+- **WHEN** `options.showLegend` 為 false
+- **THEN** legend `<aside>` 與 `<` 收合鈕、`>` 還原鈕皆 MUST NOT 渲染
+
 ### Requirement: 圖例 (Legend)
 
 Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod-calls-pod` 的 `pod ↔ pod/service` 雙向列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。kind 列的文字標籤預設為 kind 字串本身,惟 MUST 支援 display-name 覆寫(`NodeLegend` 內的查表):`network` MUST 顯示為 `physical network`。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。例外:`pod-calls-pod` 列 MUST 渲染為 `pod ↔ pod/service`(雙向箭頭 glyph,兩端皆有箭頭),代表被省略的服務邊對。legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → `Edge Types` → `Status` → 三個 swatch 區段(`Clusters` → `Nodes`|`Controllers` → `Storage Classes`);亦即 swatch 區段置於 `Status` **之後**(legend 底部)。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Edge Types` / `Status` / `Clusters` / `Storage Classes`)。

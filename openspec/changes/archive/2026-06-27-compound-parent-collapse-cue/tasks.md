@@ -35,6 +35,6 @@
 
 ## 7. Legend-collapse spec + validation
 
-- [ ] 7.1 Confirm the `panel-rendering` delta carries the `Legend 面板可收合至側邊` ADDED requirement; apply it into `openspec/specs/panel-rendering/spec.md` on archive.
+- [x] 7.1 Confirm the `panel-rendering` delta carries the `Legend 面板可收合至側邊` ADDED requirement; apply it into `openspec/specs/panel-rendering/spec.md` on archive.
 - [x] 7.2 Run `openspec validate compound-parent-collapse-cue`, then `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run build` — all green.
 - [x] 7.3 Manual check in the running stack: `<` hides the legend (canvas widens) → floating `>` restores it; with the panel's Show legend option off, no toggle buttons appear. (Caught + fixed a z-index regression: the `.expand-collapse-canvas` overlay at z-index 999 was swallowing the restore click; bumped `legendExpandButton` to z-index 1000.)
