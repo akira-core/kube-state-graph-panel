@@ -26,3 +26,15 @@
 - [x] 5.1 Apply the `panel-rendering` delta (互動與選取狀態 MODIFIED + 收合裝飾群組 folder icon ADDED) to `openspec/specs/panel-rendering/spec.md`; reconcile the "Node Detail 面板" wording `cluster 容器不可點選` to "裝飾群組可選取(顯示摺疊 cue)但不開啟 detail 面板".
 - [x] 5.2 Run `openspec validate compound-parent-collapse-cue`, then `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run build` — all green.
 - [x] 5.3 Manual check in the running stack: select each compound parent kind → `+/-` cue appears → click folds/unfolds; selecting a decorative group opens no detail panel; folded cluster/namespace/application show a folder icon.
+
+## 6. Legend panel collapse toggle (TDD)
+
+- [x] 6.1 `KsgPanel.test.tsx`: with `showLegend: true`, assert the legend `<aside>` renders a `<` collapse button (`legend-collapse`); click → `<aside>`/its sections gone + a floating `>` restore button (`legend-expand`) present; click `>` → `<aside>` back, restore button gone; run RED.
+- [x] 6.2 `KsgPanel.test.tsx`: with `showLegend: false`, assert neither `legend-collapse` nor `legend-expand` renders; run RED.
+- [x] 6.3 In `KsgPanel.tsx` add panel-local `legendCollapsed` `useState(false)`; render the `<` `IconButton` (`angle-left`, `legend-collapse`) on the `LayoutModeControl` "Layout" label row (via a new `action` slot prop, so it costs no extra rail height), hide the `<aside>` when collapsed, and render a floating `>` `IconButton` (`angle-right`, `legend-expand`) over `canvasArea` when collapsed; keep the whole thing under `options.showLegend`; add the floating-button style to `getStyles`; run GREEN.
+
+## 7. Legend-collapse spec + validation
+
+- [ ] 7.1 Confirm the `panel-rendering` delta carries the `Legend 面板可收合至側邊` ADDED requirement; apply it into `openspec/specs/panel-rendering/spec.md` on archive.
+- [x] 7.2 Run `openspec validate compound-parent-collapse-cue`, then `npm run typecheck`, `npm run lint`, `npm run test:ci`, `npm run build` — all green.
+- [x] 7.3 Manual check in the running stack: `<` hides the legend (canvas widens) → floating `>` restores it; with the panel's Show legend option off, no toggle buttons appear. (Caught + fixed a z-index regression: the `.expand-collapse-canvas` overlay at z-index 999 was swallowing the restore click; bumped `legendExpandButton` to z-index 1000.)

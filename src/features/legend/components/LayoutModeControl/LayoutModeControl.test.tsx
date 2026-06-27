@@ -18,3 +18,14 @@ it('reflects the current mode: the Node radio is checked when mode="node"', () =
   expect(screen.getByLabelText('Node')).toBeChecked();
   expect(screen.getByLabelText('Controller')).not.toBeChecked();
 });
+
+it('renders an optional action slot on the Layout label row', () => {
+  render(
+    <LayoutModeControl
+      mode="node"
+      onChange={jest.fn()}
+      action={<button data-testid="layout-action">x</button>}
+    />
+  );
+  expect(screen.getByTestId('layout-action')).toBeInTheDocument();
+});

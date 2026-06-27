@@ -365,6 +365,34 @@ describe('KsgPanel', () => {
     expect(screen.getByLabelText('Controller')).toBeInTheDocument();
   });
 
+  describe('legend panel collapse toggle', () => {
+    it('hides the legend aside on collapse and restores it on expand', () => {
+      render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+      // Legend visible: its sections + the `<` collapse button are present, no floating restore button yet.
+      expect(screen.getByTestId('layout-mode-control')).toBeInTheDocument();
+      expect(screen.getByTestId('legend-collapse')).toBeInTheDocument();
+      expect(screen.queryByTestId('legend-expand')).toBeNull();
+
+      // Click `<` → the whole aside (its sections) is gone; only a floating `>` restore button remains.
+      fireEvent.click(screen.getByTestId('legend-collapse'));
+      expect(screen.queryByTestId('layout-mode-control')).toBeNull();
+      expect(screen.queryByTestId('legend-collapse')).toBeNull();
+      expect(screen.getByTestId('legend-expand')).toBeInTheDocument();
+
+      // Click `>` → the aside returns; the floating restore button is gone.
+      fireEvent.click(screen.getByTestId('legend-expand'));
+      expect(screen.getByTestId('layout-mode-control')).toBeInTheDocument();
+      expect(screen.getByTestId('legend-collapse')).toBeInTheDocument();
+      expect(screen.queryByTestId('legend-expand')).toBeNull();
+    });
+
+    it('renders no collapse or restore button when showLegend is off', () => {
+      render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: false } })} />);
+      expect(screen.queryByTestId('legend-collapse')).toBeNull();
+      expect(screen.queryByTestId('legend-expand')).toBeNull();
+    });
+  });
+
   // Backend D6 controller group: cluster > controller > pod (pod carries owner +
   // labels.node so node mode can re-home it). The panel consumes + enriches this.
   const d6ControllerPayload = {

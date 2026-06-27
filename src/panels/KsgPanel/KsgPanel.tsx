@@ -1,6 +1,6 @@
 import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
-import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
+import { Alert, IconButton, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -52,6 +52,7 @@ function getStyles(theme: GrafanaTheme2): {
   root: string;
   canvasArea: string;
   legendArea: string;
+  legendExpandButton: string;
   emptyOverlay: string;
   partialWarning: string;
 } {
@@ -104,6 +105,16 @@ function getStyles(theme: GrafanaTheme2): {
         paddingTop: 8,
         borderTop: `1px solid ${borderWeak}`,
       },
+    }),
+    // Floating `>` restore button shown only while the rail is collapsed; sits over
+    // the canvas top-left so the legend is one click away. z-index MUST clear the
+    // cytoscape-expand-collapse overlay canvas (z-index 999) or the canvas swallows
+    // the click; kept below Grafana's panel menu / tooltip layers (theme.zIndex ≥ 1030).
+    legendExpandButton: css({
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      zIndex: 1000,
     }),
   };
 }
@@ -234,6 +245,9 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // decision. 'controller' aggregates pods under their owning controller (default);
   // 'node' is the infrastructure view (cluster > node > pod).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
+  // Panel-local, ephemeral: lets the user fold the legend rail to the side so the
+  // canvas reclaims the width. Not persisted to panel options (see panel-rendering spec).
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
   // View-transform pipeline (pure, mode-threaded): applyPodParentMode reshapes the
   // backend D6 hierarchy (controller = payload as-is; node = re-parent pods under their
   // K8s node, strip workload groups); wrapSwitchFabric synthesizes the virtual
@@ -581,9 +595,21 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
 
   return (
     <div className={styles.root}>
-      {options.showLegend && (
+      {options.showLegend && !legendCollapsed && (
         <aside className={styles.legendArea}>
-          <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
+          <LayoutModeControl
+            mode={podParentMode}
+            onChange={setPodParentMode}
+            action={
+              <IconButton
+                name="angle-left"
+                aria-label="Collapse legend"
+                tooltip="Collapse legend"
+                data-testid="legend-collapse"
+                onClick={() => setLegendCollapsed(true)}
+              />
+            }
+          />
           <NodeLegend entries={nodeLegendEntries} onToggleKind={handleToggleKind} />
           <EdgeLegend edgeTypes={presentEdgeTypes} />
           <StatusLegend />
@@ -616,6 +642,16 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
         </aside>
       )}
       <div className={styles.canvasArea}>
+        {options.showLegend && legendCollapsed && (
+          <IconButton
+            name="angle-right"
+            aria-label="Show legend"
+            tooltip="Show legend"
+            data-testid="legend-expand"
+            className={styles.legendExpandButton}
+            onClick={() => setLegendCollapsed(false)}
+          />
+        )}
         {normalizeError !== undefined && (
           <div className={styles.partialWarning}>
             <Alert severity="warning" title="Some graph entries were skipped">
