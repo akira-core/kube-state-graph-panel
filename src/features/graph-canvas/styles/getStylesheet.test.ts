@@ -3,7 +3,7 @@ import cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
-import { FALLBACK_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
+import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
 import { getStylesheet } from './getStylesheet';
@@ -460,6 +460,38 @@ describe('getStylesheet', () => {
     // Collapsed → STILL their own accents (the selectors do not depend on :parent).
     expect(nsbox.style('border-color')).toBe(nsBorderExpanded);
     expect(appbox.style('border-color')).toBe(appBorderExpanded);
+    cy.destroy();
+  });
+
+  it('paints a folder icon on a COLLAPSED decorative group (tinted by accent); expanded shows none; kind-ful compounds keep their kind icon', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        { group: 'nodes', data: { id: 'nsbox', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', parent: 'cluster/prod' } },
+        { group: 'nodes', data: { id: 'appbox', label: 'checkout', isApplication: true, applicationColor: '#0ea5e9', parent: 'nsbox' } },
+        { group: 'nodes', data: { id: 'ctrl', label: 'mongo', kind: 'statefulset', isController: true, parent: 'appbox' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'ctrl' } },
+      ],
+    });
+    const cluster = cy.getElementById('cluster/prod');
+    const nsbox = cy.getElementById('nsbox');
+    const appbox = cy.getElementById('appbox');
+    const ctrl = cy.getElementById('ctrl');
+    // Expanded decorative groups carry no centre icon.
+    expect(nsbox.style('background-image')).toBe('none');
+    expect(appbox.style('background-image')).toBe('none');
+    // Collapse them → folder glyph tinted by each group's accent.
+    [cluster, nsbox, appbox, ctrl].forEach((n) => n.addClass('cy-expand-collapse-collapsed-node'));
+    expect(cluster.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
+    expect(nsbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#e8833a'));
+    expect(appbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#0ea5e9'));
+    // Gap-fill: the folder rule targets isCluster/isNamespace/isApplication ONLY, so it
+    // never leaks onto a kind-ful compound (controller / node / storageclass) — those
+    // revert to their kind icon on real collapse (children removed → loses :parent).
+    expect(ctrl.style('background-image')).not.toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
     cy.destroy();
   });
 });

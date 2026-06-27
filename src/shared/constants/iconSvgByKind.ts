@@ -84,6 +84,16 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   ),
 };
 
+// Folder glyph for a COLLAPSED decorative group (cluster / namespace / application).
+// These synthetic groups are NOT `NodeKind`s, so this lives outside ICON_SVG_BY_KIND;
+// getStylesheet paints it (tinted by the group's accent) only on the collapsed-node
+// selectors. A folded decorative group is otherwise an icon-less coloured box —
+// kind-ful compounds (controller / node / storageclass) already revert to their kind
+// icon when folded. Classic folder: a tabbed body.
+export const FOLDER_ICON_SVG = icon(
+  '<path d="M3.5 6.8 A1.6 1.6 0 0 1 5.1 5.2 H9 a1.2 1.2 0 0 1 .85 .35 L11.4 7.1 a1.2 1.2 0 0 0 .85 .35 H18.9 A1.6 1.6 0 0 1 20.5 9.05 V17.4 A1.6 1.6 0 0 1 18.9 19 H5.1 A1.6 1.6 0 0 1 3.5 17.4 Z"/>'
+);
+
 // Drawn for any kind not in the map, so upstream/backend additions never vanish.
 export const FALLBACK_ICON_SVG = icon(
   '<rect x="4.5" y="4.5" width="15" height="15" rx="2.5"/><line x1="4.5" y1="9.5" x2="19.5" y2="9.5"/>'

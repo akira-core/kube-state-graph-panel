@@ -3,7 +3,7 @@ import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
-import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
+import { FOLDER_ICON_SVG, iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 import { themeColors } from '../../../shared/theme/themeColors';
@@ -90,6 +90,31 @@ export function getStylesheet({
   const collapsedContainerStatusSelectors: CyStylesheet[] = Object.entries(STATUS_COLOR).map(([status, color]) => ({
     selector: `node[worstStatus="${status}"].cy-expand-collapse-collapsed-node`,
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
+  }));
+
+  // Collapsed decorative groups (cluster / namespace / application) have no kind icon to
+  // fall back to (unlike kind-ful compounds, which revert to their kind glyph when folded),
+  // so a folded one would be a blank coloured box. Paint a folder glyph tinted by the
+  // group's accent. These 2-condition selectors out-specify the 1-condition
+  // node[?isCluster|isNamespace|isApplication] `background-image: 'none'` rules, so the
+  // folder shows ONLY when collapsed. See compound-parent-collapse-cue.
+  const folderIcon = (color: unknown): string =>
+    tintSvgToDataUri(FOLDER_ICON_SVG, typeof color === 'string' ? color : iconColor);
+  const collapsedDecorativeFolderSelectors: CyStylesheet[] = (
+    [
+      ['node[?isCluster].cy-expand-collapse-collapsed-node', 'clusterColor'],
+      ['node[?isNamespace].cy-expand-collapse-collapsed-node', 'namespaceColor'],
+      ['node[?isApplication].cy-expand-collapse-collapsed-node', 'applicationColor'],
+    ] as const
+  ).map(([selector, colorKey]) => ({
+    selector,
+    style: {
+      'background-image': ((ele: cytoscape.NodeSingular): string =>
+        folderIcon(ele.data(colorKey))) as unknown as string,
+      'background-fit': 'contain',
+      'background-clip': 'none',
+      'background-image-opacity': 1,
+    },
   }));
 
   const stylesheet: CyStylesheet[] = [
@@ -231,6 +256,7 @@ export function getStylesheet({
         'border-opacity': 0.9,
       },
     },
+    ...collapsedDecorativeFolderSelectors,
     ...statusSelectors,
     ...collapsedContainerStatusSelectors,
     {

@@ -153,28 +153,34 @@
       {
         "name": "edge_type",
         "label": "Edge type",
-        "type": "custom",
-        "query": "pod-mounts-pvc,pod-calls-pod,service-selects-pod",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "ksg-default"
+        },
+        "query": {
+          "refId": "variable-edge_type",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "/v1/edge-types",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "edge_types",
+          "columns": [
+            {
+              "selector": "type",
+              "text": "type",
+              "type": "string"
+            }
+          ]
+        },
         "multi": true,
         "includeAll": true,
+        "refresh": 1,
         "current": {},
-        "options": [
-          {
-            "text": "pod-mounts-pvc",
-            "value": "pod-mounts-pvc",
-            "selected": false
-          },
-          {
-            "text": "pod-calls-pod",
-            "value": "pod-calls-pod",
-            "selected": false
-          },
-          {
-            "text": "service-selects-pod",
-            "value": "service-selects-pod",
-            "selected": false
-          }
-        ],
+        "options": [],
         "hide": 0
       },
       {

@@ -465,10 +465,11 @@ describe('normalizeGraph', () => {
     // Exactly the four input nodes — nothing invented.
     expect(elements.filter((e) => e.group === 'nodes')).toHaveLength(4);
 
-    // Cluster boxes are non-selectable (decorative, drag-only); other nodes are not
-    // marked, so they keep cytoscape's default selectable:true.
+    // Every compound parent — including the decorative cluster — is selectable so the
+    // built-in expand-collapse +/- cue can surface on selection; normalize no longer
+    // marks any node selectable:false (cytoscape's default selectable:true applies).
     const elById = new Map(elements.map((e) => [e.data.id as string, e]));
-    expect(elById.get('cluster:demo')?.selectable).toBe(false);
+    expect(elById.get('cluster:demo')?.selectable).toBeUndefined();
     expect(elById.get('demo/node-a')?.selectable).toBeUndefined();
     expect(elById.get('demo/p1')?.selectable).toBeUndefined();
   });
@@ -486,7 +487,7 @@ describe('normalizeGraph', () => {
     const elById = (raw: unknown): Map<string, cytoscape.ElementDefinition> =>
       new Map(normalizeGraph(raw).elements.map((e) => [e.data.id as string, e]));
 
-    it('normalizes a namespace group node: isNamespace + accent, no kind, selectable:false', () => {
+    it('normalizes a namespace group node: isNamespace + accent, no kind, selectable (cue surface)', () => {
       const raw = {
         elements: {
           nodes: [
@@ -502,10 +503,10 @@ describe('normalizeGraph', () => {
       expect(typeof d?.namespaceColor).toBe('string');
       expect(d?.kind).toBeUndefined();
       expect(d?.parent).toBe('cluster/prod'); // passthrough verbatim
-      expect(elById(raw).get('prod/namespace/shop')?.selectable).toBe(false);
+      expect(elById(raw).get('prod/namespace/shop')?.selectable).toBeUndefined(); // selectable (no selectable:false)
     });
 
-    it('normalizes an application group node: isApplication + accent, no kind, selectable:false', () => {
+    it('normalizes an application group node: isApplication + accent, no kind, selectable (cue surface)', () => {
       const raw = {
         elements: {
           nodes: [
@@ -528,7 +529,7 @@ describe('normalizeGraph', () => {
       expect(typeof d?.applicationColor).toBe('string');
       expect(d?.kind).toBeUndefined();
       expect(d?.parent).toBe('prod/namespace/shop');
-      expect(elById(raw).get('prod/namespace/shop/application/checkout')?.selectable).toBe(false);
+      expect(elById(raw).get('prod/namespace/shop/application/checkout')?.selectable).toBeUndefined(); // selectable (no selectable:false)
     });
 
     it('normalizes a controller group node: isController, kind from child pod owner.kind, selectable:false', () => {

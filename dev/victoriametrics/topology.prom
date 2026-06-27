@@ -86,9 +86,13 @@ kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolume
 kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-2",storageclass="fast-ssd"} 1
 
 # --- StorageClass definition. kube_storageclass_info materialises `fast-ssd` as a
-#     cluster-level LEAF carrying its `provisioner` (D6). The PVCs above link to it via
-#     pvc-to-storageclass edges; the node-detail Storage Class section shows the provisioner. ---
-kube_storageclass_info{cluster="prod",storageclass="fast-ssd",provisioner="rook-ceph.rbd.csi.ceph.com",reclaim_policy="Delete",volume_binding_mode="WaitForFirstConsumer"} 1
+#     cluster-level LEAF carrying its `provisioner` + backing-storage `parameters` (D6).
+#     The backend reads the operator-allowlisted parameter labels (source-label fallback):
+#     storagePools|pool -> pool, fsType|fsName -> fs, ClusterID -> cluster_id, selector ->
+#     selector; reclaim_policy / volume_binding_mode are deliberately ignored. The PVCs
+#     above link to it via pvc-to-storageclass edges; the node-detail Storage Class section
+#     shows the provisioner row + a generic key/value row per parameter. ---
+kube_storageclass_info{cluster="prod",storageclass="fast-ssd",provisioner="rook-ceph.rbd.csi.ceph.com",pool="kube",fsType="ext4",ClusterID="prod",selector="tier=fast",reclaim_policy="Delete",volume_binding_mode="WaitForFirstConsumer"} 1
 
 # --- PVC ArgoCD application. kube_persistentvolumeclaim_annotations carries the same
 #     annotation_argocd_argoproj_io_tracking_id label -> data.application. The mongodb

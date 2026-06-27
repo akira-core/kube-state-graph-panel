@@ -110,6 +110,33 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node[?isCluster].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+    },
+  },
+  {
+    "selector": "node[?isNamespace].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+    },
+  },
+  {
+    "selector": "node[?isApplication].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+    },
+  },
+  {
     "selector": "node[status="normal"]",
     "style": {
       "border-color": "#73BF69",

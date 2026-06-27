@@ -49,16 +49,6 @@ function isGroupType(type: string): boolean {
   return type === 'cluster' || type === 'namespace' || type === 'application' || type === 'controller';
 }
 
-// Purely DECORATIVE groups that never open the detail panel, so they are selectable:false
-// (a tap can't latch a selection ring / open the panel). The `controller` group is
-// DELIBERATELY excluded: it is detail-eligible (resolveSelectedNode opens it; Dashboard
-// button + Application/Containers/alerts — design D5), so it must stay tappable. Marking it
-// non-selectable would make the canvas tap/cxttap gate (GraphCanvas single.selectable())
-// drop every controller click.
-function isNonSelectableGroupType(type: string): boolean {
-  return type === 'cluster' || type === 'namespace' || type === 'application';
-}
-
 // Panel-side identity keyed off upstream `type` (backend D6):
 //   `cluster` / `namespace` / `application` → kind-less decorative accent group;
 //   `controller` → kind-less group flagged isController (kind added in enrichControllers);
@@ -277,7 +267,6 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const namespace = labels?.namespace;
     const label = isString(d.name) ? d.name : d.id;
     const isGroup = isGroupType(d.type);
-    const isNonSelectableGroup = isNonSelectableGroupType(d.type);
     // Data-driven status: keep only a valid backend status on the element (absent → no
     // `status` field → no border via `node[status]`). For worstStatus aggregation, an
     // absent status counts as FALLBACK_STATUS (normal).
@@ -308,11 +297,11 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
-      // Purely decorative groups (cluster / namespace / application) stay grabbable
-      // (draggable) but NOT selectable — a tap can't latch a selection ring or open the
-      // detail panel. `controller` is excluded (selectable) so its detail panel opens.
-      // Single source: the canvas tap handler reads node.selectable().
-      ...(isNonSelectableGroup ? { selectable: false } : {}),
+      // Every node — including the decorative cluster / namespace / application groups —
+      // is selectable (cytoscape default), so the built-in expand-collapse +/- cue can
+      // surface on the selected compound parent. Selecting a decorative group latches the
+      // selection ring but opens NO detail panel: resolveSelectedNode / isDashboardEligible
+      // returns null for isCluster / isNamespace / isApplication. See compound-parent-collapse-cue.
       data: {
         id: d.id,
         ...identity,

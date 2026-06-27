@@ -3,6 +3,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
 import React, { useLayoutEffect, useRef, useState } from 'react';
 
+import { isPlainObject } from '../../../../shared/guards/isPlainObject';
 import { themeColors } from '../../../../shared/theme/themeColors';
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
@@ -151,6 +152,18 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     // normal node path (no more synthesized-from-children context).
     if (typeof data.provisioner === 'string' && data.provisioner.length > 0) {
       attrs.push({ key: 'provisioner', value: data.provisioner });
+    }
+    // StorageClass backing-storage parameters (D6): a typed string map (pool / fs /
+    // cluster_id / selector …). Surface each as a wrapped row (values like a selector can
+    // be long) — promoted attrs, not raw labels. Key-sorted for a deterministic tooltip.
+    const parameters = data.parameters;
+    if (isPlainObject(parameters)) {
+      for (const key of Object.keys(parameters).sort()) {
+        const value = parameters[key];
+        if (typeof value === 'string') {
+          attrs.push({ key, value, wrap: true });
+        }
+      }
     }
     return { title, attrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
   }

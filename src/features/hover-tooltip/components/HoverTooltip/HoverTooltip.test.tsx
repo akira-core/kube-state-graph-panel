@@ -82,6 +82,27 @@ describe('HoverTooltip', () => {
     expect(screen.queryByText(/^PVCs/)).toBeNull();
   });
 
+  it('promotes a storageclass leaf backing-storage parameters (D6) as rows', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/storageclass/fast-ssd',
+      group: 'nodes',
+      data: {
+        id: 'prod/storageclass/fast-ssd',
+        label: 'fast-ssd',
+        kind: 'storageclass',
+        provisioner: 'rook-ceph.rbd.csi.ceph.com',
+        parameters: { pool: 'kube', selector: 'tier=fast' },
+        labels: { cluster: 'prod' },
+      },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('provisioner:')).toBeInTheDocument();
+    expect(screen.getByText('pool:')).toBeInTheDocument();
+    expect(screen.getByText('kube')).toBeInTheDocument();
+    expect(screen.getByText('selector:')).toBeInTheDocument();
+    expect(screen.getByText('tier=fast')).toBeInTheDocument();
+  });
+
   it('shows a synthetic kind for a kind-less application group (so hover is not just the bare name)', () => {
     useHoverElement.mockReturnValue({
       id: 'prod/app/mongodb',
