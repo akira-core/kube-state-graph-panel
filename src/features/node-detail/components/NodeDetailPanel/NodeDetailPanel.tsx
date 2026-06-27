@@ -3,6 +3,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
+import { APPLICATION_BEARING_KINDS } from '../../../../shared/constants/applicationBearingKinds';
 import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
 import { themeColors } from '../../../../shared/theme/themeColors';
 import { DETAIL_URL_KINDS } from '../../detailUrlKinds';
@@ -190,6 +191,16 @@ export function NodeDetailPanel({
   const parameterEntries = node.kind === 'storageclass' && node.parameters !== undefined ? Object.entries(node.parameters) : [];
   const showStorageClass =
     node.kind === 'storageclass' && (node.provisioner !== undefined || parameterEntries.length > 0);
+  // Lightweight Application row for a service / pvc leaf (backend D6): these carry an
+  // ArgoCD application but no workload change-report query target, so the name is shown
+  // as intrinsic node info in BOTH views (like Storage Class) — NOT the workload
+  // ApplicationTable. Gated POSITIVELY on the application-bearing leaf kinds (so a
+  // non-workload controller group — Argo Rollout / CRD operator, or a kind-less
+  // controller — that merely aggregates a child-pod application is excluded), then
+  // `!isDetailUrlKind` keeps it mutually exclusive with showApplication (the only overlap,
+  // `pod`, is a detail-URL kind → it gets the rich table, not this row).
+  const isApplicationBearingKind = node.kind !== undefined && APPLICATION_BEARING_KINDS.has(node.kind);
+  const showAppInfo = isApplicationBearingKind && !isDetailUrlKind && node.application !== undefined;
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
@@ -230,6 +241,14 @@ export function NodeDetailPanel({
                   <span className={styles.kvVal}>{v}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+        {showAppInfo && node.application !== undefined && (
+          <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-app-info">
+            <div className={styles.sectionTitle}>Application</div>
+            <div className={styles.staticBody} data-testid="node-detail-app-info">
+              {node.application}
             </div>
           </div>
         )}

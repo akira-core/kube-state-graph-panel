@@ -94,6 +94,39 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('application')).toBeInTheDocument();
   });
 
+  it('promotes the ArgoCD application of a hovered service leaf (backend D6)', () => {
+    useHoverElement.mockReturnValue({
+      id: 'service/mongo-svc',
+      group: 'nodes',
+      data: { id: 'service/mongo-svc', label: 'mongo-svc', kind: 'service', application: 'mongodb', labels: { namespace: 'prod' } },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('application:')).toBeInTheDocument();
+    expect(screen.getByText('mongodb')).toBeInTheDocument();
+  });
+
+  it('promotes the ArgoCD application of a hovered pod too', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod/mongo-0',
+      group: 'nodes',
+      data: { id: 'pod/mongo-0', label: 'mongo-0', kind: 'pod', application: 'mongodb' },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('application:')).toBeInTheDocument();
+  });
+
+  it('does NOT add a redundant application row for the decorative application group node', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/app/mongodb',
+      group: 'nodes',
+      data: { id: 'prod/app/mongodb', label: 'mongodb', isApplication: true, application: 'mongodb', applicationColor: '#0ea5e9', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // kind: application (synthetic) shows, but no separate "application:" key row.
+    expect(screen.getByText('application')).toBeInTheDocument();
+    expect(screen.queryByText('application:')).not.toBeInTheDocument();
+  });
+
   it('shows a synthetic kind for a kind-less namespace group', () => {
     useHoverElement.mockReturnValue({
       id: 'prod/ns/shop',

@@ -250,11 +250,12 @@ v1 範圍內每個 panel 例項 MUST 綁定單一 datasource 實例;Panel 不負
 - **WHEN** 上游 `cluster` 或 `storageclass` 節點帶 `alerts`
 - **THEN** 正規化結果該節點 MUST NOT 有 `data.alerts`
 
-### Requirement: pod `application` / `containers` 透傳與 controller 聚合
+### Requirement: pod / service / pvc `application`、pod `containers` 透傳與 controller 聚合
 
-`normalizeGraph` SHALL 於 anti-corruption boundary 承載 backend 在 pod 節點輸出的兩個新欄位——**`application?: string`**(ArgoCD application name)與 **`containers?: Array<{ name: string; image: string }>`**(container 與其 image)——並為 panel 端**合成**的 controller 節點自子 pod 聚合兩者。兩欄位經 `src/shared/types/cytoscape.d.ts` declaration merging 宣告於 `NodeDataDefinition`,供 node-detail 面板顯示與 URL 查詢使用。URL 查詢本身**非** normalize 職責——它是 UI 端的非同步動作,經 Grafana runtime 發出(見 panel-rendering「Node Detail Application 與 Containers 區塊」)。規則:
+`normalizeGraph` SHALL 於 anti-corruption boundary 承載 backend 在 pod 節點輸出的兩個新欄位——**`application?: string`**(ArgoCD application name)與 **`containers?: Array<{ name: string; image: string }>`**(container 與其 image)——並為 panel 端**合成**的 controller 節點自子 pod 聚合兩者。自 backend D6 起,**service 與 pvc leaf 亦可帶 `application`**(backend 自其 annotation tracking-id 解析,並將該 leaf nest 於對應 application 群組);`normalizeGraph` MUST 以與 pod 相同規則透傳該欄。兩欄位經 `src/shared/types/cytoscape.d.ts` declaration merging 宣告於 `NodeDataDefinition`,供 node-detail 面板顯示與 URL 查詢使用。URL 查詢本身**非** normalize 職責——它是 UI 端的非同步動作,經 Grafana runtime 發出(見 panel-rendering「Node Detail Application 與 Containers 區塊」)。規則:
 
 - **pod `application`**:backend 值為非空字串時原樣透傳;缺失或空字串時 MUST 省略該欄(`exactOptionalPropertyTypes`:不寫 `undefined` 值)。
+- **service / pvc `application`**(backend D6):service 與 pvc leaf 帶 backend 解析的 ArgoCD `application` 時,MUST 以**與 pod `application` 完全相同**的規則透傳(非空字串保留、缺失或空字串省略)。`containers` 與 typed `owner` 仍**僅限 pod**——service / pvc 即使 backend 誤送這兩欄,normalize MUST NOT 帶上。
 - **pod `containers`**:逐項驗證——`name` 與 `image` 皆為非空字串的項目保留,形狀不符的項目 MUST 丟棄(anti-corruption);驗證後為空陣列或欄位缺失時 MUST 省略該欄。
 - **controller `application`**(合成節點,`data.isController === true`,backend 不送):MUST 自其**子 pod** 的 `application` 聚合——取任一帶值的子 pod(以穩定排序確定性選取);無任何子 pod 帶值時 MUST 省略該欄。
 - **controller `containers`**:MUST 自其**所有子 pod** 的 `containers` 聯集聚合,以 **(name, image)** 去重、穩定排序;無任何子 pod 帶 containers 時 MUST 省略該欄。
@@ -266,6 +267,11 @@ v1 範圍內每個 panel 例項 MUST 綁定單一 datasource 實例;Panel 不負
 
 - **WHEN** backend 某 pod 節點 `data.application` 為 `"checkout"`
 - **THEN** 正規化後該 pod element 之 `data.application` 為 `"checkout"`
+
+#### Scenario: service / pvc application 原樣透傳(backend D6)
+
+- **WHEN** backend 某 service 或 pvc 節點 `data.application` 為 `"mongodb"`
+- **THEN** 正規化後該 element 之 `data.application` 為 `"mongodb"`;且該 leaf MUST NOT 因此帶 `data.containers` 或 `data.owner`(僅限 pod)
 
 #### Scenario: pod containers 原樣透傳
 

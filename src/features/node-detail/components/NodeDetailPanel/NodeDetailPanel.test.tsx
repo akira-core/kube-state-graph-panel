@@ -35,6 +35,59 @@ describe('NodeDetailPanel', () => {
     expect(screen.getByTestId('alert-table-empty')).toHaveTextContent('No alerts');
   });
 
+  describe('Application info row (service / pvc leaf — backend D6)', () => {
+    const svc: NodeDetailData = { id: 'service/mongo-svc', label: 'mongo-svc', kind: 'service', application: 'mongodb' };
+    const pvc: NodeDetailData = { id: 'pvc/data-mongo-0', label: 'data-mongo-0', kind: 'pvc', application: 'mongodb' };
+
+    it('renders a lightweight Application row for a service leaf carrying an application', () => {
+      render(<NodeDetailPanel node={svc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      const section = screen.getByTestId('node-detail-section-app-info');
+      expect(within(section).getByText('Application')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-app-info')).toHaveTextContent('mongodb');
+    });
+
+    it('renders the Application row for a pvc leaf too, and in the alerts (left-click) view', () => {
+      render(<NodeDetailPanel node={pvc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="alerts" />);
+      expect(screen.getByTestId('node-detail-app-info')).toHaveTextContent('mongodb');
+    });
+
+    it('uses the lightweight row, NOT the workload change-report Application table', () => {
+      render(<NodeDetailPanel node={svc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('application-table')).not.toBeInTheDocument();
+    });
+
+    it('does not render the lightweight row for a workload pod (it gets the rich table instead)', () => {
+      const pod: NodeDetailData = { id: 'pod/mongo-0', label: 'mongo-0', kind: 'pod', application: 'mongodb' };
+      render(<NodeDetailPanel node={pod} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+    });
+
+    it('does not render the lightweight row for a non-workload controller (e.g. rollout) carrying an aggregated application', () => {
+      // A controller GROUP node for an Argo Rollout / CRD operator has kind outside
+      // DETAIL_URL_KINDS but still carries an application aggregated from child pods.
+      // The lightweight row is scoped to service / pvc LEAVES — it MUST NOT surface here
+      // (nor the workload change-report table, since rollout is not a detail-URL kind).
+      const rollout: NodeDetailData = { id: 'ctrl/rollout/web', label: 'web', kind: 'rollout', application: 'myapp' };
+      render(<NodeDetailPanel node={rollout} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+    });
+
+    it('does not render the lightweight row for a kind-less controller carrying an application', () => {
+      const ctrl: NodeDetailData = { id: 'ctrl/x', label: 'x', application: 'myapp' };
+      render(<NodeDetailPanel node={ctrl} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
+    });
+
+    it('does not render the Application row for a leaf without an application (e.g. storageclass)', () => {
+      const sc: NodeDetailData = { id: 'sc', label: 'fast-ssd', kind: 'storageclass', provisioner: 'p' };
+      render(<NodeDetailPanel node={sc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Storage Class section (D6 storageclass leaf)', () => {
     const storageclass: NodeDetailData = {
       id: 'sc',

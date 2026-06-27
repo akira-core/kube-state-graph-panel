@@ -1,5 +1,6 @@
 import type cytoscape from 'cytoscape';
 
+import { APPLICATION_BEARING_KINDS } from '../../shared/constants/applicationBearingKinds';
 import { colorForApplication } from '../../shared/constants/applicationPalette';
 import { colorForCluster } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
@@ -292,10 +293,13 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const nodeChildRank = d.type === 'node' ? nodeWorstFromPods.get(d.id) : undefined;
     const nodeHasStatusInfo = d.type === 'node' && (rawStatus !== undefined || nodeChildRank !== undefined);
     const nodeWorstRank = Math.max(ownStatusRank, nodeChildRank ?? 0);
-    // ArgoCD application + containers + typed owner ride on POD nodes only (backend
-    // contract); enrichControllers aggregates them onto the backend controller group.
+    // ArgoCD application rides on the APPLICATION_BEARING_KINDS leaves (pod / service / pvc
+    // per backend D6 — service & pvc resolve it from their annotation tracking-id and nest
+    // under the application group, like pods); containers + typed owner stay POD-only.
+    // enrichControllers aggregates the pod application onto the backend controller group.
     const isPod = d.type === 'pod';
-    const application = isPod && isString(d.application) ? d.application : undefined;
+    const carriesApplication = isString(d.type) && APPLICATION_BEARING_KINDS.has(d.type);
+    const application = carriesApplication && isString(d.application) ? d.application : undefined;
     const containers = isPod ? parseContainers(d.containers) : undefined;
     const owner = isPod ? parseOwner(d, labels) : undefined;
     // storageclass leaf structural fields (D3); omitempty — passed through when present.

@@ -386,6 +386,49 @@ describe('normalizeGraph', () => {
     expect(selectsEdge?.data.labels).toEqual({ namespace: 'shop' });
   });
 
+  // ── Service / PVC ArgoCD `application` passthrough (backend D6 enrichment) ──
+  // The backend now resolves an ArgoCD application for service / pvc leaves too (from
+  // the annotation tracking-id) and nests them under their application group. normalize
+  // passes that `application` through on those leaves exactly as it does for pods —
+  // `containers` / `owner` remain pod-only.
+  describe('service / pvc application passthrough (backend D6)', () => {
+    const leaf = (type: string, extra: Record<string, unknown>): unknown => ({
+      elements: {
+        nodes: [{ data: { id: `prod/${type}1`, name: `${type}1`, type, labels: { namespace: 'shop' }, ...extra } }],
+        edges: [],
+      },
+    });
+    const dataOf = (raw: unknown): cytoscape.NodeDataDefinition | undefined =>
+      normalizeGraph(raw).elements.find((e) => e.data.id !== undefined)?.data;
+
+    it('passes a service node application through verbatim', () => {
+      expect(dataOf(leaf('service', { application: 'mongodb' }))?.application).toBe('mongodb');
+    });
+
+    it('passes a pvc node application through verbatim', () => {
+      expect(dataOf(leaf('pvc', { application: 'mongodb' }))?.application).toBe('mongodb');
+    });
+
+    it('omits application on a service node with no application', () => {
+      const d = dataOf(leaf('service', {}));
+      expect(d !== undefined && 'application' in d).toBe(false);
+    });
+
+    it('omits application on a service node whose application is not a string', () => {
+      const d = dataOf(leaf('service', { application: 42 }));
+      expect(d !== undefined && 'application' in d).toBe(false);
+    });
+
+    it('never carries containers / owner onto a service leaf (those stay pod-only)', () => {
+      const d = dataOf(
+        leaf('service', { application: 'mongodb', containers: [{ name: 'c', image: 'r/c:1' }], owner: { kind: 'X', name: 'y' } })
+      );
+      expect(d?.application).toBe('mongodb');
+      expect(d !== undefined && 'containers' in d).toBe(false);
+      expect(d !== undefined && 'owner' in d).toBe(false);
+    });
+  });
+
   it('passes backend compound parents through and colours cluster containers (no synthesis)', () => {
     const raw = {
       elements: {

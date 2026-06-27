@@ -137,6 +137,13 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     if (typeof data.namespace === 'string') {
       attrs.push({ key: 'namespace', value: data.namespace });
     }
+    // ArgoCD application — promoted on any leaf carrying one (pod / service / pvc per
+    // backend D6, plus enriched controllers). Skipped on the decorative application
+    // GROUP node, whose synthetic `kind: application` + name already convey it (a row
+    // there would just duplicate the title).
+    if (typeof data.application === 'string' && data.application.length > 0 && data.isApplication !== true) {
+      attrs.push({ key: 'application', value: data.application });
+    }
     if (Array.isArray(data.ipAddress) && data.ipAddress.length > 0) {
       attrs.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
     }

@@ -137,6 +137,14 @@ describe('assembleDashboardParams', () => {
       expect(params).toEqual({ kind: 'service', name: 'mongo-svc' });
       expect(params && 'controller' in params).toBe(false);
     });
+
+    it('carries a service/pvc leaf ArgoCD application through as a scope param (backend D6)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'svc', kind: 'service', label: 'mongo-svc', application: 'mongodb' } },
+      ];
+      const params = assembleDashboardParams(elements, 'svc');
+      expect(params).toEqual({ kind: 'service', name: 'mongo-svc', application: 'mongodb' });
+    });
   });
 
   describe('from_time / to_time', () => {

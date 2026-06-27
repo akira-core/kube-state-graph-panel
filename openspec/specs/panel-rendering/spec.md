@@ -143,7 +143,7 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 #### Scenario: Hover 節點顯示節點 metadata
 
 - **WHEN** 使用者滑鼠 hover 於任一節點
-- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時)、`application`(ArgoCD application;凡 leaf 帶 `data.application`——pod / service / pvc 與聚合後的 controller——即顯示,惟裝飾性 `application` 群組節點 MUST NOT 顯示此 row 以免與其合成 `kind`/`name` 重複),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
 
 #### Scenario: Hover 邊顯示邊 metadata
 
@@ -449,7 +449,7 @@ icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(e
 
 ### Requirement: Node Detail Application 與 Containers 區塊
 
-Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`)節點,提供 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。其餘 kind(`node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`)MUST NOT 顯示這兩個區塊。面板依觸發方式分流為兩個 **view**:**右鍵**開啟 `detail` view,只渲染 Application / Containers 兩區塊、MUST NOT 渲染 Alerts 表格(即使節點帶 `data.alerts`);**左鍵**開啟 `alerts` view,只渲染 Alerts 表格(含 Count / Last occurred 欄與 `timeRecords[]` 行為,見「Node Detail 面板」需求)、MUST NOT 渲染這兩個區塊。兩 view 共用 header 與面板框架。
+Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`)節點,提供帶 change-report 查詢的 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。其餘 kind(`node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`)MUST NOT 顯示這兩個 change-report 區塊。**例外(backend D6)**:`service` / `pvc` leaf 若帶 `data.application`,MUST 改以一個**輕量 Application 列**(`node-detail-section-app-info`)顯示其 ArgoCD application 名稱——純內在節點資訊、**無** change-report 查詢 / Deployment Changes 欄,於 `detail` 與 `alerts` 兩 view 皆顯示(比照 storageclass 的 Storage Class 區塊);其判準與上述 change-report 區塊**互斥**(凡屬 workload kind 走 change-report 表、否則走輕量列)。面板依觸發方式分流為兩個 **view**:**右鍵**開啟 `detail` view,只渲染 Application / Containers 兩區塊、MUST NOT 渲染 Alerts 表格(即使節點帶 `data.alerts`);**左鍵**開啟 `alerts` view,只渲染 Alerts 表格(含 Count / Last occurred 欄與 `timeRecords[]` 行為,見「Node Detail 面板」需求)、MUST NOT 渲染這兩個區塊。兩 view 共用 header 與面板框架。
 
 **資料來源**:application name 來源為節點的 `data.application`(backend 於 pod 節點輸出;controller 由 `normalizeGraph` 自子 pod 聚合);containers 來源為節點的 `data.containers`(`Array<{ name, image }>`;pod 為 backend 原樣透傳、controller 為子 pod 聚合去重——見 graph-data-integration 規格)。節點無 `data.application` 時 Application 區塊 MUST NOT 渲染;無 `data.containers`(或為空陣列)時 Containers 區塊 MUST NOT 渲染;兩者互不影響。
 
@@ -504,10 +504,17 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - **WHEN** 使用者**右鍵**選取的節點 `kind` 為 `pod` 或 controller(`deployment` / `statefulset` / `daemonset` / `job` / `cronjob`)且帶對應資料(`data.application` / 非空 `data.containers`)
 - **THEN** node-detail 面板渲染 Application 區塊與 Containers 區塊
 
-#### Scenario: 非 pod/controller kind 不顯示區塊
+#### Scenario: 非 pod/controller kind 不顯示 change-report 區塊
 
 - **WHEN** 選取的節點 `kind` 為 `node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`
-- **THEN** Application 與 Containers 區塊 MUST NOT 渲染(即使該節點偶帶 `application` / `containers` 資料)
+- **THEN** 帶 change-report 的 Application 與 Containers 區塊(`node-detail-section-application` / `node-detail-section-containers`、含 Deployment/Code Changes 欄)MUST NOT 渲染(即使該節點偶帶 `application` / `containers` 資料)
+
+#### Scenario: service / pvc 顯示輕量 Application 列(backend D6)
+
+- **WHEN** 選取的節點 `kind` 為 `service` 或 `pvc` 且帶 `data.application`(如 `"mongodb"`)
+- **THEN** 面板渲染輕量 Application 列(`node-detail-section-app-info`)顯示該名稱,於 `detail` 與 `alerts` 兩 view 皆然
+- **AND** MUST NOT 渲染 change-report 的 `node-detail-section-application` 表(`ApplicationTable` / Deployment Changes 欄),亦 MUST NOT 發出任何 change-report 查詢
+- **AND** 無 `data.application` 的 `service` / `pvc`(或其他 kind)MUST NOT 渲染此輕量列
 
 #### Scenario: 無 application 時僅隱藏 Application 區塊
 
