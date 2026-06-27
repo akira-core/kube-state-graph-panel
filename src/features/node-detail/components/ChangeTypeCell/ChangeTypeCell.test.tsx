@@ -31,13 +31,13 @@ describe('ChangeTypeCell', () => {
     expect(el).toHaveStyle({ color: FALLBACK_RESULT_TYPE_COLOR });
   });
 
-  it('renders a muted "—" when type is undefined', () => {
+  it('renders a muted "n/a" when type is undefined', () => {
     render(<ChangeTypeCell type={undefined} testId="t" />);
-    expect(screen.getByTestId('t').textContent).toBe('—');
+    expect(screen.getByTestId('t').textContent).toBe('n/a');
   });
 
-  it('renders a muted "—" when type is an empty string', () => {
+  it('renders a muted "n/a" when type is an empty string', () => {
     render(<ChangeTypeCell type="" testId="t" />);
-    expect(screen.getByTestId('t').textContent).toBe('—');
+    expect(screen.getByTestId('t').textContent).toBe('n/a');
   });
 });

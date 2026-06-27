@@ -29,9 +29,9 @@ describe('AlertTable', () => {
     expect(screen.getByText('mongo-0')).toBeInTheDocument();
   });
 
-  it('shows — for missing pod/service', () => {
+  it('shows n/a for missing pod/service', () => {
     render(<AlertTable alerts={[alerts[1]!]} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    expect(screen.getAllByText('—')).toHaveLength(2); // pod + service
+    expect(screen.getAllByText('n/a')).toHaveLength(2); // pod + service
   });
 
   it('colours the severity badge from SEVERITY_COLOR', () => {

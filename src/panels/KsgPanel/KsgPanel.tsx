@@ -36,6 +36,7 @@ import { useGraphTheme } from '../../features/theme';
 import { useSelectedPodExport, useVariableExport } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, PodParentMode } from '../../shared/constants/types';
+import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
 
 import { deriveLegendEntries } from './deriveLegendEntries';
@@ -191,6 +192,9 @@ export function resolveSelectedNode(
       return {
         id: selectedNodeId,
         label,
+        // Promoted attributes for the always-on Properties section — same single source
+        // as the hover tooltip, so the two never drift.
+        attributes: buildNodeAttributes(d),
         ...(d.kind !== undefined ? { kind: d.kind } : {}),
         ...(d.status !== undefined ? { status: d.status } : {}),
         ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
@@ -262,19 +266,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Right-click intent: which node the detail-URL queries were requested for, and when
-  // (Unix seconds, captured once at click so re-renders never refetch). Only an explicit
-  // right-click queries (D1); left-click / background tap / close clear it.
+  // Detail intent: which node the detail-URL queries were requested for, and when (Unix
+  // seconds, captured once at selection so re-renders never refetch). LEFT-click selection
+  // drives it now (the unified panel); background tap / close clear it.
   const [detailRequest, setDetailRequest] = useState<{ nodeId: string; time: number } | null>(null);
 
   const handleSelect = useCallback((id: string | null) => {
     setSelectedNodeId(id);
-    setDetailRequest(null);
-  }, []);
-
-  const handleContextSelect = useCallback((id: string) => {
-    setSelectedNodeId(id);
-    setDetailRequest({ nodeId: id, time: Math.floor(Date.now() / 1000) });
+    setDetailRequest(id !== null ? { nodeId: id, time: Math.floor(Date.now() / 1000) } : null);
   }, []);
 
   // Rewind to a ±5m window around the clicked alert (seconds → ms for AbsoluteTimeRange).
@@ -307,8 +306,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, selectedNodeId, visibleNodeIds, collapsedIds]
   );
 
-  // detailQueryInput is defined ONLY when the selection is a right-click on that same
-  // node resolving an application + query target. Endpoint: explicit option wins, else
+  // detailQueryInput is defined ONLY when the (left-click) selection resolves an
+  // application + query target for that same node. Endpoint: explicit option wins, else
   // the dashboard query's datasource proxy path; '' idles the hook (D7).
   const detailEndpointOption = options.detailEndpoint ?? defaultOptions.detailEndpoint;
   const detailEndpoint = useMemo(
@@ -347,10 +346,10 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
 
   // Export the LEFT-clicked, non-normal pod's name into the configured variable for a
-  // sibling panel (cleared on deselect / normal / non-pod / right-click). Left-click is
-  // the alerts-view selection (detailRequest === null); right-click drives the detail flow.
+  // sibling panel (cleared on deselect / normal / non-pod). Left-click is the sole
+  // selection path now (the unified panel), so the export is always active on selection.
   const selectedPodVariable = options.selectedPodVariable ?? defaultOptions.selectedPodVariable;
-  useSelectedPodExport(selectedNode, detailRequest === null, selectedPodVariable, selectedPodVariable.trim() !== '');
+  useSelectedPodExport(selectedNode, true, selectedPodVariable, selectedPodVariable.trim() !== '');
 
   // Cluster swatches from the backend cluster containers (single source: data.clusterColor
   // assigned in normalize) so legend colours match the on-canvas backplates. Deduped by name.
@@ -670,7 +669,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           layout={options.layout}
           visibility={visibility}
           onSelect={handleSelect}
-          onContextSelect={handleContextSelect}
           selectedId={selectedNodeId}
           collapsedIds={collapsedIds}
           onCollapsedChange={setCollapsedIds}
@@ -683,7 +681,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           timeZone={timeZone}
           lookups={detailLookups}
           dashboard={dashboardLookup}
-          view={detailRequest !== null ? 'detail' : 'alerts'}
         />
       </div>
     </div>

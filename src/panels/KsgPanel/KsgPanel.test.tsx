@@ -28,7 +28,7 @@ jest.mock('../../features/graph-canvas', () => {
   };
 });
 
-// Backend transport stub for the right-click detail-URL flow (useNodeDetailUrls)
+// Backend transport stub for the left-click detail-URL flow (useNodeDetailUrls)
 // plus the datasource registry stub for endpoint derivation (resolveDetailEndpoint)
 // plus the locationService stub for the pod-list variable export (useVariableExport).
 // Dereferenced lazily inside the service getters, so hoisting order is safe.
@@ -861,7 +861,7 @@ describe('KsgPanel', () => {
     expect(onChangeTimeRange).toHaveBeenCalledWith({ from: 1717499700000, to: 1717500300000 });
   });
 
-  describe('right-click detail-URL flow', () => {
+  describe('left-click detail-URL flow', () => {
     const controllerId = 'demo/controller/StatefulSet/mongo';
     const payload = {
       elements: {
@@ -896,7 +896,6 @@ describe('KsgPanel', () => {
 
     type CanvasHandlers = {
       onSelect?: (id: string | null) => void;
-      onContextSelect?: (id: string) => void;
       onCollapsedChange?: (next: Set<string>) => void;
     };
     const lastCanvasProps = (): CanvasHandlers => (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
@@ -949,14 +948,14 @@ describe('KsgPanel', () => {
       jest.restoreAllMocks();
     });
 
-    it('left-click OPEN eager-prefetches /dashboard and renders the Dashboard button (both views, no right-click)', async () => {
+    it('left-click eager-prefetches /dashboard AND change-report; renders the Dashboard button + change-report sections', async () => {
       detailGetMock.mockImplementation((path: string) =>
         path.endsWith('/dashboard') ? Promise.resolve({ url: 'https://dash/mongo-0' }) : Promise.resolve({})
       );
       renderPanel(withEndpoint);
       expandAll();
-      // LEFT-click open (alerts view). The Dashboard prefetch is driven by the panel
-      // OPENING, not the right-click flow — so config_changes/code_changes never fire.
+      // LEFT-click open: the unified panel drives BOTH the per-node /dashboard prefetch
+      // AND the workload change-report prefetch (config_changes/code_changes).
       act(() => {
         lastCanvasProps().onSelect?.('demo/p1');
       });
@@ -980,17 +979,20 @@ describe('KsgPanel', () => {
           expect.anything()
         );
       });
-      // The right-click-only Change Report queries do NOT fire on a left-click open.
-      expect(changeReportCalls()).toHaveLength(0);
+      // Change Report now fires on the (sole) left-click selection of a workload node.
+      await waitFor(() => {
+        expect(changeReportCalls()).toHaveLength(2);
+      });
       const btn = await screen.findByTestId('node-detail-dashboard-button');
       expect(btn.getAttribute('href')).toBe('https://dash/mongo-0');
       expect(btn.getAttribute('target')).toBe('_blank');
-      // Left-click view shows the Alerts section, not the right-click detail sections —
-      // confirming the dashboard button is open-driven, independent of detailRequest.
-      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
+      // The unified panel shows the workload change-report sections (the pod carries no
+      // alerts here, so the Alerts section is absent — data-gated).
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
     });
 
-    it('pod right-click EAGER-prefetches both endpoints WITHOUT any click; resolved URLs render as anchors (owner kind/name + right-click time)', async () => {
+    it('pod left-click EAGER-prefetches both endpoints WITHOUT any extra click; resolved URLs render as anchors (owner kind/name + selection time)', async () => {
       // The eager prefetch resolves the application URL and the container→URL map.
       detailGetMock.mockImplementation((path: string) =>
         path.endsWith('/config_changes')
@@ -1000,7 +1002,7 @@ describe('KsgPanel', () => {
       renderPanel(withEndpoint);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
       // Panel + both sections open in sync with the selection — and the right-click
       // IMMEDIATELY fires BOTH endpoints in parallel (eager prefetch, no click).
@@ -1028,12 +1030,12 @@ describe('KsgPanel', () => {
       expect(containerLink.getAttribute('rel')).toBe('noopener noreferrer');
     });
 
-    it('controller right-click prefetches with its own kind/name (aggregated application), no click', async () => {
+    it('controller left-click prefetches with its own kind/name (aggregated application), no extra click', async () => {
       renderPanel(withEndpoint);
       act(() => {
-        lastCanvasProps().onContextSelect?.(controllerId);
+        lastCanvasProps().onSelect?.(controllerId);
       });
-      // Right-click alone fires the prefetch with the controller's own kind/name.
+      // Left-click alone fires the prefetch with the controller's own kind/name.
       await waitFor(() => {
         expect(detailGetMock).toHaveBeenCalledWith(
           '/proxy/config_changes',
@@ -1050,31 +1052,10 @@ describe('KsgPanel', () => {
       );
     });
 
-    it('left-click opens the alerts view and never queries (no detail sections)', async () => {
-      renderPanel(withEndpoint);
-      expandAll();
-      act(() => {
-        lastCanvasProps().onSelect?.('demo/p1');
-      });
-      // Flush the open-driven /dashboard prefetch's resolve inside act.
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
-      // Left-click never fires the right-click Change Report queries (the /dashboard
-      // prefetch DOES fire on any open — asserted separately).
-      expect(changeReportCalls()).toHaveLength(0);
-      // Left-click renders the alerts view only — Application/Containers belong
-      // to the right-click detail view.
-      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
-      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
-    });
-
-    it('right-click on a non pod/controller node opens the panel without sections or queries', async () => {
+    it('left-click on a non pod/controller node opens the panel without change-report sections or queries', async () => {
       renderPanel(withEndpoint);
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/svc');
+        lastCanvasProps().onSelect?.('demo/svc');
       });
       // Flush the open-driven /dashboard prefetch's resolve inside act.
       await act(async () => {
@@ -1093,7 +1074,7 @@ describe('KsgPanel', () => {
       renderPanel(defaultOptions);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       // No endpoint → the hook is disabled: it fires no query and the Change Report
@@ -1109,7 +1090,7 @@ describe('KsgPanel', () => {
       renderPanel(defaultOptions, requestWithRef);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
       // Right-click eager-prefetches both endpoints at the derived proxy path.
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
@@ -1146,7 +1127,7 @@ describe('KsgPanel', () => {
       renderPanel(defaultOptions, requestWithGraphUrl);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
       // Right-click (not a button click) fires the prefetch at the sibling paths
       // derived from the graph query's own directory.
@@ -1172,7 +1153,7 @@ describe('KsgPanel', () => {
       renderPanel(withEndpoint, requestWithRef);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
       // Right-click eager-prefetches at the configured option path, not the derived one.
       const params = { application: 'checkout', kind: 'statefulset', name: 'mongo', time: 1717500000 };
@@ -1190,7 +1171,7 @@ describe('KsgPanel', () => {
       renderPanel(defaultOptions, requestWithRef);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       // No resolvable endpoint → the hook is disabled: no query, and the cell shows
@@ -1200,28 +1181,26 @@ describe('KsgPanel', () => {
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
     });
 
-    it('a left-click after a right-click shows the alerts view and never queries (count stays at 2)', async () => {
+    it('switching from a workload to a non-workload node clears change-report and fires no new query (count stays at 2)', async () => {
       renderPanel(withEndpoint);
       expandAll();
       act(() => {
-        lastCanvasProps().onContextSelect?.('demo/p1');
+        lastCanvasProps().onSelect?.('demo/p1');
       });
-      // The right-click eager-prefetches both Change Report endpoints: exactly two calls.
+      // The workload left-click eager-prefetches both Change Report endpoints: two calls.
       await waitFor(() => {
         expect(changeReportCalls()).toHaveLength(2);
       });
-      // Left-click switches to the alerts view (no Change Report cells) and clears
-      // the request input → the hook disables, aborts in flight, and clears its
-      // caches; there is no detail view to refetch into, so the Change Report count
-      // stays at 2 (the /dashboard prefetch tracks the open separately).
+      // Selecting a non-workload node (service) clears the request input → the hook
+      // disables, aborts in flight, and clears its caches; the service has no change-report
+      // sections to refetch, so the Change Report count stays at 2.
       act(() => {
-        lastCanvasProps().onSelect?.(controllerId);
+        lastCanvasProps().onSelect?.('demo/svc');
       });
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('application-url-unavailable')).not.toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(changeReportCalls()).toHaveLength(2);
-      // Flush the controller's open-driven /dashboard prefetch resolve inside act.
+      // Flush the service's open-driven /dashboard prefetch resolve inside act.
       await act(async () => {
         await Promise.resolve();
       });
@@ -1285,7 +1264,7 @@ describe('KsgPanel', () => {
       length: 1,
       fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
     };
-    type Handlers = { onSelect?: (id: string | null) => void; onContextSelect?: (id: string) => void };
+    type Handlers = { onSelect?: (id: string | null) => void;};
     const lastProps = (): Handlers => (graphCanvasSpy.mock.calls as Array<[Handlers]>).at(-1)![0];
     const selectedPodCalls = (): Array<Record<string, unknown>> =>
       (locationPartialMock.mock.calls as Array<[Record<string, unknown>]>)
@@ -1314,14 +1293,6 @@ describe('KsgPanel', () => {
       renderWith('selected_pod');
       act(() => {
         lastProps().onSelect?.('demo/p2');
-      });
-      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['$__empty'] });
-    });
-
-    it('right-click a critical pod clears the variable (export is left-click only)', () => {
-      renderWith('selected_pod');
-      act(() => {
-        lastProps().onContextSelect?.('demo/p1');
       });
       expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['$__empty'] });
     });

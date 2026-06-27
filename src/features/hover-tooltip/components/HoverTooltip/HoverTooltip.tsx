@@ -3,7 +3,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
 import React, { useLayoutEffect, useRef, useState } from 'react';
 
-import { isPlainObject } from '../../../../shared/guards/isPlainObject';
+import { buildNodeAttributes } from '../../../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../../../shared/theme/themeColors';
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
@@ -119,52 +119,9 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     const labelRaw = data.label;
     const idRaw = data.id;
     const title = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
-    const attrs: TooltipRow[] = [];
-    // Backend D6 namespace / application groups are kind-LESS in data (so they stay
-    // invisible to the kind filter + icon legend), so surface a synthetic type here —
-    // otherwise hovering one shows only the bare name. A real `data.kind` (leaf / k8s node /
-    // enriched controller) wins. (cluster groups are skipped upstream in useHoverElement.)
-    const kindValue =
-      typeof data.kind === 'string'
-        ? data.kind
-        : data.isApplication === true
-          ? 'application'
-          : data.isNamespace === true
-            ? 'namespace'
-            : undefined;
-    if (kindValue !== undefined) {
-      attrs.push({ key: 'kind', value: kindValue });
-    }
-    if (typeof data.namespace === 'string') {
-      attrs.push({ key: 'namespace', value: data.namespace });
-    }
-    // ArgoCD application — promoted on any leaf carrying one (pod / service / pvc per
-    // backend D6, plus enriched controllers). Skipped on the decorative application
-    // GROUP node, whose synthetic `kind: application` + name already convey it (a row
-    // there would just duplicate the title).
-    if (typeof data.application === 'string' && data.application.length > 0 && data.isApplication !== true) {
-      attrs.push({ key: 'application', value: data.application });
-    }
-    if (Array.isArray(data.ipAddress) && data.ipAddress.length > 0) {
-      attrs.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
-    }
-    // A storageclass leaf (backend D6) carries its own provisioner — surface it on the
-    // normal node path (no more synthesized-from-children context).
-    if (typeof data.provisioner === 'string' && data.provisioner.length > 0) {
-      attrs.push({ key: 'provisioner', value: data.provisioner });
-    }
-    // StorageClass backing-storage parameters (D6): a typed string map (pool / fs /
-    // cluster_id / selector …). Surface each as a wrapped row (values like a selector can
-    // be long) — promoted attrs, not raw labels. Key-sorted for a deterministic tooltip.
-    const parameters = data.parameters;
-    if (isPlainObject(parameters)) {
-      for (const key of Object.keys(parameters).sort()) {
-        const value = parameters[key];
-        if (typeof value === 'string') {
-          attrs.push({ key, value, wrap: true });
-        }
-      }
-    }
+    // Promoted attrs come from the single shared source (also feeds the detail-panel
+    // Properties section); raw backend `labels` follow below the divider.
+    const attrs: TooltipRow[] = buildNodeAttributes(data);
     return { title, attrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
   }
 

@@ -13,11 +13,6 @@ export interface GraphCanvasProps {
   // the panel — shared with its detail-panel gating — and applied here verbatim.
   visibility: VisibilitySets;
   onSelect?: (nodeId: string | null) => void;
-  // Right-click (cxttap) on a selectable node. Shares the same controlled
-  // selection as onSelect (the consumer sets selectedId from it) and additionally
-  // marks the node for the detail-URL lookups. When wired, the browser's native
-  // context menu is suppressed over the canvas.
-  onContextSelect?: (nodeId: string) => void;
   // Controlled selection: keeps cytoscape's single selection in sync (blue
   // highlight) with the detail panel. null/undefined clears the selection.
   selectedId?: string | null;

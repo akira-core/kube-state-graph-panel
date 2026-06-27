@@ -71,11 +71,11 @@ describe('ApplicationTable (eager-prefetch Change Report)', () => {
     expect(screen.getByTestId('application-url-link')).toHaveAttribute('href', 'https://x');
   });
 
-  it('shows muted "—" in Current / Previous when the ready lookup has no timestamps (link unaffected)', () => {
+  it('shows muted "n/a" in Current / Previous when the ready lookup has no timestamps (link unaffected)', () => {
     const state: DetailLookup = { status: 'ready', url: 'https://x' };
     render(<ApplicationTable application="checkout" state={state} timeZone="utc" />);
-    expect(screen.getByTestId('application-current').textContent).toBe('—');
-    expect(screen.getByTestId('application-previous').textContent).toBe('—');
+    expect(screen.getByTestId('application-current').textContent).toBe('n/a');
+    expect(screen.getByTestId('application-previous').textContent).toBe('n/a');
     expect(screen.getByTestId('application-current').getAttribute('title')).toBeNull();
     expect(screen.getByTestId('application-url-link')).toBeInTheDocument();
   });

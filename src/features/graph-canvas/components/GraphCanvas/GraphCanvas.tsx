@@ -42,7 +42,6 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     layout,
     visibility,
     onSelect,
-    onContextSelect,
     selectedId,
     collapsedIds,
     onCollapsedChange,
@@ -141,38 +140,6 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     };
     // isReady gates binding until the instance exists.
   }, [cyRef, onSelect, isReady]);
-
-  // Right-click (cxttap) reports the node for the detail-URL flow, routed through the
-  // same controlled selectedId as tap so highlight + detail panel stay in sync (D1).
-  // cxttap does NOT preventDefault the DOM contextmenu, so we suppress the native menu
-  // at the container level — only while a consumer wires onContextSelect.
-  useEffect(() => {
-    const cy = cyRef.current;
-    const container = containerRef.current;
-    if (cy === null || container === null || onContextSelect === undefined) {
-      return;
-    }
-    const handleCxtTap = (evt: cytoscape.EventObject): void => {
-      if (evt.target === cy) {
-        return; // background right-click: keep the current selection
-      }
-      const single = evt.target as cytoscape.NodeSingular;
-      // Same selectability rule as tap: backplates and edges never open the detail panel.
-      if (single.isNode() && single.selectable()) {
-        onContextSelect(single.id());
-      }
-    };
-    const suppressNativeMenu = (e: Event): void => {
-      e.preventDefault();
-    };
-    cy.on('cxttap', handleCxtTap);
-    container.addEventListener('contextmenu', suppressNativeMenu);
-    return (): void => {
-      cy.off('cxttap', handleCxtTap);
-      container.removeEventListener('contextmenu', suppressNativeMenu);
-    };
-    // isReady gates binding until the instance exists (see useCytoscape).
-  }, [cyRef, containerRef, onContextSelect, isReady]);
 
   // Mirror selectedId into cytoscape's single selection so the highlight tracks the
   // detail panel. `elements` is a dep: a rebuild/re-add brings the node back UNSELECTED

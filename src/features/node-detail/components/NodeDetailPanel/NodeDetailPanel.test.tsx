@@ -9,6 +9,10 @@ const sample: NodeDetailData = {
   label: 'mongo-0',
   kind: 'pod',
   status: 'critical',
+  attributes: [
+    { key: 'kind', value: 'pod' },
+    { key: 'namespace', value: 'prod' },
+  ],
   alerts: [{ pod: 'mongo-1', service: 'mongo', name: 'HighMemory', severity: 'critical', timeRecords: [1717500000] }],
 };
 
@@ -29,124 +33,106 @@ describe('NodeDetailPanel', () => {
     expect(screen.getByText('HighMemory')).toBeInTheDocument();
   });
 
-  it('shows "No alerts" when the node carries none', () => {
-    const noAlerts: NodeDetailData = { id: 'p2', label: 'web', kind: 'pod' };
-    render(<NodeDetailPanel node={noAlerts} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-    expect(screen.getByTestId('alert-table-empty')).toHaveTextContent('No alerts');
-  });
-
-  describe('Application info row (service / pvc leaf — backend D6)', () => {
-    const svc: NodeDetailData = { id: 'service/mongo-svc', label: 'mongo-svc', kind: 'service', application: 'mongodb' };
-    const pvc: NodeDetailData = { id: 'pvc/data-mongo-0', label: 'data-mongo-0', kind: 'pvc', application: 'mongodb' };
-
-    it('renders a lightweight Application row for a service leaf carrying an application', () => {
-      render(<NodeDetailPanel node={svc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      const section = screen.getByTestId('node-detail-section-app-info');
-      expect(within(section).getByText('Application')).toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-app-info')).toHaveTextContent('mongodb');
-    });
-
-    it('renders the Application row for a pvc leaf too, and in the alerts (left-click) view', () => {
-      render(<NodeDetailPanel node={pvc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="alerts" />);
-      expect(screen.getByTestId('node-detail-app-info')).toHaveTextContent('mongodb');
-    });
-
-    it('uses the lightweight row, NOT the workload change-report Application table', () => {
-      render(<NodeDetailPanel node={svc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('application-table')).not.toBeInTheDocument();
-    });
-
-    it('does not render the lightweight row for a workload pod (it gets the rich table instead)', () => {
-      const pod: NodeDetailData = { id: 'pod/mongo-0', label: 'mongo-0', kind: 'pod', application: 'mongodb' };
-      render(<NodeDetailPanel node={pod} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
-    });
-
-    it('does not render the lightweight row for a non-workload controller (e.g. rollout) carrying an aggregated application', () => {
-      // A controller GROUP node for an Argo Rollout / CRD operator has kind outside
-      // DETAIL_URL_KINDS but still carries an application aggregated from child pods.
-      // The lightweight row is scoped to service / pvc LEAVES — it MUST NOT surface here
-      // (nor the workload change-report table, since rollout is not a detail-URL kind).
-      const rollout: NodeDetailData = { id: 'ctrl/rollout/web', label: 'web', kind: 'rollout', application: 'myapp' };
-      render(<NodeDetailPanel node={rollout} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
-    });
-
-    it('does not render the lightweight row for a kind-less controller carrying an application', () => {
-      const ctrl: NodeDetailData = { id: 'ctrl/x', label: 'x', application: 'myapp' };
-      render(<NodeDetailPanel node={ctrl} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
-    });
-
-    it('does not render the Application row for a leaf without an application (e.g. storageclass)', () => {
-      const sc: NodeDetailData = { id: 'sc', label: 'fast-ssd', kind: 'storageclass', provisioner: 'p' };
-      render(<NodeDetailPanel node={sc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
-      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Storage Class section (D6 storageclass leaf)', () => {
-    const storageclass: NodeDetailData = {
-      id: 'sc',
-      label: 'fast-ssd',
-      kind: 'storageclass',
-      provisioner: 'rook-ceph.rbd.csi.ceph.com',
-      parameters: { pool: 'kube', fs: 'ext4' },
-    };
-
-    it('renders the provisioner row + generic parameter key/value rows', () => {
-      render(<NodeDetailPanel node={storageclass} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-      const section = screen.getByTestId('node-detail-section-storageclass');
-      expect(within(section).getByText('Storage Class')).toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-sc-provisioner')).toHaveTextContent('rook-ceph.rbd.csi.ceph.com');
-      // Parameters render generically — keys not hard-coded.
-      expect(screen.getByTestId('node-detail-sc-param-pool')).toHaveTextContent('kube');
-      expect(screen.getByTestId('node-detail-sc-param-fs')).toHaveTextContent('ext4');
-    });
-
-    it('omits a missing field row (provisioner only, no parameters)', () => {
-      const bare: NodeDetailData = { id: 'sc2', label: 'gp2', kind: 'storageclass', provisioner: 'ebs.csi.aws.com' };
+  describe('Properties section (always on)', () => {
+    it('always renders, even when the node has no application/containers/alerts', () => {
+      const bare: NodeDetailData = {
+        id: 'p2',
+        label: 'web',
+        kind: 'pod',
+        attributes: [
+          { key: 'kind', value: 'pod' },
+          { key: 'namespace', value: 'prod' },
+          { key: 'ipAddress', value: '10.0.0.1' },
+        ],
+      };
       render(<NodeDetailPanel node={bare} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-      expect(screen.getByTestId('node-detail-sc-provisioner')).toBeInTheDocument();
-      expect(screen.queryByTestId(/node-detail-sc-param-/)).not.toBeInTheDocument();
+      const section = screen.getByTestId('node-detail-section-properties');
+      expect(within(section).getByText('Properties')).toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-prop-namespace')).toHaveTextContent('prod');
+      expect(screen.getByTestId('node-detail-prop-ipAddress')).toHaveTextContent('10.0.0.1');
     });
 
-    it('does not render the Storage Class section for a non-storageclass kind', () => {
+    it('skips the kind row (kind already shows as the header badge)', () => {
       render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-prop-kind')).not.toBeInTheDocument();
+    });
+
+    it('surfaces storageclass provisioner + parameters as property rows (no dedicated Storage Class section)', () => {
+      const storageclass: NodeDetailData = {
+        id: 'sc',
+        label: 'fast-ssd',
+        kind: 'storageclass',
+        attributes: [
+          { key: 'kind', value: 'storageclass' },
+          { key: 'provisioner', value: 'rook-ceph.rbd.csi.ceph.com' },
+          { key: 'pool', value: 'kube', wrap: true },
+          { key: 'fs', value: 'ext4', wrap: true },
+        ],
+      };
+      render(<NodeDetailPanel node={storageclass} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.queryByTestId('node-detail-section-storageclass')).not.toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-prop-provisioner')).toHaveTextContent('rook-ceph.rbd.csi.ceph.com');
+      expect(screen.getByTestId('node-detail-prop-pool')).toHaveTextContent('kube');
+      expect(screen.getByTestId('node-detail-prop-fs')).toHaveTextContent('ext4');
+    });
+
+    it('surfaces a service/pvc application as a property row (no dedicated app-info section, no change-report table)', () => {
+      const svc: NodeDetailData = {
+        id: 'service/mongo-svc',
+        label: 'mongo-svc',
+        kind: 'service',
+        application: 'mongodb',
+        attributes: [
+          { key: 'kind', value: 'service' },
+          { key: 'application', value: 'mongodb' },
+        ],
+      };
+      render(<NodeDetailPanel node={svc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.getByTestId('node-detail-prop-application')).toHaveTextContent('mongodb');
     });
   });
 
-  it('forwards alert time clicks to onAlertTimeClick (seconds)', () => {
-    const onAlertTimeClick = jest.fn();
-    render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={onAlertTimeClick} timeZone="utc" />);
-    fireEvent.click(screen.getByTestId('alert-time'));
-    expect(onAlertTimeClick).toHaveBeenCalledWith(1717500000);
-  });
+  describe('Alerts section (data-gated)', () => {
+    it('does not render the Alerts section (nor a "No alerts" message) when the node carries none', () => {
+      const noAlerts: NodeDetailData = { id: 'p2', label: 'web', kind: 'pod', attributes: [{ key: 'kind', value: 'pod' }] };
+      render(<NodeDetailPanel node={noAlerts} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
+      expect(screen.queryByText('No alerts')).not.toBeInTheDocument();
+    });
 
-  it('swaps content when re-rendered for a different node (alerts → No alerts)', () => {
-    const { rerender } = render(
-      <NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />
-    );
-    expect(screen.getByText('HighMemory')).toBeInTheDocument();
+    it('does not render the Alerts section for an empty alerts array', () => {
+      const emptyAlerts: NodeDetailData = { id: 'p3', label: 'web', kind: 'pod', alerts: [] };
+      render(<NodeDetailPanel node={emptyAlerts} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
+    });
 
-    const other: NodeDetailData = { id: 'p9', label: 'web-1', kind: 'pod' };
-    rerender(<NodeDetailPanel node={other} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
-    expect(screen.getByText('web-1')).toBeInTheDocument();
-    expect(screen.queryByText('HighMemory')).not.toBeInTheDocument();
-    expect(screen.getByTestId('alert-table-empty')).toHaveTextContent('No alerts');
+    it('forwards alert time clicks to onAlertTimeClick (seconds)', () => {
+      const onAlertTimeClick = jest.fn();
+      render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={onAlertTimeClick} timeZone="utc" />);
+      fireEvent.click(screen.getByTestId('alert-time'));
+      expect(onAlertTimeClick).toHaveBeenCalledWith(1717500000);
+    });
+
+    it('swaps content when re-rendered for a different node (alerts → no Alerts section)', () => {
+      const { rerender } = render(
+        <NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />
+      );
+      expect(screen.getByText('HighMemory')).toBeInTheDocument();
+
+      const other: NodeDetailData = { id: 'p9', label: 'web-1', kind: 'pod', attributes: [{ key: 'kind', value: 'pod' }] };
+      rerender(<NodeDetailPanel node={other} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+      expect(screen.getByText('web-1')).toBeInTheDocument();
+      expect(screen.queryByText('HighMemory')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
+    });
   });
 
   it('keeps the header (and its close button) outside the scrollable body so it stays pinned', () => {
     render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
     const scrollBody = screen.getByTestId('node-detail-scroll');
-    // The alerts live INSIDE the scroll region...
     expect(scrollBody).toContainElement(screen.getByTestId('node-detail-section-alerts'));
-    // ...but the close button does NOT, so scrolling a long alert list never carries
-    // the header (and its ✕) out of view.
     expect(scrollBody).not.toContainElement(screen.getByLabelText('Close detail panel'));
   });
 
@@ -157,66 +143,31 @@ describe('NodeDetailPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  describe('Dashboard button (header, both views)', () => {
+  describe('Dashboard button (header)', () => {
     const ready = {
       status: 'ready',
       urls: [{ label: 'Dashboard', url: 'https://dash/n1' }],
     } as const;
 
-    it('renders the Dashboard button beside the name in the alerts (left-click) view when ready', () => {
-      render(
-        <NodeDetailPanel
-          node={sample}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          view="alerts"
-          dashboard={ready}
-        />
-      );
+    it('renders the Dashboard button beside the name when ready', () => {
+      render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} dashboard={ready} />);
       const btn = screen.getByTestId('node-detail-dashboard-button');
       expect(btn).toHaveAttribute('href', 'https://dash/n1');
       expect(btn).toHaveAttribute('target', '_blank');
       expect(btn).toHaveAttribute('rel', 'noopener noreferrer');
     });
 
-    it('renders the Dashboard button in the detail (right-click) view when ready', () => {
-      render(
-        <NodeDetailPanel
-          node={sample}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          view="detail"
-          dashboard={ready}
-        />
-      );
-      expect(screen.getByTestId('node-detail-dashboard-button')).toBeInTheDocument();
-    });
-
     it('renders no button when dashboard is omitted, loading, or unavailable', () => {
       const { rerender } = render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
-      rerender(
-        <NodeDetailPanel
-          node={sample}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          dashboard={{ status: 'loading' }}
-        />
-      );
+      rerender(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} dashboard={{ status: 'loading' }} />);
       expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
-      rerender(
-        <NodeDetailPanel
-          node={sample}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          dashboard={{ status: 'unavailable' }}
-        />
-      );
+      rerender(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} dashboard={{ status: 'unavailable' }} />);
       expect(screen.queryByTestId('node-detail-dashboard-button')).not.toBeInTheDocument();
     });
   });
 
-  describe('Application / Containers sections', () => {
+  describe('Application / Containers change-report sections', () => {
     const podWithBoth: NodeDetailData = {
       id: 'p1',
       label: 'mongo-0',
@@ -231,7 +182,6 @@ describe('NodeDetailPanel', () => {
           node={podWithBoth}
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
-          view="detail"
           lookups={{
             enabled: true,
             application: { status: 'ready', url: 'https://app.example/checkout' },
@@ -248,67 +198,40 @@ describe('NodeDetailPanel', () => {
 
     it('renders both sections for a controller kind (statefulset)', () => {
       render(
-        <NodeDetailPanel
-          node={{ ...podWithBoth, kind: 'statefulset' }}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          view="detail"
-        />
+        <NodeDetailPanel node={{ ...podWithBoth, kind: 'statefulset' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />
       );
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
     });
 
-    it('never renders the sections for a non pod/controller kind, even with stray data', () => {
-      render(
-        <NodeDetailPanel
-          node={{ ...podWithBoth, kind: 'service' }}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          view="detail"
-        />
-      );
+    it('never renders the change-report sections for a non pod/controller kind, even with stray data', () => {
+      render(<NodeDetailPanel node={{ ...podWithBoth, kind: 'service' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
     });
 
     it('hides only the Application section when application is absent (independent gating)', () => {
-      const noApp: NodeDetailData = {
-        id: 'p1',
-        label: 'mongo-0',
-        kind: 'pod',
-        containers: [{ name: 'app', image: 'repo/app:1.2' }],
-      };
-      render(<NodeDetailPanel node={noApp} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      const noApp: NodeDetailData = { id: 'p1', label: 'mongo-0', kind: 'pod', containers: [{ name: 'app', image: 'repo/app:1.2' }] };
+      render(<NodeDetailPanel node={noApp} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
     });
 
     it('hides only the Containers section when containers are absent or empty', () => {
       const noContainers: NodeDetailData = { id: 'p1', label: 'mongo-0', kind: 'pod', application: 'checkout' };
-      const { rerender } = render(
-        <NodeDetailPanel node={noContainers} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />
-      );
+      const { rerender } = render(<NodeDetailPanel node={noContainers} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
-      rerender(
-        <NodeDetailPanel
-          node={{ ...podWithBoth, containers: [] }}
-          onClose={jest.fn()}
-          onAlertTimeClick={jest.fn()}
-          view="detail"
-        />
-      );
+      rerender(<NodeDetailPanel node={{ ...podWithBoth, containers: [] }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
     });
 
-    it('keeps the header intact and hides the Alerts table in the detail view (failure isolation)', () => {
+    it('shows change-report AND the alerts table together on the same node (single unified panel)', () => {
       render(
         <NodeDetailPanel
           node={{ ...podWithBoth, alerts: sample.alerts ?? [] }}
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
-          view="detail"
           lookups={{
             enabled: true,
             application: { status: 'unavailable', error: 'app lookup failed' },
@@ -316,17 +239,13 @@ describe('NodeDetailPanel', () => {
           }}
         />
       );
-      // Each section independently renders the muted "Not found" hint beside
-      // its own Change Report column — the application failure does not suppress the
-      // containers section, and vice versa.
       expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
       expect(screen.getByTestId('container-url-unavailable')).toBeInTheDocument();
-      // The full error message is recoverable via the hint's title attribute.
       expect(screen.getByTestId('application-url-unavailable')).toHaveAttribute('title', 'app lookup failed');
-      // …while the header stays untouched and the Alerts table (left-click view
-      // content) is not rendered in the detail view, even though alerts exist.
       expect(screen.getByText('mongo-0')).toBeInTheDocument();
-      expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
+      // Both change-report and the Alerts table coexist now (no view split).
+      expect(screen.getByTestId('node-detail-section-alerts')).toBeInTheDocument();
+      expect(screen.getByText('HighMemory')).toBeInTheDocument();
     });
 
     it('threads resolved lookup state down: sections render real anchors with the prefetched URLs', () => {
@@ -335,7 +254,6 @@ describe('NodeDetailPanel', () => {
           node={podWithBoth}
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
-          view="detail"
           lookups={{
             enabled: true,
             application: { status: 'ready', url: 'u1' },
@@ -343,9 +261,6 @@ describe('NodeDetailPanel', () => {
           }}
         />
       );
-      // The Change Report cells render plain <a href> anchors (eager prefetch — no
-      // window.open, no click trigger). Assert their attributes; never .click() them
-      // (jsdom does not navigate, and clicking would only log noise).
       const appLink = screen.getByTestId('application-url-link');
       expect(appLink).toHaveAttribute('href', 'u1');
       expect(appLink).toHaveAttribute('target', '_blank');
@@ -353,12 +268,10 @@ describe('NodeDetailPanel', () => {
 
       const containerLink = screen.getByTestId('container-url-link');
       expect(containerLink).toHaveAttribute('href', 'u2');
-      expect(containerLink).toHaveAttribute('target', '_blank');
-      expect(containerLink).toHaveAttribute('rel', 'noopener noreferrer');
     });
 
     it('shows the muted "Not found" hint and no links when lookups is omitted (idle default)', () => {
-      render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} view="detail" />);
+      render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.getByTestId('application-url-unavailable')).toBeInTheDocument();
       expect(screen.getByTestId('container-url-unavailable')).toBeInTheDocument();
       expect(screen.queryByTestId('application-url-link')).not.toBeInTheDocument();
@@ -371,20 +284,11 @@ describe('NodeDetailPanel', () => {
           node={podWithBoth}
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
-          view="detail"
           timeZone="utc"
           lookups={{
             enabled: true,
-            application: {
-              status: 'ready',
-              url: 'u1',
-              currentTime: '2026-06-16T10:30:00Z',
-              previousTime: '2026-06-10T08:00:00Z',
-            },
-            containers: {
-              phase: 'settled',
-              byName: { app: { status: 'ready', url: 'u2', currentTime: '2026-06-16T10:30:00Z' } },
-            },
+            application: { status: 'ready', url: 'u1', currentTime: '2026-06-16T10:30:00Z', previousTime: '2026-06-10T08:00:00Z' },
+            containers: { phase: 'settled', byName: { app: { status: 'ready', url: 'u2', currentTime: '2026-06-16T10:30:00Z' } } },
           }}
         />
       );
@@ -395,13 +299,12 @@ describe('NodeDetailPanel', () => {
       expect(screen.getByTestId('container-current').getAttribute('title')).toBe('2026-06-16T10:30:00Z');
     });
 
-    it('renders muted "—" time cells (no crash) when the ready lookups carry no timestamps', () => {
+    it('renders muted "n/a" time cells (no crash) when the ready lookups carry no timestamps', () => {
       render(
         <NodeDetailPanel
           node={podWithBoth}
           onClose={jest.fn()}
           onAlertTimeClick={jest.fn()}
-          view="detail"
           lookups={{
             enabled: true,
             application: { status: 'ready', url: 'u1' },
@@ -409,8 +312,48 @@ describe('NodeDetailPanel', () => {
           }}
         />
       );
-      expect(screen.getByTestId('application-current').textContent).toBe('—');
-      expect(screen.getByTestId('container-current').textContent).toBe('—');
+      expect(screen.getByTestId('application-current').textContent).toBe('n/a');
+      expect(screen.getByTestId('container-current').textContent).toBe('n/a');
+    });
+  });
+
+  describe('layout: single scroll authority (overlap/no-scroll regression)', () => {
+    // A node with BOTH containers AND alerts is the exact repro: the unified panel renders
+    // the Containers and Alerts sections together. They MUST stack as content-height blocks
+    // under ONE scroll container (the body), not two competing internal-scroll fill regions.
+    const podWithBoth: NodeDetailData = {
+      id: 'p1',
+      label: 'mongo-0',
+      kind: 'pod',
+      application: 'checkout',
+      containers: [{ name: 'app', image: 'repo/app:1.2' }],
+      alerts: sample.alerts ?? [],
+    };
+
+    it('routes all overflow to the body: Containers + Alerts are content-height with no nested scroller', () => {
+      render(<NodeDetailPanel node={podWithBoth} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+
+      const body = screen.getByTestId('node-detail-scroll');
+      const containers = screen.getByTestId('node-detail-section-containers');
+      const alerts = screen.getByTestId('node-detail-section-alerts');
+
+      // Both repro sections coexist as direct children of the one scroll body.
+      expect(body).toContainElement(containers);
+      expect(body).toContainElement(alerts);
+
+      // (1) The body is THE scroller (pre-fix: overflow:'hidden' → overflowY unset → FAILS).
+      expect(body).toHaveStyle({ overflowY: 'auto' });
+
+      // (2) The two big sections are content-height, not competing fills (pre-fix: flexGrow 1 → FAILS).
+      expect(containers).toHaveStyle({ flexGrow: '0' });
+      expect(alerts).toHaveStyle({ flexGrow: '0' });
+
+      // (3) No nested vertical scroller: each section's table wrapper (the slot = its last child,
+      // after the sectionTitle) MUST NOT own its own overflowY:auto (pre-fix: both → 'auto' → FAILS).
+      const containersSlot = containers.lastElementChild as HTMLElement;
+      const alertsSlot = alerts.lastElementChild as HTMLElement;
+      expect(getComputedStyle(containersSlot).overflowY).not.toBe('auto');
+      expect(getComputedStyle(alertsSlot).overflowY).not.toBe('auto');
     });
   });
 });

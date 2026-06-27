@@ -23,7 +23,13 @@ describe('resolveSelectedNode', () => {
   it('returns the node detail when the selected node is visible', () => {
     const result = resolveSelectedNode(elements, 'p1', new Set(['p1']));
     // An owner-less pod still resolves a queryTarget (itself) for the detail-URL flow.
-    expect(result).toEqual({ id: 'p1', label: 'p1', kind: 'pod', queryTarget: { kind: 'pod', name: 'p1' } });
+    expect(result).toEqual({
+      id: 'p1',
+      label: 'p1',
+      kind: 'pod',
+      attributes: [{ key: 'kind', value: 'pod' }],
+      queryTarget: { kind: 'pod', name: 'p1' },
+    });
   });
 
   it('returns null when nothing is selected', () => {
@@ -46,6 +52,11 @@ describe('resolveSelectedNode', () => {
       id: 'sc',
       label: 'fast-ssd',
       kind: 'storageclass',
+      attributes: [
+        { key: 'kind', value: 'storageclass' },
+        { key: 'provisioner', value: 'ebs.csi.aws.com' },
+        { key: 'type', value: 'gp3', wrap: true },
+      ],
       provisioner: 'ebs.csi.aws.com',
       parameters: { type: 'gp3' },
     });

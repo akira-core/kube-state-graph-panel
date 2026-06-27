@@ -11,10 +11,10 @@ describe('ChangeTimeCell', () => {
     expect(el.getAttribute('title')).toBe('2026-06-16T10:30:00Z');
   });
 
-  it('renders a muted "—" with no title when formatted is undefined', () => {
+  it('renders a muted "n/a" with no title when formatted is undefined', () => {
     render(<ChangeTimeCell formatted={undefined} testId="t" />);
     const el = screen.getByTestId('t');
-    expect(el.textContent).toBe('—');
+    expect(el.textContent).toBe('n/a');
     expect(el.getAttribute('title')).toBeNull();
   });
 });

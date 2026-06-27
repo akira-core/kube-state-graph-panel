@@ -1,4 +1,5 @@
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../../../shared/constants/types';
+import type { NodeAttribute } from '../../../../shared/nodeAttributes/buildNodeAttributes';
 import type { ContainerSpec } from '../../../../shared/types/containerSpec';
 import type { DashboardLookup } from '../../hooks/useNodeDashboardUrl';
 import type { NodeDetailLookups } from '../../hooks/useNodeDetailUrls';
@@ -10,11 +11,15 @@ export interface NodeDetailData {
   label: string;
   kind?: GraphNodeKind; // known kind or an unknown forward-compat backend string
   status?: NodeStatus;
-  alerts?: NodeAlert[]; // node's alerts; absent/empty → "No alerts"
+  // Promoted attributes shown (kv-rows) in the always-on Properties section. Same source
+  // as the hover tooltip (buildNodeAttributes) — kind is included here but the Properties
+  // section skips it (the header badge already shows it).
+  attributes?: NodeAttribute[];
+  alerts?: NodeAlert[]; // node's alerts; absent/empty → Alerts section not rendered
   application?: string; // ArgoCD application (pod passthrough / controller aggregate)
   containers?: ContainerSpec[]; // pod containers / controller (name,image)-deduped union
-  // StorageClass leaf structural fields (backend D6), surfaced in the Storage Class
-  // section when kind === 'storageclass'. Omitted on every other kind / when absent.
+  // StorageClass leaf structural fields (backend D6). Now surfaced via `attributes`
+  // (provisioner + parameters are promoted attrs); kept here for resolve-time use.
   provisioner?: string;
   parameters?: Record<string, string>;
   // Controller identity both detail-URL queries use (design D4): a pod resolves
@@ -36,10 +41,6 @@ export interface NodeDetailPanelProps {
   // selection): sections still render their data, every target shows the hint.
   lookups?: NodeDetailLookups;
   // Eager-prefetched per-node Dashboard URL lookup. Rendered as a button beside the
-  // node name in the header (both views); shown only when 'ready'. Omitted → no button.
+  // node name in the header; shown only when 'ready'. Omitted → no button.
   dashboard?: DashboardLookup;
-  // Which sections to render — the two click paths show disjoint content:
-  //   'alerts' (default; left-click selection) → Alerts table only
-  //   'detail' (right-click)                   → Application / Containers only
-  view?: 'alerts' | 'detail';
 }

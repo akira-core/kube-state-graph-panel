@@ -3,7 +3,6 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import { IconButton, useStyles2 } from '@grafana/ui';
 import React from 'react';
 
-import { APPLICATION_BEARING_KINDS } from '../../../../shared/constants/applicationBearingKinds';
 import { STATUS_COLOR } from '../../../../shared/constants/colorByStatus';
 import { themeColors } from '../../../../shared/theme/themeColors';
 import { DETAIL_URL_KINDS } from '../../detailUrlKinds';
@@ -44,7 +43,7 @@ function getStyles(theme: GrafanaTheme2): {
       left: 8,
       right: 8,
       bottom: 8,
-      maxHeight: 'min(50%, 380px)',
+      maxHeight: '50%',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
@@ -67,8 +66,13 @@ function getStyles(theme: GrafanaTheme2): {
       borderBottom: `2px solid ${colors.border.strong}`,
       flexShrink: 0,
     }),
-    // Non-scrolling flex column under the pinned header (flex:1 + minHeight:0 so its
-    // filling child takes over the scroll). The section divider lives HERE as a
+    // THE single scroll authority under the pinned header. flex:1 + minHeight:0 give it a
+    // definite height capped by root's 50%; overflowY:auto then scrolls the WHOLE
+    // section stack once content exceeds the cap (≤cap → no scrollbar). overflowX is hidden
+    // so a wide table never slides the panel sideways. The unified panel stacks several
+    // content-height sections (Properties + Application + Containers + Alerts); a per-section
+    // internal scroll would create competing scroll regions that overlap and clip — one body
+    // scroller is the only model that composes. The section divider lives HERE as a
     // parent-scoped `& > div + div` rule, NOT on the section class as `& + &`:
     // `cx(styles.section, …)` merges the emotion classes, so the `section` class the
     // `&` selector targets is gone after composition and the rule never matches.
@@ -78,7 +82,8 @@ function getStyles(theme: GrafanaTheme2): {
       minHeight: 0,
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden',
+      overflowX: 'hidden',
+      overflowY: 'auto',
       '& > div + div': {
         marginTop: 12,
         paddingTop: 10,
@@ -116,11 +121,12 @@ function getStyles(theme: GrafanaTheme2): {
     section: css({ display: 'flex', flexDirection: 'column' }),
     // Application: pinned at content height (always a single row — at most one ArgoCD app).
     sectionFixed: css({ flex: '0 0 auto' }),
-    // Containers / Alerts: fill remaining height and scroll inside their table area.
-    // flex-basis auto (NOT 0) is deliberate — basis 0 collapses to nothing under the
-    // panel's indefinite maxHeight and the table vanishes; auto sizes to content then
-    // shrinks-and-scrolls only once the panel hits its cap.
-    sectionFill: css({ flex: '1 1 auto', minHeight: 0 }),
+    // Containers / Alerts: content-height blocks, like every other section. They MUST NOT
+    // fill/own-scroll — the body (overflowY:auto) is the single scroll authority, so two
+    // tall sections simply stack and the body scrolls their sum. (Pre-unification this was
+    // `flex:1 1 auto` + an inner slot scroll, safe only because the old view split rendered
+    // at most one fill section; two such siblings overlapped and neither scrolled.)
+    sectionFill: css({ flex: '0 0 auto' }),
     sectionTitle: css({
       flexShrink: 0,
       fontSize: 13,
@@ -129,18 +135,15 @@ function getStyles(theme: GrafanaTheme2): {
       color: colors.text.secondary,
       paddingBottom: 6,
     }),
-    // Scrolling table area (Containers / Alerts) — only the tbody rows scroll. Sticky
-    // thead pins the column header here. InteractiveTable wraps its <table> in a div
-    // with `overflowX: auto` that would trap the sticky header; we reset that inner
-    // overflow to visible so the header resolves to this area. ContainerTable nests one
-    // level deeper than AlertTable, hence both `& > div` and `& > div > div`.
+    // Table area (Containers / Alerts) — a plain content-height wrapper now. The body is the
+    // single scroll authority, so this neither fills nor owns a scroll. No sticky thead (per-
+    // table sticky cannot compose under one shared scroller — every thead would resolve to the
+    // body and pin at top:0, overlapping). InteractiveTable keeps its own `overflowX:auto`
+    // wrapper, so a wide table scrolls horizontally inside its own row (body overflowX:hidden
+    // stops the whole panel sliding).
     slot: css({
-      flex: '1 1 auto',
       minHeight: 24,
-      overflowY: 'auto',
       fontSize: theme.typography.bodySmall.fontSize,
-      '& > div, & > div > div': { overflowX: 'visible' },
-      '& thead th': { position: 'sticky', top: 0, zIndex: 1, background: colors.background.secondary },
     }),
     staticBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
     // Storage Class key/value rows: a label column + a value that wraps (provisioner
@@ -169,38 +172,26 @@ export function NodeDetailPanel({
   timeZone,
   lookups,
   dashboard,
-  view = 'alerts',
 }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   if (node === null) {
     return null;
   }
-  // Disjoint views: 'alerts' (left-click) shows Alerts only; 'detail' (right-click)
-  // shows Application/Containers, each gated on kind ∈ DETAIL_URL_KINDS AND the field
-  // being present. lookups defaults to idle/disabled (every Change Report target shows
-  // the muted "Not found" hint, no prefetch).
+  // Single unified panel (no view split): every section is data-gated. lookups defaults
+  // to idle/disabled (every Change Report target shows the muted "Not found" hint, no
+  // prefetch). Change-report Application/Containers stay gated on workload kind + data.
   const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
-  const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
-  const showContainers =
-    view === 'detail' && isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
-  // Storage Class section (backend D6 storageclass leaf): provisioner row + the
-  // provisioner-dependent parameters map rendered generically (keys never hard-coded).
-  // Shown in BOTH views (it is intrinsic node info), only when kind === 'storageclass'
-  // AND there is at least one value to show — a bare storageclass shows no empty section.
-  const parameterEntries = node.kind === 'storageclass' && node.parameters !== undefined ? Object.entries(node.parameters) : [];
-  const showStorageClass =
-    node.kind === 'storageclass' && (node.provisioner !== undefined || parameterEntries.length > 0);
-  // Lightweight Application row for a service / pvc leaf (backend D6): these carry an
-  // ArgoCD application but no workload change-report query target, so the name is shown
-  // as intrinsic node info in BOTH views (like Storage Class) — NOT the workload
-  // ApplicationTable. Gated POSITIVELY on the application-bearing leaf kinds (so a
-  // non-workload controller group — Argo Rollout / CRD operator, or a kind-less
-  // controller — that merely aggregates a child-pod application is excluded), then
-  // `!isDetailUrlKind` keeps it mutually exclusive with showApplication (the only overlap,
-  // `pod`, is a detail-URL kind → it gets the rich table, not this row).
-  const isApplicationBearingKind = node.kind !== undefined && APPLICATION_BEARING_KINDS.has(node.kind);
-  const showAppInfo = isApplicationBearingKind && !isDetailUrlKind && node.application !== undefined;
+  const showApplication = isDetailUrlKind && node.application !== undefined;
+  const showContainers = isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
+  // Properties (always on): the node's promoted attributes (single source with the hover
+  // tooltip), rendered as kv-rows. `kind` is dropped here — the header badge already shows
+  // it. This subsumes the old dedicated Storage Class section (provisioner/parameters) and
+  // the service/pvc lightweight Application row (application) — all are promoted attrs now.
+  const propertyRows = (node.attributes ?? []).filter((attr) => attr.key !== 'kind');
+  // Alerts: data-gated. Empty / absent → the section is not rendered at all (no "No alerts").
+  const alerts = node.alerts ?? [];
+  const showAlerts = alerts.length > 0;
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
@@ -225,33 +216,17 @@ export function NodeDetailPanel({
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
       <div className={styles.body} data-testid="node-detail-scroll">
-        {showStorageClass && (
-          <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-storageclass">
-            <div className={styles.sectionTitle}>Storage Class</div>
-            <div className={styles.staticBody}>
-              {node.provisioner !== undefined && (
-                <div className={styles.kvRow} data-testid="node-detail-sc-provisioner">
-                  <span className={styles.kvKey}>provisioner</span>
-                  <span className={styles.kvVal}>{node.provisioner}</span>
-                </div>
-              )}
-              {parameterEntries.map(([k, v]) => (
-                <div key={k} className={styles.kvRow} data-testid={`node-detail-sc-param-${k}`}>
-                  <span className={styles.kvKey}>{k}</span>
-                  <span className={styles.kvVal}>{v}</span>
-                </div>
-              ))}
-            </div>
+        <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-properties">
+          <div className={styles.sectionTitle}>Properties</div>
+          <div className={styles.staticBody}>
+            {propertyRows.map(({ key, value }) => (
+              <div key={key} className={styles.kvRow} data-testid={`node-detail-prop-${key}`}>
+                <span className={styles.kvKey}>{key}</span>
+                <span className={styles.kvVal}>{value}</span>
+              </div>
+            ))}
           </div>
-        )}
-        {showAppInfo && node.application !== undefined && (
-          <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-app-info">
-            <div className={styles.sectionTitle}>Application</div>
-            <div className={styles.staticBody} data-testid="node-detail-app-info">
-              {node.application}
-            </div>
-          </div>
-        )}
+        </div>
         {showApplication && node.application !== undefined && (
           <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
             <div className={styles.sectionTitle}>Application</div>
@@ -276,12 +251,12 @@ export function NodeDetailPanel({
             </div>
           </div>
         )}
-        {view === 'alerts' && (
+        {showAlerts && (
           <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-alerts">
             <div className={styles.sectionTitle}>Alerts</div>
             <div className={styles.slot}>
               <AlertTable
-                alerts={node.alerts ?? []}
+                alerts={alerts}
                 onAlertTimeClick={onAlertTimeClick}
                 {...(timeZone !== undefined ? { timeZone } : {})}
               />
