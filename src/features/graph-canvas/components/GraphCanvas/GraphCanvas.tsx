@@ -46,6 +46,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     collapsedIds,
     onCollapsedChange,
     podParentMode,
+    pinned,
   } = props;
   const styles = useStyles2(getStyles);
 
@@ -159,7 +160,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   return (
     <div className={styles.root} data-testid="graph-canvas-root">
       <div ref={containerRef} className={styles.canvas} data-testid="graph-canvas" />
-      <HoverTooltip cyRef={cyRef} ready={isReady} />
+      <HoverTooltip cyRef={cyRef} ready={isReady} pinned={pinned ?? null} />
     </div>
   );
 }

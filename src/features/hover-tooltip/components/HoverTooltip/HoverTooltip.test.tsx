@@ -348,3 +348,81 @@ describe('HoverTooltip', () => {
     expect(screen.getByTestId('hover-tooltip')).toHaveStyle({ left: '4px', top: '4px' });
   });
 });
+
+describe('HoverTooltip pinned mode (left-click selection)', () => {
+  beforeEach(() => {
+    useHoverElement.mockReset();
+  });
+
+  it('docks a persistent, scrollable card at the canvas top-right', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'web', attributes: [{ key: 'kind', value: 'pod' }] }} />
+    );
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).toHaveAttribute('data-pinned', 'true');
+    // top-right, not anchored: left auto + right/top 8, pointer-events auto so it scrolls,
+    // and z-index 1000 to clear cytoscape's expand-collapse input canvas (z999).
+    expect(tip).toHaveStyle({ left: 'auto', right: '8px', top: '8px', pointerEvents: 'auto', zIndex: 1000 });
+  });
+
+  it('renders even when nothing is hovered (useHoverElement returns null)', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'mongo-0', attributes: [{ key: 'kind', value: 'pod' }] }} />
+    );
+    expect(screen.getByText('mongo-0')).toBeInTheDocument();
+    expect(screen.getByText('pod')).toBeInTheDocument();
+  });
+
+  it('shows the selected node title + promoted attrs (incl kind) + filtered labels', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip
+        cyRef={cyRefStub}
+        pinned={{
+          label: 'gateway',
+          attributes: [
+            { key: 'kind', value: 'pod' },
+            { key: 'namespace', value: 'apps' },
+          ],
+          labels: { cluster: 'prod', namespace: 'apps', node: 'prod/prod-1' },
+        }}
+      />
+    );
+    expect(screen.getByText('gateway')).toBeInTheDocument(); // title
+    expect(screen.getByText('kind:')).toBeInTheDocument(); // pinned shows kind (unlike the old Properties section)
+    expect(screen.getByText('pod')).toBeInTheDocument();
+    expect(screen.getByText('cluster:')).toBeInTheDocument();
+    expect(screen.getByText('node:')).toBeInTheDocument();
+    // namespace is a promoted attr → appears exactly once (filtered out of the labels block).
+    expect(screen.getAllByText('namespace:')).toHaveLength(1);
+  });
+
+  it('suppresses the floating hover tooltip while pinned', () => {
+    useHoverElement.mockReturnValue({
+      id: 'other',
+      group: 'nodes',
+      data: { id: 'other', label: 'HoveredNode', kind: 'service' },
+    });
+    render(
+      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'PinnedNode', attributes: [{ key: 'kind', value: 'pod' }] }} />
+    );
+    // only the pinned node shows; the hovered element's content is absent.
+    expect(screen.getByText('PinnedNode')).toBeInTheDocument();
+    expect(screen.queryByText('HoveredNode')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hover-tooltip')).toHaveAttribute('data-pinned', 'true');
+  });
+
+  it('falls back to floating hover when pinned is null', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-1',
+      group: 'nodes',
+      data: { id: 'pod-1', label: 'web', kind: 'pod' },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} pinned={null} />);
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).not.toHaveAttribute('data-pinned');
+    expect(screen.getByText('web')).toBeInTheDocument();
+  });
+});

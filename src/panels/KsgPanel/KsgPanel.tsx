@@ -35,10 +35,11 @@ import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
 import { useSelectedPodExport, useVariableExport } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
-import type { EdgeType, PodParentMode } from '../../shared/constants/types';
+import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
 
+import { buildPinnedTooltip } from './buildPinnedTooltip';
 import { deriveLegendEntries } from './deriveLegendEntries';
 import { deriveContainers } from './deriveNodeContainers';
 import { ALL_KINDS, defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
@@ -170,7 +171,12 @@ export function resolveSelectedNode(
       continue;
     }
     const d = el.data as cytoscape.NodeDataDefinition;
-    if (d.id === selectedNodeId && isDashboardEligible(d)) {
+    // Detail panel opens for any node EXCEPT the cluster / namespace decorative groups.
+    // The application GROUP node is now included (it shows the whole app's config_changes /
+    // Deployment Changes) — so resolveSelectedNode's scope intentionally diverges from
+    // isDashboardEligible, which still excludes the app group for the /dashboard button
+    // (the group has no per-node dashboard). cluster / namespace stay excluded.
+    if (d.id === selectedNodeId && (isDashboardEligible(d) || d.isApplication === true)) {
       const label = typeof d.label === 'string' ? d.label : selectedNodeId;
       // Controller identity the detail-URL queries fire for (D4): pod → its owner
       // (kind lowercased per synthesized-controller convention), controller → itself,
@@ -188,14 +194,29 @@ export function resolveSelectedNode(
         } else {
           queryTarget = { kind: d.kind, name: label };
         }
+      } else if (d.kind !== undefined && typeof d.application === 'string' && d.application.length > 0) {
+        // Non-workload leaf (service / pvc) that belongs to an ArgoCD application: its
+        // Application change-report (config_changes) queries with the node's OWN kind/name.
+        // It has no containers, so the Containers section never renders (code_changes is
+        // fired by the shared prefetch but its empty result is unused).
+        queryTarget = { kind: d.kind, name: label };
+      } else if (d.isApplication === true && typeof d.application === 'string' && d.application.length > 0) {
+        // The ArgoCD application GROUP node itself (kind-less): config_changes for the whole
+        // app, keyed by the application name.
+        queryTarget = { kind: 'application', name: d.application };
       }
+      // The application group is kind-less; surface a synthetic 'application' kind so the
+      // header badge reads it (mirrors the hover tooltip's synthesized kind).
+      const kind: GraphNodeKind | undefined = d.kind ?? (d.isApplication === true ? 'application' : undefined);
       return {
         id: selectedNodeId,
         label,
-        // Promoted attributes for the always-on Properties section — same single source
-        // as the hover tooltip, so the two never drift.
+        // Promoted attributes + raw labels feed the pinned hover tooltip (top-right on
+        // left-click) — single source with hover via buildNodeAttributes, so the two
+        // never drift. labels uses a conditional spread for exactOptionalPropertyTypes.
         attributes: buildNodeAttributes(d),
-        ...(d.kind !== undefined ? { kind: d.kind } : {}),
+        ...(d.labels !== undefined ? { labels: d.labels } : {}),
+        ...(kind !== undefined ? { kind } : {}),
         ...(d.status !== undefined ? { status: d.status } : {}),
         ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
         ...(d.application !== undefined ? { application: d.application } : {}),
@@ -305,6 +326,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     () => resolveSelectedNode(elements, selectedNodeId, visibleNodeIds, collapsedIds),
     [elements, selectedNodeId, visibleNodeIds, collapsedIds]
   );
+
+  // Pinned tooltip for the selected node — derived from the already-gated selectedNode,
+  // so it self-clears on deselect / switch / filter / collapse. Decorative groups
+  // resolve null (no pin); detail-eligible leaves (incl. storageclass) pin their attrs.
+  const pinnedTooltip = useMemo(() => buildPinnedTooltip(selectedNode), [selectedNode]);
 
   // detailQueryInput is defined ONLY when the (left-click) selection resolves an
   // application + query target for that same node. Endpoint: explicit option wins, else
@@ -673,6 +699,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           collapsedIds={collapsedIds}
           onCollapsedChange={setCollapsedIds}
           podParentMode={podParentMode}
+          pinned={pinnedTooltip}
         />
         <NodeDetailPanel
           node={selectedNode}

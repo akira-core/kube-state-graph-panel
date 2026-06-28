@@ -11,10 +11,13 @@ export interface NodeDetailData {
   label: string;
   kind?: GraphNodeKind; // known kind or an unknown forward-compat backend string
   status?: NodeStatus;
-  // Promoted attributes shown (kv-rows) in the always-on Properties section. Same source
-  // as the hover tooltip (buildNodeAttributes) — kind is included here but the Properties
-  // section skips it (the header badge already shows it).
+  // Promoted attributes that feed the pinned hover tooltip (buildNodeAttributes
+  // single-source). NOT rendered in this panel anymore — the Properties section was
+  // removed; KsgPanel maps these (+ label + labels) into the top-right pinned card.
   attributes?: NodeAttribute[];
+  // Raw backend labels, passed through for the pinned tooltip's labels block
+  // (toLabelRows filters keys already promoted to attributes, e.g. namespace).
+  labels?: Record<string, string>;
   alerts?: NodeAlert[]; // node's alerts; absent/empty → Alerts section not rendered
   application?: string; // ArgoCD application (pod passthrough / controller aggregate)
   containers?: ContainerSpec[]; // pod containers / controller (name,image)-deduped union

@@ -28,9 +28,6 @@ function getStyles(theme: GrafanaTheme2): {
   sectionTitle: string;
   slot: string;
   staticBody: string;
-  kvRow: string;
-  kvKey: string;
-  kvVal: string;
 } {
   const colors = themeColors(theme);
   return {
@@ -70,7 +67,7 @@ function getStyles(theme: GrafanaTheme2): {
     // definite height capped by root's 50%; overflowY:auto then scrolls the WHOLE
     // section stack once content exceeds the cap (≤cap → no scrollbar). overflowX is hidden
     // so a wide table never slides the panel sideways. The unified panel stacks several
-    // content-height sections (Properties + Application + Containers + Alerts); a per-section
+    // content-height sections (Application + Containers + Alerts); a per-section
     // internal scroll would create competing scroll regions that overlap and clip — one body
     // scroller is the only model that composes. The section divider lives HERE as a
     // parent-scoped `& > div + div` rule, NOT on the section class as `& + &`:
@@ -146,22 +143,6 @@ function getStyles(theme: GrafanaTheme2): {
       fontSize: theme.typography.bodySmall.fontSize,
     }),
     staticBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
-    // Storage Class key/value rows: a label column + a value that wraps (provisioner
-    // strings and selector parameters can be long).
-    kvRow: css({
-      display: 'flex',
-      gap: 8,
-      padding: '2px 0',
-      fontSize: theme.typography.bodySmall.fontSize,
-    }),
-    kvKey: css({
-      flex: '0 0 38%',
-      color: colors.text.secondary,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-    }),
-    kvVal: css({ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }),
   };
 }
 
@@ -182,16 +163,18 @@ export function NodeDetailPanel({
   // prefetch). Change-report Application/Containers stay gated on workload kind + data.
   const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
-  const showApplication = isDetailUrlKind && node.application !== undefined;
+  // Application change-report shows for ANY node carrying an ArgoCD application — including
+  // service / pvc leaves that belong to an app (their config_changes / Deployment Changes).
+  // Containers stay workload-only (a service / pvc has no containers).
+  const showApplication = node.application !== undefined;
   const showContainers = isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
-  // Properties (always on): the node's promoted attributes (single source with the hover
-  // tooltip), rendered as kv-rows. `kind` is dropped here — the header badge already shows
-  // it. This subsumes the old dedicated Storage Class section (provisioner/parameters) and
-  // the service/pvc lightweight Application row (application) — all are promoted attrs now.
-  const propertyRows = (node.attributes ?? []).filter((attr) => attr.key !== 'kind');
   // Alerts: data-gated. Empty / absent → the section is not rendered at all (no "No alerts").
   const alerts = node.alerts ?? [];
   const showAlerts = alerts.length > 0;
+  // The panel ALWAYS renders for a selected (detail-eligible) node: the header — node name,
+  // kind / status badges, and the Dashboard button when the backend returns a URL — is the
+  // minimum. Body sections (Application / Containers / Alerts) are data-gated; the node's
+  // promoted attributes live in the pinned top-right tooltip, not here.
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
@@ -216,17 +199,6 @@ export function NodeDetailPanel({
         <IconButton name="times" aria-label="Close detail panel" tooltip="Close detail panel" onClick={onClose} />
       </div>
       <div className={styles.body} data-testid="node-detail-scroll">
-        <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-properties">
-          <div className={styles.sectionTitle}>Properties</div>
-          <div className={styles.staticBody}>
-            {propertyRows.map(({ key, value }) => (
-              <div key={key} className={styles.kvRow} data-testid={`node-detail-prop-${key}`}>
-                <span className={styles.kvKey}>{key}</span>
-                <span className={styles.kvVal}>{value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
         {showApplication && node.application !== undefined && (
           <div className={cx(styles.section, styles.sectionFixed)} data-testid="node-detail-section-application">
             <div className={styles.sectionTitle}>Application</div>

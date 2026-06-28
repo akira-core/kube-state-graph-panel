@@ -15,9 +15,11 @@ describe('resolveSelectedNode', () => {
       group: 'nodes',
       data: { id: 'sc', label: 'fast-ssd', kind: 'storageclass', provisioner: 'ebs.csi.aws.com', parameters: { type: 'gp3' } },
     } as unknown as El,
-    // Decorative backend groups never open the detail panel.
+    // Decorative cluster / namespace groups never open the detail panel.
     node('ns', 'node', { isNamespace: true }),
-    node('app', 'node', { isApplication: true }),
+    // The application GROUP node is kind-less + carries its `application` name; it DOES open
+    // the panel (the app's config_changes), unlike cluster / namespace.
+    { group: 'nodes', data: { id: 'app', label: 'mongodb', isApplication: true, application: 'mongodb' } } as unknown as El,
   ];
 
   it('returns the node detail when the selected node is visible', () => {
@@ -62,9 +64,28 @@ describe('resolveSelectedNode', () => {
     });
   });
 
-  it('returns null for the decorative namespace / application groups even if visible', () => {
+  it('returns null for the decorative namespace group even if visible', () => {
     expect(resolveSelectedNode(elements, 'ns', new Set(['ns']))).toBeNull();
-    expect(resolveSelectedNode(elements, 'app', new Set(['app']))).toBeNull();
+  });
+
+  it('resolves the application GROUP node itself (app-detail config_changes for the app), with a synth kind', () => {
+    const result = resolveSelectedNode(elements, 'app', new Set(['app']));
+    // kind-less group → synthetic 'application' kind badge; application + config_changes target.
+    expect(result?.kind).toBe('application');
+    expect(result?.application).toBe('mongodb');
+    expect(result?.queryTarget).toEqual({ kind: 'application', name: 'mongodb' });
+  });
+
+  it('passes raw labels through for the pinned tooltip', () => {
+    const els = [node('p1', 'pod', { labels: { cluster: 'prod', node: 'prod/prod-1' } })];
+    const result = resolveSelectedNode(els, 'p1', new Set(['p1']));
+    expect(result?.labels).toEqual({ cluster: 'prod', node: 'prod/prod-1' });
+  });
+
+  it('omits the labels key entirely when the node has no labels (exactOptionalPropertyTypes)', () => {
+    // The base p1 fixture carries no labels — assert the key is absent, not undefined.
+    const result = resolveSelectedNode(elements, 'p1', new Set(['p1']));
+    expect(result).not.toHaveProperty('labels');
   });
 
   describe('collapse awareness (the panel never describes an off-canvas node)', () => {
@@ -130,8 +151,16 @@ describe('resolveSelectedNode', () => {
       });
     });
 
-    it('omits queryTarget for kinds outside the detail-URL set (no query may ever fire)', () => {
-      const els = [node('s1', 'service', { application: 'stray' })];
+    it('gives a non-workload node WITH an application its own kind/name as queryTarget (config_changes)', () => {
+      // service / pvc that belongs to an ArgoCD app query their Application change-report
+      // (config_changes) with their own kind/name.
+      const els = [node('s1', 'service', { application: 'checkout' })];
+      const result = resolveSelectedNode(els, 's1', new Set(['s1']));
+      expect(result?.queryTarget).toEqual({ kind: 'service', name: 's1' });
+    });
+
+    it('omits queryTarget for a non-workload node WITHOUT an application (no query may fire)', () => {
+      const els = [node('s1', 'service')];
       const result = resolveSelectedNode(els, 's1', new Set(['s1']));
       expect(result?.queryTarget).toBeUndefined();
     });

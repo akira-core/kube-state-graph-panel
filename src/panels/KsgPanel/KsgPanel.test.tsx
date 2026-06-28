@@ -798,14 +798,14 @@ describe('KsgPanel', () => {
     expect(node?.alerts).toEqual(alerts);
   });
 
-  it('resolveSelectedNode opens for k8s-node + controller + storageclass-leaf, not cluster/namespace/application (D6 scope)', () => {
+  it('resolveSelectedNode opens for k8s-node + controller + storageclass-leaf + application group, not cluster/namespace', () => {
     const elements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'node1', kind: 'node', label: 'ip-10' } },
       { group: 'nodes', data: { id: 'ctrl', kind: 'statefulset', label: 'mongo', isController: true } },
       { group: 'nodes', data: { id: 'sc', kind: 'storageclass', label: 'fast', provisioner: 'ebs.csi.aws.com' } },
       { group: 'nodes', data: { id: 'cl', label: 'demo', isCluster: true } },
       { group: 'nodes', data: { id: 'ns', label: 'shop', isNamespace: true } },
-      { group: 'nodes', data: { id: 'app', label: 'checkout', isApplication: true } },
+      { group: 'nodes', data: { id: 'app', label: 'checkout', isApplication: true, application: 'checkout' } },
     ];
     const vis = new Set(['node1', 'ctrl', 'sc', 'cl', 'ns', 'app']);
     expect(resolveSelectedNode(elements, 'node1', vis)?.kind).toBe('node');
@@ -814,7 +814,10 @@ describe('KsgPanel', () => {
     expect(resolveSelectedNode(elements, 'sc', vis)?.kind).toBe('storageclass');
     expect(resolveSelectedNode(elements, 'cl', vis)).toBeNull();
     expect(resolveSelectedNode(elements, 'ns', vis)).toBeNull();
-    expect(resolveSelectedNode(elements, 'app', vis)).toBeNull();
+    // The application GROUP now opens (config_changes for the app), with a synth kind.
+    const app = resolveSelectedNode(elements, 'app', vis);
+    expect(app?.kind).toBe('application');
+    expect(app?.queryTarget).toEqual({ kind: 'application', name: 'checkout' });
   });
 
   it('rewinds the dashboard time range to a ±5m window when an alert time is clicked', () => {
@@ -1052,7 +1055,7 @@ describe('KsgPanel', () => {
       );
     });
 
-    it('left-click on a non pod/controller node opens the panel without change-report sections or queries', async () => {
+    it('left-click on a non-workload node without an application: header-only panel, pinned attrs, no change-report queries', async () => {
       renderPanel(withEndpoint);
       act(() => {
         lastCanvasProps().onSelect?.('demo/svc');
@@ -1061,11 +1064,12 @@ describe('KsgPanel', () => {
       await act(async () => {
         await Promise.resolve();
       });
+      // The panel always renders (header minimum); attributes surface via the pinned tooltip.
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      // This service carries no application → no Application section, no change-report query.
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
-      // A non pod/controller leaf fires no Change Report queries (the /dashboard
-      // prefetch is eligible for any leaf and is covered elsewhere).
+      expect((lastCanvasProps() as { pinned?: { label?: string } }).pinned?.label).toBe('mongo-svc');
       expect(changeReportCalls()).toHaveLength(0);
     });
 

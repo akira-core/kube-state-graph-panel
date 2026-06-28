@@ -72,4 +72,20 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
     // fireEvent returns true when preventDefault was NOT called on the event.
     expect(fireEvent.contextMenu(screen.getByTestId('graph-canvas'))).toBe(true);
   });
+
+  it('forwards the pinned tooltip to HoverTooltip (top-right card shows with no hovered element)', () => {
+    render(
+      <GraphCanvas
+        elements={elements}
+        stylesheet={[]}
+        layout="fcose"
+        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
+        selectedId="ctrl"
+        pinned={{ label: 'mongo', attributes: [{ key: 'kind', value: 'statefulset' }] }}
+      />
+    );
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).toHaveAttribute('data-pinned', 'true');
+    expect(screen.getByText('mongo')).toBeInTheDocument();
+  });
 });

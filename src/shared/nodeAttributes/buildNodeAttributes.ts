@@ -1,7 +1,7 @@
 import { isPlainObject } from '../guards/isPlainObject';
 
-// One promoted attribute row for a node. Shared shape between the hover tooltip's
-// promoted attrs and the detail panel's Properties section — same source, two renderers.
+// One promoted attribute row for a node. Shared shape between the floating hover tooltip's
+// promoted attrs and the pinned (top-right) selection tooltip — same source, two render paths.
 export interface NodeAttribute {
   key: string;
   value: string;
@@ -9,8 +9,8 @@ export interface NodeAttribute {
   wrap?: boolean;
 }
 
-// Single source for a node's promoted attributes, consumed by BOTH the hover tooltip
-// and the detail-panel Properties section so the two never drift. Only emits rows that
+// Single source for a node's promoted attributes, consumed by BOTH the floating hover
+// tooltip and the pinned selection tooltip so the two never drift. Only emits rows that
 // HAVE a value (no empty rows). Backend D6 namespace / application groups are kind-LESS
 // in data (invisible to the kind filter + icon legend), so a synthetic kind is surfaced;
 // a real data.kind (leaf / k8s node / enriched controller) wins. Accepts the raw node

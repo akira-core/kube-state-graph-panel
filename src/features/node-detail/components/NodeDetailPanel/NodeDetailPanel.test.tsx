@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
 import { NodeDetailPanel } from './NodeDetailPanel';
@@ -33,64 +33,51 @@ describe('NodeDetailPanel', () => {
     expect(screen.getByText('HighMemory')).toBeInTheDocument();
   });
 
-  describe('Properties section (always on)', () => {
-    it('always renders, even when the node has no application/containers/alerts', () => {
-      const bare: NodeDetailData = {
-        id: 'p2',
-        label: 'web',
-        kind: 'pod',
-        attributes: [
-          { key: 'kind', value: 'pod' },
-          { key: 'namespace', value: 'prod' },
-          { key: 'ipAddress', value: '10.0.0.1' },
-        ],
-      };
-      render(<NodeDetailPanel node={bare} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-      const section = screen.getByTestId('node-detail-section-properties');
-      expect(within(section).getByText('Properties')).toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-prop-namespace')).toHaveTextContent('prod');
-      expect(screen.getByTestId('node-detail-prop-ipAddress')).toHaveTextContent('10.0.0.1');
-    });
-
-    it('skips the kind row (kind already shows as the header badge)', () => {
-      render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-      expect(screen.queryByTestId('node-detail-prop-kind')).not.toBeInTheDocument();
-    });
-
-    it('surfaces storageclass provisioner + parameters as property rows (no dedicated Storage Class section)', () => {
-      const storageclass: NodeDetailData = {
+  describe('always renders (Properties removed; header is the minimum)', () => {
+    it('renders a header-only panel for a bare detail-eligible node (no app/containers/alerts/dashboard)', () => {
+      // Attributes live in the pinned tooltip; the bottom panel still renders its header.
+      const sc: NodeDetailData = {
         id: 'sc',
         label: 'fast-ssd',
         kind: 'storageclass',
         attributes: [
           { key: 'kind', value: 'storageclass' },
           { key: 'provisioner', value: 'rook-ceph.rbd.csi.ceph.com' },
-          { key: 'pool', value: 'kube', wrap: true },
-          { key: 'fs', value: 'ext4', wrap: true },
         ],
       };
-      render(<NodeDetailPanel node={storageclass} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-      expect(screen.queryByTestId('node-detail-section-storageclass')).not.toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-prop-provisioner')).toHaveTextContent('rook-ceph.rbd.csi.ceph.com');
-      expect(screen.getByTestId('node-detail-prop-pool')).toHaveTextContent('kube');
-      expect(screen.getByTestId('node-detail-prop-fs')).toHaveTextContent('ext4');
+      render(<NodeDetailPanel node={sc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      expect(screen.getByText('fast-ssd')).toBeInTheDocument();
+      expect(screen.getByLabelText('Close detail panel')).toBeInTheDocument();
+      // No body sections.
+      expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
     });
 
-    it('surfaces a service/pvc application as a property row (no dedicated app-info section, no change-report table)', () => {
+    it('never renders the removed Properties section, even for a node with sections', () => {
+      render(<NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.queryByTestId('node-detail-section-properties')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-prop-namespace')).not.toBeInTheDocument();
+    });
+
+    it('shows the Dashboard button in the header for a content-less node when the backend has a URL', () => {
       const svc: NodeDetailData = {
         id: 'service/mongo-svc',
         label: 'mongo-svc',
         kind: 'service',
-        application: 'mongodb',
-        attributes: [
-          { key: 'kind', value: 'service' },
-          { key: 'application', value: 'mongodb' },
-        ],
+        attributes: [{ key: 'kind', value: 'service' }],
       };
-      render(<NodeDetailPanel node={svc} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
-      expect(screen.queryByTestId('node-detail-section-app-info')).not.toBeInTheDocument();
+      render(
+        <NodeDetailPanel
+          node={svc}
+          onClose={jest.fn()}
+          onAlertTimeClick={jest.fn()}
+          dashboard={{ status: 'ready', urls: [{ label: 'Dashboard', url: 'https://dash/svc' }] }}
+        />
+      );
+      expect(screen.getByTestId('node-detail-dashboard-button')).toHaveAttribute('href', 'https://dash/svc');
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
-      expect(screen.getByTestId('node-detail-prop-application')).toHaveTextContent('mongodb');
     });
   });
 
@@ -115,14 +102,17 @@ describe('NodeDetailPanel', () => {
       expect(onAlertTimeClick).toHaveBeenCalledWith(1717500000);
     });
 
-    it('swaps content when re-rendered for a different node (alerts → no Alerts section)', () => {
+    it('keeps the header but drops the Alerts section when re-rendered for a content-less node', () => {
       const { rerender } = render(
         <NodeDetailPanel node={sample} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />
       );
       expect(screen.getByText('HighMemory')).toBeInTheDocument();
 
+      // A content-less node (no app/containers/alerts/dashboard) still renders its header —
+      // the panel always renders; only the body sections are data-gated.
       const other: NodeDetailData = { id: 'p9', label: 'web-1', kind: 'pod', attributes: [{ key: 'kind', value: 'pod' }] };
       rerender(<NodeDetailPanel node={other} onClose={jest.fn()} onAlertTimeClick={jest.fn()} timeZone="utc" />);
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
       expect(screen.getByText('web-1')).toBeInTheDocument();
       expect(screen.queryByText('HighMemory')).not.toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-alerts')).not.toBeInTheDocument();
@@ -204,8 +194,16 @@ describe('NodeDetailPanel', () => {
       expect(screen.getByTestId('node-detail-section-containers')).toBeInTheDocument();
     });
 
-    it('never renders the change-report sections for a non pod/controller kind, even with stray data', () => {
+    it('renders the Application section (not Containers) for a non-workload node that belongs to an application', () => {
+      // A service / pvc in an ArgoCD app shows its Application change-report (config_changes),
+      // but never the Containers section (no containers, even if data strays in).
       render(<NodeDetailPanel node={{ ...podWithBoth, kind: 'service' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
+      expect(screen.getByTestId('node-detail-section-application')).toBeInTheDocument();
+      expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
+    });
+
+    it('renders no change-report sections for a non-workload node WITHOUT an application', () => {
+      render(<NodeDetailPanel node={{ id: 's', label: 'svc', kind: 'service' }} onClose={jest.fn()} onAlertTimeClick={jest.fn()} />);
       expect(screen.queryByTestId('node-detail-section-application')).not.toBeInTheDocument();
       expect(screen.queryByTestId('node-detail-section-containers')).not.toBeInTheDocument();
     });

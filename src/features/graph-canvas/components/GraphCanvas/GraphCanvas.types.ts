@@ -2,6 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import type { PodParentMode } from '../../../../shared/constants/types';
 import type { VisibilitySets } from '../../../element-filter';
+import type { PinnedTooltip } from '../../../hover-tooltip';
 import type { CyStylesheet } from '../../hooks/useCytoscape';
 import type { LayoutName } from '../../hooks/useGraphLayout';
 
@@ -25,4 +26,8 @@ export interface GraphCanvasProps {
   // Pod-parent mode. Changing it (re-parent + edge swap) triggers a single
   // re-layout via the run token. Omitted → treated as 'node' (no extra layout).
   podParentMode?: PodParentMode;
+  // Pinned tooltip for the left-click-selected node (derived from selectedNode by
+  // KsgPanel). Forwarded to HoverTooltip → docks top-right + suppresses hover. Not
+  // a useCytoscape dep, so it never re-inits the instance. null → floating hover.
+  pinned?: PinnedTooltip | null;
 }

@@ -119,8 +119,8 @@ function buildContent(hovered: HoveredElement): TooltipContent {
     const labelRaw = data.label;
     const idRaw = data.id;
     const title = typeof labelRaw === 'string' ? labelRaw : typeof idRaw === 'string' ? idRaw : '';
-    // Promoted attrs come from the single shared source (also feeds the detail-panel
-    // Properties section); raw backend `labels` follow below the divider.
+    // Promoted attrs come from the single shared source (also feeds the pinned top-right
+    // card); raw backend `labels` follow below the divider.
     const attrs: TooltipRow[] = buildNodeAttributes(data);
     return { title, attrs, labels: toLabelRows(data.labels, NODE_PROMOTED_LABELS) };
   }
@@ -139,8 +139,48 @@ const EDGE_MARGIN = 4;
 // Fallback when no rendered position is available.
 const FALLBACK_COORDS = { left: EDGE_MARGIN, top: EDGE_MARGIN };
 
+// Pinned mode overrides (left-click selection): dock top-right, persistent and
+// scrollable. zIndex 1000 is load-bearing — it must clear cytoscape's transparent
+// expand-collapse input canvas (z 999) so a pointer-events:auto card receives
+// scroll/clicks (styles.root's z 10 only works because hover is pointer-events:none).
+const PINNED_STYLE: React.CSSProperties = {
+  left: 'auto',
+  right: 8,
+  top: 8,
+  maxHeight: 'calc(50% - 16px)',
+  pointerEvents: 'auto',
+  zIndex: 1000,
+};
+
+// Shared row render for both modes — title + promoted attrs + a `labels` divider and rows.
+function renderRows(content: TooltipContent, styles: ReturnType<typeof getStyles>): React.JSX.Element {
+  const { title, attrs, labels } = content;
+  return (
+    <>
+      <div className={styles.title}>{title}</div>
+      {attrs.map((row) => (
+        <div key={row.key} className={row.wrap === true ? styles.labelRow : styles.row}>
+          <span className={styles.rowKey}>{row.key}:</span>
+          <span>{row.value}</span>
+        </div>
+      ))}
+      {labels.length > 0 && (
+        <div className={styles.labelsHint} data-testid="hover-tooltip-labels-divider">
+          labels
+        </div>
+      )}
+      {labels.map((row) => (
+        <div key={row.key} className={styles.labelRow}>
+          <span className={styles.rowKey}>{row.key}:</span>
+          <span>{row.value}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Element | null {
-  const { cyRef, ready = false } = props;
+  const { cyRef, ready = false, pinned } = props;
   const styles = useStyles2(getStyles);
   const hovered = useHoverElement({ cyRef, ready });
   const ref = useRef<HTMLDivElement>(null);
@@ -148,7 +188,14 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
 
   // Place beside the anchor, clamp/flip inside the canvas. useLayoutEffect runs
   // before paint so the corrected position shows on frame 1 (no flash at the fallback corner).
+  // While pinned, skip entirely: the pinned card uses fixed coords and the hover div is
+  // unmounted (ref null), so running would clobber the last-good coords to FALLBACK and
+  // park the hover tooltip at the top-left corner on the next un-pin. `pinned` is a dep so
+  // coords recompute on the un-pin edge (the hover div has remounted → ref is live).
   useLayoutEffect(() => {
+    if (pinned != null) {
+      return;
+    }
     const el = ref.current;
     if (el === null || hovered === null || hovered.position === undefined) {
       setCoords(FALLBACK_COORDS);
@@ -173,13 +220,24 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
     top = Math.max(EDGE_MARGIN, Math.min(top, vh - h - EDGE_MARGIN));
 
     setCoords({ left, top });
-  }, [hovered]);
+  }, [hovered, pinned]);
+
+  // Pinned mode wins and is independent of `hovered`/`ready`: the card must show
+  // even when nothing is under the cursor, and hover is suppressed while pinned.
+  // This branch MUST precede the `hovered === null` guard below.
+  if (pinned != null) {
+    return (
+      <div className={styles.root} style={PINNED_STYLE} data-testid="hover-tooltip" data-pinned="true" role="tooltip">
+        {renderRows({ title: pinned.label, attrs: pinned.attributes, labels: toLabelRows(pinned.labels, NODE_PROMOTED_LABELS) }, styles)}
+      </div>
+    );
+  }
 
   if (hovered === null) {
     return null;
   }
 
-  const { title, attrs, labels } = buildContent(hovered);
+  const content = buildContent(hovered);
 
   // Cap to the canvas so an oversized tooltip scrolls within bounds instead of spilling over.
   const vp = hovered.viewport;
@@ -196,24 +254,7 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
       data-testid="hover-tooltip"
       role="tooltip"
     >
-      <div className={styles.title}>{title}</div>
-      {attrs.map((row) => (
-        <div key={row.key} className={row.wrap === true ? styles.labelRow : styles.row}>
-          <span className={styles.rowKey}>{row.key}:</span>
-          <span>{row.value}</span>
-        </div>
-      ))}
-      {labels.length > 0 && (
-        <div className={styles.labelsHint} data-testid="hover-tooltip-labels-divider">
-          labels
-        </div>
-      )}
-      {labels.map((row) => (
-        <div key={row.key} className={styles.labelRow}>
-          <span className={styles.rowKey}>{row.key}:</span>
-          <span>{row.value}</span>
-        </div>
-      ))}
+      {renderRows(content, styles)}
     </div>
   );
 }
