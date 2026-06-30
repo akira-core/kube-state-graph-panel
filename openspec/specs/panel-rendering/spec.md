@@ -108,7 +108,7 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 
 **所有 compound parent 節點 MUST 為可選取(`selectable`)**——含 `controller` / K8s `node` / `storageclass`,以及裝飾性 `cluster` / `namespace` / `application` 群組。`normalizeGraph` MUST NOT 再把裝飾群組標為 `selectable: false`。此可選取性的唯一目的,是讓 `cytoscape-expand-collapse` 既已啟用(`cueEnabled: true`)的 **`+/-` 摺疊 cue** 能浮現:該 cue 為 selection-driven,僅於**單一被選取**且為 `:parent`(或已收合)的節點上繪製。故使用者點選任一 compound parent → 該 parent 浮現其 `+/-` cue → 點 cue 切換該 parent 的收合 / 展開(沿用既有 expand-collapse plumbing,無新元件、無新收合機制)。
 
-裝飾群組雖可被選取(顯示單選環與既有 selection-focus 視覺),但 MUST NOT 開啟 node-detail 面板:`resolveSelectedNode` 經 `isDashboardEligible` 對 `isCluster` / `isNamespace` / `isApplication` 一律回 `null`,此守衛不變。
+`cluster` / `namespace` 裝飾群組雖可被選取(顯示單選環與既有 selection-focus 視覺),但 MUST NOT 開啟 node-detail 面板:`resolveSelectedNode` 對 `isCluster` / `isNamespace` 一律回 `null`。**`application` 群組為例外**:它現為 detail-eligible——選取時除浮現摺疊 cue 外,**亦開啟 node-detail 面板**顯示該 ArgoCD application 的 config_changes(`resolveSelectedNode` 以合成 `kind: application` + `queryTarget { kind: 'application', name: <app> }` 解析,見「Node Detail 面板」/「Node Detail Application 與 Containers 區塊」)。故 `resolveSelectedNode` 的範圍刻意較 `isDashboardEligible` 寬——後者仍排除 `application` 群組於 `/dashboard` 按鈕之外(application 群組無 per-node dashboard)。
 
 #### Scenario: 點擊節點觸發選取與 callback
 
@@ -120,16 +120,20 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 - **WHEN** 使用者點擊一個裝飾性 `cluster` / `namespace` / `application` 群組節點
 - **THEN** 該節點 `selectable()` 為 `true`、被標記為 `:selected`(顯示單選環),且 `cytoscape-expand-collapse` 於其上繪製 `+/-` 摺疊 cue
 
-#### Scenario: 選取裝飾群組不開啟 detail 面板
+#### Scenario: 選取 cluster / namespace 群組不開啟 detail 面板
 
-- **WHEN** 使用者選取一個裝飾性 `cluster` / `namespace` / `application` 群組節點
+- **WHEN** 使用者選取一個裝飾性 `cluster` / `namespace` 群組節點
 - **THEN** `resolveSelectedNode` 回 `null`,node-detail 面板 MUST NOT 開啟(只顯示選取環與摺疊 cue)
+
+#### Scenario: 選取 application 群組開啟其 app-detail
+
+- **WHEN** 使用者選取一個 `application` 群組節點
+- **THEN** `resolveSelectedNode` 解析該節點(合成 `kind: application`),node-detail 面板開啟並渲染 Application 區塊(預取該 application 的 `config_changes`),tooltip 釘選於右上角;同時仍浮現摺疊 cue
 
 #### Scenario: 點摺疊 cue 切換該 parent 收合
 
 - **WHEN** 某 compound parent 已被選取並顯示其 `+/-` cue,使用者點擊該 cue 範圍
 - **THEN** 該 parent 的收合 / 展開狀態被切換(經 expand-collapse api),且 `collapsedIds` 隨之更新(沿用既有 cue 事件 → `onCollapsedChange` 路徑)
-
 ### Requirement: 收合的裝飾群組顯示 folder icon
 
 裝飾性 `cluster` / `namespace` / `application` 群組在**收合**(`.cy-expand-collapse-collapsed-node`)時 MUST 於框中央顯示一個 **folder glyph**,以該群組的 accent 色(`clusterColor` / `namespaceColor` / `applicationColor`)上色(`background-fit: contain`)。**展開**時維持現狀——無中央 icon 的 labelled 容器(`background-image: 'none'`)。此 folder icon 為 gap-fill:具 `kind` 的 compound(`controller` / k8s `node` / `storageclass`)在收合時本就回退顯示其 kind icon(base `node` 規則),MUST NOT 受影響(folder 選擇器僅匹配 `isCluster` / `isNamespace` / `isApplication`)。folder glyph 為 `NodeKind` 之外的獨立 SVG(`FOLDER_ICON_SVG`,裝飾 kind 非 `NodeKind`,不入 `ICON_SVG_BY_KIND`)。
@@ -195,37 +199,42 @@ Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與�
 
 ### Requirement: Hover Tooltip 顯示元素 metadata
 
-Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 元件;tooltip MUST 浮動定位於被 hover 元素附近(`position: absolute`,node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移),並夾擠 / 翻轉於 cytoscape canvas wrapper 邊界內(偏移後超出右 / 下緣時翻轉至元素左側並夾於 wrapper 內,不超出可視範圍),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動,且樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
+Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
 
-#### Scenario: Hover 節點顯示節點 metadata
+- **(1) Hover 浮動模式(預設,無 detail 節點被選取時)**:使用者 hover 於任一 node 或 edge 時,tooltip MUST 浮動定位於被 hover 元素附近(`position: absolute`,node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移),並夾擠 / 翻轉於 cytoscape canvas wrapper 邊界內(偏移後超出右 / 下緣時翻轉至元素左側並夾於 wrapper 內,不超出可視範圍),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動。**此模式行為與既往完全一致。**
+- **(2) Pinned 釘選模式(當一個 detail-eligible 節點被左鍵選取時)**:tooltip 改**釘選於 canvas 右上角**(`top: 8` / `right: 8` / `left: auto`、`maxHeight: calc(50% - 16px)`、`overflowY: auto`、`pointer-events: auto` 使其內容可捲動、`zIndex: 1000` 以蓋過 cytoscape expand-collapse 的透明輸入層 `z-index: 999`),顯示**被選取節點**的完整 tooltip 內容(title + promoted attrs + 原始 labels),其內容**與 hover 模式同源同樣**(同一 `buildNodeAttributes` 與 `toLabelRows`,promoted 的 `kind` row 一併顯示)。釘選時 **hover 浮動 tooltip 全面抑制**(node 與 edge 皆不再浮動)。
 
-- **WHEN** 使用者滑鼠 hover 於任一節點
-- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時)、`application`(ArgoCD application;凡 leaf 帶 `data.application`——pod / service / pvc 與聚合後的 controller——即顯示,惟裝飾性 `application` 群組節點 MUST NOT 顯示此 row 以免與其合成 `kind`/`name` 重複),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+被選取節點的資料源為已 gated 的 `resolveSelectedNode`(可見 + 未被收合祖先隱藏 + detail-eligible),故裝飾性 **`cluster` / `namespace`** 群組(`resolveSelectedNode` 回 `null`)**不**釘選、其 hover 行為不變;**`application` 群組現為 detail-eligible**,選取時**亦釘選**(顯示合成 `kind: application` + 其名稱)。釘選卡片**無關閉鈕**:取消選取(點背景 / 邊、切換節點、kind / edge 過濾、收合祖先、資料刷新移除)即自動清除釘選並恢復 hover 模式。樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
 
-#### Scenario: Hover 邊顯示邊 metadata
+#### Scenario: Hover 節點顯示節點 metadata（無選取時）
 
-- **WHEN** 使用者滑鼠 hover 於任一邊
-- **THEN** `HoverTooltip` 顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
+- **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一節點
+- **THEN** `HoverTooltip` 浮動顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時)、`application`(ArgoCD application;凡 leaf 帶 `data.application`——pod / service / pvc 與聚合後的 controller——即顯示,惟裝飾性 `application` 群組節點 MUST NOT 顯示此 row 以免與其合成 `kind`/`name` 重複),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
 
-#### Scenario: Tooltip 定位於 hovered 元素附近
+#### Scenario: Hover 邊顯示邊 metadata（無選取時）
 
-- **WHEN** 使用者 hover 於某節點
+- **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一邊
+- **THEN** `HoverTooltip` 浮動顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
+
+#### Scenario: Tooltip 定位於 hovered 元素附近（hover 模式）
+
+- **WHEN** 無 detail 節點被選取,使用者 hover 於某節點
 - **THEN** tooltip 以該節點 rendered 位置加固定偏移定位(動態 `left` / `top`),而非固定於角落
 - **AND** 當偏移後 tooltip 會超出 canvas 右 / 下緣時,翻轉至節點左側並夾擠於 wrapper 邊界內
 
-#### Scenario: Tooltip 不阻擋圖形互動
+#### Scenario: Tooltip 不阻擋圖形互動（hover 模式）
 
-- **WHEN** Tooltip 顯示中,使用者點擊 tooltip DOM 覆蓋區域底下的節點
-- **THEN** 該節點被選取(觸發既有 `:selected` 樣式與 `onSelect` callback),tooltip 不攔截 click 事件(`pointer-events: none` 生效)
+- **WHEN** Hover 浮動 tooltip 顯示中,使用者點擊 tooltip DOM 覆蓋區域底下的節點
+- **THEN** 該節點被選取(觸發既有 `:selected` 樣式與 `onSelect` callback),hover tooltip 不攔截 click 事件(`pointer-events: none` 生效)
 
-#### Scenario: 取消 hover 後 tooltip 淡出並從 DOM 移除
+#### Scenario: 取消 hover 後浮動 tooltip 淡出並從 DOM 移除
 
-- **WHEN** 使用者滑鼠移出原 hovered 元素且未進入其他元素
+- **WHEN** 無選取時,使用者滑鼠移出原 hovered 元素且未進入其他元素
 - **THEN** `HoverTooltip` 以 opacity transition(≥ 100ms ≤ 200ms)淡出,動畫結束後 tooltip 不渲染任何 DOM(避免空 box 佔位)
 
-#### Scenario: Hovered 元素被移除時清空 tooltip
+#### Scenario: Hovered 元素被移除時清空浮動 tooltip
 
-- **WHEN** 一個元素 hover 中,該元素因 data refresh 從 cytoscape instance 中被 remove
+- **WHEN** 一個元素 hover 中(無選取),該元素因 data refresh 從 cytoscape instance 中被 remove
 - **THEN** `useHoverElement` 收到 `remove` 事件後清空 store,`HoverTooltip` 立即消失,不渲染參照已不存在元素的內容
 
 #### Scenario: Hover 不觸發 GraphCanvas 重渲染
@@ -233,6 +242,31 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 - **WHEN** 連續 hover 多個元素
 - **THEN** 透過 `useSyncExternalStore` 訂閱的 `HoverTooltip` 元件重新渲染,但 `GraphCanvas` 與 cytoscape instance reference 不變(React DevTools profiler 驗證 `GraphCanvas` render count 不增加)
 
+#### Scenario: 左鍵選取 detail 節點將 tooltip 釘選於右上角
+
+- **WHEN** 使用者左鍵選取一個 detail-eligible 節點(leaf 含 storageclass / k8s-node / controller)
+- **THEN** `HoverTooltip` 進入 pinned 模式:於 canvas 右上角(`top:8` / `right:8`、`pointer-events:auto`、`zIndex:1000`、`maxHeight: calc(50% - 16px)` 可捲動)釘選顯示**該節點**的 title + promoted attrs(含 `kind` row)+ 原始 labels(`toLabelRows` 過濾掉已 promote 的 `namespace`)
+- **AND** 釘選內容與 hover 該節點時的內容完全一致(同源)
+
+#### Scenario: 釘選時抑制 hover 浮動
+
+- **WHEN** 一個 detail 節點已被選取(tooltip 釘選中),使用者 hover 於其他 node 或 edge
+- **THEN** 浮動 hover tooltip MUST NOT 顯示(pinned 模式抑制 hover);右上角僅持續顯示被選取節點的釘選卡片
+
+#### Scenario: 釘選 tooltip 即使游標不在任何元素上仍顯示
+
+- **WHEN** 一個 detail 節點被選取,且游標未 hover 於任何元素(`useHoverElement` 回 `null`)
+- **THEN** 釘選卡片仍 MUST 顯示(pinned 模式不依賴 hovered 元素;渲染早於 hover 的 `hovered === null` 早退)
+
+#### Scenario: 取消選取清除釘選並恢復 hover
+
+- **WHEN** 釘選中,使用者取消選取(點背景 / 邊、切換到另一節點、kind/edge 過濾掉該節點、收合其祖先、或資料刷新移除該節點)
+- **THEN** `resolveSelectedNode` 回 `null` → 釘選卡片消失,tooltip 恢復 hover 浮動模式
+
+#### Scenario: 選取 storageclass 釘選 provisioner 與 parameters
+
+- **WHEN** 使用者左鍵選取一個 storageclass leaf
+- **THEN** tooltip 釘選顯示 `kind: storageclass` + `provisioner` + 每個 backing-storage parameter(key 排序、值換行);底部 detail 面板因無 change-report / alerts 區塊而不渲染(除非有 ready dashboard URL,見「Node Detail 面板」)
 ### Requirement: Node Kind / Edge Type 過濾
 
 Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `NodeKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`ICON_SVG_BY_KIND` / 當前模式的 `drawnEdgeTypesForMode`)的全部 keys,惟 `network` MUST 自 `visibleKinds` 的選項與預設(`ALL_KINDS`)排除:虛擬 fabric wrapper 不是可過濾的資源 kind,`computeVisibility` MUST 對 `network` kind 一律視為可見——cytoscape 的有效可見性為元素與其所有祖先的 AND,藏掉 wrapper 會連帶藏掉其下所有 switch(包含 dashboard 在該 kind 存在前已儲存 `visibleKinds` 清單的情境);wrapper 仍會在其 switch 全被過濾後經 orphan 級聯收掉。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
@@ -347,60 +381,51 @@ Panel SHALL 依節點 `data.status` 渲染狀態外框,顏色取自單一資料�
 
 ### Requirement: Node Detail 面板
 
-Panel SHALL 在**左鍵**點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟**單一統合** detail 面板,header 顯示節點 name、kind、status 三項;並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。裝飾性 cluster / namespace / application 群組**可被選取**(顯示選取環與摺疊 cue,見「互動與選取狀態」)但 MUST NOT 開啟此 detail 面板(`resolveSelectedNode` 回 `null`)。
+Panel SHALL 在**左鍵**點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,header 顯示節點 name、kind、status 三項;並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。裝飾性 **cluster / namespace** 群組**可被選取**(顯示選取環與摺疊 cue,見「互動與選取狀態」)但 `resolveSelectedNode` 回 `null`,故 MUST NOT 開啟此 detail 面板、亦 MUST NOT 釘選 tooltip。**`application` 群組為例外**:它現為 detail-eligible(kind-less,以合成 `kind: application` 解析),選取時**開啟面板**渲染該 ArgoCD application 的 Application config_changes 區塊(見「Node Detail Application 與 Containers 區塊」)並**釘選 tooltip**,同時仍浮現其摺疊 cue。
 
-header 除節點 name / kind / status 外,當該節點(**leaf / k8s-node / controller**;**cluster / namespace / storageclass 除外**)的 `/dashboard` 查詢回傳可用 URL 時,MUST 於 name 旁顯示一顆 **Dashboard 按鈕**;按鈕的查詢時機、參數組裝、200-gated 可用性與新分頁開啟行為見 `node-dashboard-url` capability。
+header 除節點 name / kind / status 外,當該節點(任一 detail-eligible 節點:**leaf 含 storageclass / k8s-node / controller**;**僅裝飾性 cluster / namespace / application 除外**)的 `/dashboard` 查詢回傳可用 URL 時,MUST 於 name 旁顯示一顆 **Dashboard 按鈕**;按鈕的查詢時機、參數組裝、200-gated 可用性與新分頁開啟行為見 `node-dashboard-url` capability。
 
-面板**不再有 `view` 分流**(舊 `alerts` / `detail` 雙 view 取消;`NodeDetailPanel` 不再收 `view` prop):body 區塊一律以**資料有無**閘控,依序為——(1)**屬性(Properties)區塊**(`node-detail-section-properties`):**恆顯**,kv-row 版型呈現節點 promoted attributes;(2)**Application / Containers change-report 區塊**:僅 workload kind 且帶對應資料時顯示(見「Node Detail Application 與 Containers 區塊」需求);(3)**Alerts 區塊**(`node-detail-section-alerts`):節點帶非空 `data.alerts` 時渲染告警表,**無告警時整段不渲染**(取消舊「No alerts」訊息)。
+面板 body 一律以**資料有無**閘控,依序為——(1)**Application change-report 區塊**:帶 `data.application` 的節點即顯示(**含 `service` / `pvc`**——見「Node Detail Application 與 Containers 區塊」需求);**Containers change-report 區塊**僅 workload kind 且帶 `data.containers` 時顯示;(2)**Alerts 區塊**(`node-detail-section-alerts`):節點帶非空 `data.alerts` 時渲染告警表,**無告警時整段不渲染**。**面板不再有恆顯的屬性(Properties)區塊**——節點的 promoted attributes(合成 kind、`namespace`、`application`、`ipAddress`、`provisioner`、storageclass `parameters`)改由**右上角釘選 tooltip** 呈現(見「Hover Tooltip」pinned 模式,與 hover 同源)。
 
-**屬性區塊**MUST 以 kv-row(label 欄 + 換行值欄,沿用 storageclass 既有版型)呈現一組 promoted attributes,其**資料來源 MUST 與 hover tooltip 同源**——由**單一純函式**導出 node attrs(合成 kind、`namespace`、`application`、`ipAddress`、`provisioner`、storageclass `parameters`(key-sorted);只輸出**有值**者,故 MUST NOT 產生空列)。屬性區塊 **MUST 恆顯**(即使其他區塊皆無資料),作為節點的預設資訊面;`kind` 既已於 header badge 呈現,屬性區塊 MUST 略過 `kind` row 以免重複。此屬性區塊**吸收**舊有的專屬 Storage Class 區塊(`node-detail-section-storageclass`)與 service/pvc 輕量 Application 列(`node-detail-section-app-info`)——provisioner / parameters / application 皆為 promoted attr,故兩段專屬 JSX 移除。
+**面板 ALWAYS 渲染**(只要左鍵選取一個 detail-eligible 節點):**header**(節點 name + kind / status badge + 關閉鈕,以及 `/dashboard` 查詢回 `ready` + 非空 `urls` 時的 Dashboard 按鈕)為最小渲染;body 區塊(Application / Containers / Alerts)各自以資料有無閘控。無任何 body 內容的節點(如純 `storageclass`、無 `application` 的 `service` / `pvc`)左鍵選取後**仍渲染 header-only 面板**;其 promoted attributes 由右上角釘選 tooltip 承載(不重複於面板)。釘選卡片本身**不含** Dashboard 按鈕,故 header 是 dashboard 入口的唯一處——因 header 恆顯,入口必然可達。
 
-面板高度 MUST 隨內容增長,僅在超過上限(canvas 高度的 `50%`)時才捲動(header 釘住);內容短於上限時 MUST NOT 出現捲動。**捲動 MUST 集中於單一容器(面板 body,`node-detail-scroll`):body 為唯一 scroll authority(`overflowY: auto`),各區塊一律為 content-height(`flex: 0 0 auto`)且 MUST NOT 各自擁有內部捲動。**統合面板現可同時堆疊多個區塊(Properties + Application + Containers + Alerts),若任一區塊自帶內部捲動(舊 `view` 分流時僅其一存在故無虞),多個 fill 區塊會在受限高度下互相重疊且皆無法捲動——故 single-body-scroll 為唯一可組合的模型。
+面板高度 MUST 隨內容增長,僅在超過上限(canvas 高度的 `50%`)時才捲動(header 釘住);內容短於上限時 MUST NOT 出現捲動。**捲動 MUST 集中於單一容器(面板 body,`node-detail-scroll`):body 為唯一 scroll authority(`overflowY: auto`),各區塊一律為 content-height(`flex: 0 0 auto`)且 MUST NOT 各自擁有內部捲動。**面板可同時堆疊多個區塊(Application + Containers + Alerts),若任一區塊自帶內部捲動,多個 fill 區塊會在受限高度下互相重疊且皆無法捲動——故 single-body-scroll 為唯一可組合的模型。
 
 告警資料來自上游 graph JSON 節點的選用欄位 `alerts: NodeAlert[]`(`normalizeGraph` 攜帶至 `data.alerts`,缺值或空陣列→該區塊不渲染)。每筆 `NodeAlert` 以 `timeRecords: number[]`(Unix 秒,升序)表示重複發生;後端已把同一 alert 分組為**單筆**,故告警表格**一列代表一個 alert**。**Count** 欄 MUST 顯示 `timeRecords.length`,並 MUST 透過 `@grafana/ui` `Tooltip` 列出全部發生時間(依 `timeZone` 格式化)。**Last occurred** 欄 MUST 顯示 `max(timeRecords)`(格式化)且 MUST 可點擊:點擊時以 `t = max(timeRecords)`(Unix 秒)為中心、固定 ±5 分鐘(300 秒),呼叫 `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })` 倒帶 dashboard 時間範圍。`severity` 為自由字串:`info` / `warning` / `critical` 取 `SEVERITY_COLOR` 對應色,其餘自訂標籤 MUST 原樣保留並以 `FALLBACK_SEVERITY_COLOR`(critical 色)著色。告警表格的 **Pod / Service 缺值格 MUST 顯示 muted「n/a」**(統一缺值占位 `MISSING_VALUE_PLACEHOLDER`,見「Node Detail Application 與 Containers 區塊」)。
 
-#### Scenario: 左鍵點節點開啟統合面板
+#### Scenario: 左鍵點任一 detail-eligible 節點開啟面板
 
-- **WHEN** 使用者**左鍵**點擊任一非裝飾節點
-- **THEN** 底部浮層顯示該節點 label、kind badge、status badge,覆蓋於 graph 之上且不改變 graph 尺寸,並渲染恆顯的屬性區塊
-- **AND** 該節點的選取高亮與開啟的面板同步
+- **WHEN** 使用者**左鍵**點擊任一非裝飾 detail-eligible 節點
+- **THEN** 底部浮層渲染 header(節點 label、kind badge、status badge、關閉鈕),覆蓋於 graph 之上且不改變 graph 尺寸;有資料的 body 區塊隨之顯示
+- **AND** 該節點的選取高亮與開啟的面板同步,且其屬性同時釘選於右上角 tooltip
 
 #### Scenario: 點外面或關閉鈕關閉
 
 - **WHEN** 使用者點擊 graph 背景或邊,或按下關閉鈕
-- **THEN** detail 面板關閉,且選取高亮清除
+- **THEN** detail 面板關閉,且選取高亮清除(右上角釘選 tooltip 一併消失)
 
 #### Scenario: 切換節點
 
 - **WHEN** 面板開啟時使用者點擊另一個節點
-- **THEN** 面板切換為新點擊的節點
+- **THEN** 面板切換為新點擊的節點(釘選 tooltip 同步切換)
 
-#### Scenario: 屬性區塊恆顯
+#### Scenario: 裸節點仍渲染 header-only 面板
 
-- **WHEN** 開啟任一節點的 detail 面板,即使該節點無 application / containers / alerts 任何資料
-- **THEN** 屬性區塊(`node-detail-section-properties`)仍 MUST 渲染,以 kv-row 呈現該節點有值的 promoted attributes
+- **WHEN** 使用者左鍵選取一個 detail-eligible 但無 application / containers / alerts、亦無 ready dashboard URL 的節點(如純 `storageclass`、無 `application` 的 `service` / `pvc`)
+- **THEN** `NodeDetailPanel` **仍渲染**,只含 header(節點 name + kind / status badge + 關閉鈕),無任何 body 區塊
+- **AND** 該節點的 promoted attributes 由右上角釘選 tooltip 承載(不重複於面板)
 
-#### Scenario: 屬性內容比照 hover tooltip 同源
+#### Scenario: header 顯示 Dashboard 按鈕(後端有 URL 時)
 
-- **WHEN** 一個節點帶 `namespace`、`application`、`ipAddress` 等 attr,且其 hover tooltip 顯示這些 promoted attrs
-- **THEN** 屬性區塊以**相同的單一純函式**導出並呈現同一組 attrs(kv-row 版型),不另起平行實作;只渲染有值的 attr(無空列)
-- **AND** 屬性區塊略過 `kind` row(kind 已於 header badge)
-
-#### Scenario: 屬性區塊吸收 storageclass provisioner / parameters
-
-- **WHEN** 開啟一個帶 `provisioner` 與 `parameters` 的 storageclass 節點面板
-- **THEN** provisioner 與每個 parameter 以 kv-row 呈現於屬性區塊內(key-sorted、值換行),MUST NOT 另渲染舊的專屬 `node-detail-section-storageclass` 區塊
-
-#### Scenario: service / pvc 的 application 呈現於屬性區塊
-
-- **WHEN** 開啟一個帶 `data.application` 的 `service` 或 `pvc` 節點面板
-- **THEN** 該 application 名稱以 kv-row(`application`)呈現於屬性區塊內,MUST NOT 另渲染舊的 `node-detail-section-app-info` 輕量列,亦 MUST NOT 渲染 change-report 的 `ApplicationTable`(service/pvc 非 workload kind)
+- **WHEN** 使用者左鍵選取的節點 `/dashboard` 查詢回傳 ready + 非空 url(不論是否有 body 內容)
+- **THEN** header 於節點 name 旁顯示 Dashboard 按鈕;若無任何 body 內容則為 header-only 面板
+- **AND** Dashboard 按鈕可達(其僅存在於 header,不在釘選卡片)
 
 #### Scenario: Dashboard 按鈕顯示於名稱旁
 
-- **WHEN** 開啟某 leaf / k8s-node / controller 節點的 detail 面板,且其 `/dashboard` 查詢回傳 200 + 非空 url
+- **WHEN** 開啟某 detail-eligible 節點的面板(因其帶 change-report / alerts,或僅因有 ready dashboard 而成 header-only),且其 `/dashboard` 查詢回傳 200 + 非空 url
 - **THEN** header 於節點名稱旁顯示 Dashboard 按鈕
-- **AND** cluster / namespace / storageclass 節點不開啟面板,故不顯示此按鈕
+- **AND** 裝飾性 cluster / namespace / application 群組 `resolveSelectedNode` 回 null、不開啟面板,故無此按鈕;storageclass 等 detail-eligible leaf 若有 dashboard URL 則以 header-only 面板顯示此按鈕
 
 #### Scenario: 顯示告警表格(分組,一列一個 alert)
 
@@ -433,15 +458,14 @@ header 除節點 name / kind / status 外,當該節點(**leaf / k8s-node / contr
 
 #### Scenario: 多區塊以單一 body 捲動且不重疊
 
-- **WHEN** 統合面板同時渲染多個高區塊(如帶 application + 多 container + 多 alert 的 pod,Containers 與 Alerts 區塊皆高於上限)
+- **WHEN** 面板同時渲染多個高區塊(如帶 application + 多 container + 多 alert 的 pod,Containers 與 Alerts 區塊皆高於上限)
 - **THEN** 面板 body(`node-detail-scroll`)為唯一捲動容器(`overflowY: auto`),各區塊 `flex-grow: 0`(content-height)且其表格 slot MUST NOT 自帶 `overflowY: auto`
 - **AND** 區塊上下堆疊、彼此 MUST NOT 重疊;內容超過上限時 body 捲動整個堆疊(header 釘住),內容短於上限時不出現捲動
 
 #### Scenario: 無告警時 Alerts 區塊整段不渲染
 
 - **WHEN** 選取的節點無 `alerts` 欄位或為空陣列
-- **THEN** Alerts 區塊(`node-detail-section-alerts`)MUST NOT 渲染(不顯示表格、亦不顯示舊的「No alerts」訊息);屬性區塊與其他有資料區塊照常渲染
-
+- **THEN** Alerts 區塊(`node-detail-section-alerts`)MUST NOT 渲染(不顯示表格、亦不顯示舊的「No alerts」訊息);其他有資料區塊照常渲染,若無其他 body 區塊則面板仍渲染 header-only
 ### Requirement: 容器圖例(NodeContainerLegend)隨 pod-parent 模式切換容器來源
 
 `NodeContainerLegend`(以 cluster 色上色的 compound 容器清單,含「全部摺疊 / 展開」切換)列出的容器來源 MUST 隨 `podParentMode` 切換:`node` 模式列出 K8s `node` 容器(`cluster > node > pod` 的中間層);`controller` 模式改列 controller 容器(`cluster > controller > pod` 的中間層)。兩模式皆以容器所屬 cluster 的 accent 色上色(與 canvas 容器底色同源),且「全部摺疊」切換 MUST 作用於**當前模式**的容器集合(經 `deriveNodeContainers` 等單一來源導出,使切換鈕與 canvas 容器永遠指向同一組)。容器圖例 MUST 在當前模式無任何 compound 容器時 `return null`。
@@ -466,9 +490,9 @@ header 除節點 name / kind / status 外,當該節點(**leaf / k8s-node / contr
 StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeKind`**(`'storageclass'` ∈ `NodeKind`、∈ `ICON_SVG_BY_KIND`、`categoryByKind` → `Storage`),同時由 normalize 標 `isStorageClass: true`。它 MUST 與 K8s `node` 容器**完全對等**地渲染與處理:
 
 - stylesheet MUST **不**含任何 storageclass 專屬選擇器:它走 base `node`(由 `kind` 解析 icon)+ `node:parent`。故**展開**(為 `:parent`)時是不帶 icon、取**父 cluster** accent 的純分組 backplate;**收合 / leaf**(非 `:parent`)時顯示其 `storageclass` kind icon(三層磁碟堆疊 glyph)——與收合的 K8s `node` 容器一致。它 MUST 保持可互動、可收合(無 `events:'no'`)。MUST NOT 攜帶 status / alerts。
-- `isStorageClass` 旗標 MUST 僅驅動三項非樣式行為:(a)獨立「Storage classes」swatch legend 區段;(b)`resolveSelectedNode` 排除(純分組盒、無 detail);(c)hover context 合成。
+- `isStorageClass` 旗標 MUST 僅驅動兩項非樣式行為:(a)獨立「Storage classes」swatch legend 區段;(b)tooltip context 合成(provisioner / parameters)。storageclass 為 **detail-eligible**(`isDashboardEligible` 僅排除裝飾性 `cluster` / `namespace` / `application`,**不**排除 storageclass):左鍵選取時其 `kind` / `provisioner` / `parameters` 由**右上角釘選 tooltip** 呈現(見「Hover Tooltip」pinned 模式),底部 detail 面板因無 change-report / alerts 區塊而 `return null`(除非有 ready dashboard URL,見「Node Detail 面板」)。
 - Panel MUST 提供**獨立**的「Storage classes」swatch legend 區段(`StorageClassLegend`,經純函式 `deriveStorageClassContainers` 導出、以父 cluster 色上色、name 去重、childless 者視為 leaf 不列入),含「全部摺疊 / 展開」切換。此區段 MUST 為 **mode-independent**(`node` / `controller` 兩模式皆顯示),且無 storageclass 容器時 MUST `return null`。
-- hover tooltip MUST 顯示 context:`kind: storageclass`(因已有 kind 而自然顯示)+ 其 cluster(`useHoverElement` 自父 cluster 容器讀)+ `provisioner` + 其 backing-storage `parameters`(typed string map;每個 entry 一列、key 排序、值換行——值如 selector 可能長)。
+- tooltip MUST 顯示 context(**未選取時 hover 浮動、選取時釘選於右上角,內容相同**):`kind: storageclass`(因已有 kind 而自然顯示)+ 其 cluster(`useHoverElement` 自父 cluster 容器讀)+ `provisioner` + 其 backing-storage `parameters`(typed string map;每個 entry 一列、key 排序、值換行——值如 selector 可能長)。
 
 #### Scenario: 展開的 storageclass 群組為無 icon 的 cluster 上色容器
 
@@ -485,18 +509,18 @@ StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeK
 - **WHEN** 資料中無任何 storageclass 容器
 - **THEN** 「Storage classes」legend 區段 `return null`,不渲染空標題
 
-#### Scenario: storageclass hover 顯示 provisioner 與 parameters(D6 leaf)
+#### Scenario: storageclass hover 顯示 provisioner 與 parameters(D6 leaf,未選取)
 
-- **WHEN** 滑鼠移至一個 storageclass leaf(巢狀於某 cluster)
-- **THEN** tooltip 顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、`provisioner: <name>`,以及每個 backing-storage 參數一列(如 `pool: kube`、`selector: tier=fast`;key 排序、值換行)
+- **WHEN** 無選取時,滑鼠移至一個 storageclass leaf(巢狀於某 cluster)
+- **THEN** tooltip 浮動顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、`provisioner: <name>`,以及每個 backing-storage 參數一列(如 `pool: kube`、`selector: tier=fast`;key 排序、值換行)
 - **AND** MUST NOT 顯示舊的合成 `PVCs (N)` 清單(storageclass 已是 leaf,PVC 以 `pvc-to-storageclass` 邊相連而非巢狀)
+- **AND** 左鍵選取該 storageclass 時,同一內容改釘選於右上角(見「Hover Tooltip」pinned 模式)
 
 #### Scenario: storageclass 容器預設收合(mode-independent)
 
 - **WHEN** Panel 首次載入且圖中含 storageclass 容器
 - **THEN** 所有 storageclass 容器 MUST 預設**收合**(`node` / `controller` 兩模式皆然),其 id 於首次載入即併入 `collapsedIds` 推給 GraphCanvas;ref 守衛使後續 data refresh **不**重收(使用者展開的 storageclass 保持展開)
 - **AND** 因預設已收合,「Storage classes」collapse 切換鈕(`storageclass-collapse-toggle`)首次點擊作為「全部展開」動作
-
 ### Requirement: 收合容器(controller / k8s node)邊框依最差子節點 status 上色
 
 當一個**容器收合**時(controller 或 k8s `node`),其矩形邊框 MUST 以它**收合後會隱藏的最差 status** 對應的 `STATUS_COLOR`(`normal` 綠 `#73BF69` / `warning` 黃 / `critical` 紅)上色——**含 `normal`**:旗下全健康的容器收合時 MUST 畫 `normal` 綠框(明確的好消息,而非中性無框)。資料來源為 normalize 彙整於該節點的 `data.worstStatus`(見 graph-data-integration:controller = 子 pod 最差 status,**一律寫入**;k8s node = 自身 status 與子 pod status 之最差,worst-wins,**有 status 資訊時寫入**——自身無 status 且無任何子 pod 的 node 無此欄,收合維持中性邊框,「無資訊」不得偽裝成 normal)。stylesheet MUST 以 `node[worstStatus="<status>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 `statusSelectors`(資料驅動的 `node[status="<s>"]`——**任何帶 `status` 的節點**畫自身 status 邊框,非 pod/node/pvc 白名單;normalize 只在後端實際給 status 時才寫該欄,故 service / external / cluster / storageclass 等無 status 者維持中性邊框)**之後**,使**收合的 k8s node** 的最差子節點 status 能覆寫其自身 status 邊框;controller 無 status 邊框,故此為其唯一上色。`node:selected` 以 outline/underlay 呈現故不影響此邊框色。**展開**的容器不套此選擇器(controller 維持中性 `:parent` 容器邊框、k8s node 維持自身 status 邊框)。採 **status**(非 alert severity):`info` 僅存在於 alert、不在 status 量尺,故收合框永不為 info(`SEVERITY_COLOR` 仍只服務 detail panel 的 alert 表)。
@@ -546,13 +570,13 @@ icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(e
 
 ### Requirement: Node Detail Application 與 Containers 區塊
 
-Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`)節點,提供帶 change-report 查詢的 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。其餘 kind(`node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`)MUST NOT 顯示這兩個 change-report 區塊。**service / pvc leaf 若帶 `data.application`**,其 ArgoCD application 名稱改由**屬性區塊**呈現(見「Node Detail 面板」需求),**不**再以專屬輕量列、亦 MUST NOT 觸發 change-report 查詢;凡屬 workload kind 走 change-report 表、否則(含 service/pvc)其 application 走屬性區塊。
+Panel SHALL 在 node-detail 面板中提供帶 change-report 查詢的 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。**Application 區塊**對**任一帶 `data.application` 的節點**顯示——pod / workload controller(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`),屬於某 ArgoCD application 的 `service` / `pvc` leaf,**以及 ArgoCD `application` 群組節點本身**(kind-less,以合成 `kind: application` 解析)——其 `config_changes`(Deployment Changes)查詢以該節點的識別發出(`service` / `pvc` 用自身 kind/name;`application` 群組用 `{ kind: 'application', name: <app> }`)。**Containers 區塊**MUST **僅對 pod 與 workload controller**且帶 `data.containers` 時顯示;`service` / `pvc` / `application` 群組 / `node` / `external` 等無 containers,Containers 區塊永不對其渲染。service / pvc 的 application 名稱**同時**以 promoted attr 出現於右上角釘選 tooltip(見「Hover Tooltip」),兩處互補:tooltip 顯示名稱,Application 區塊提供 config_changes 連結。
 
-面板**為單一統合面板,不再有 view 分流**:change-report 的 Application / Containers 兩區塊純以 **workload kind + 對應資料有無**閘控,與 Alerts 區塊(資料閘控)及恆顯的屬性區塊共存於同一**左鍵**面板。
+面板 body 純以**各區塊資料有無**閘控:**Application 區塊**以 `data.application` 有無閘控(任一帶 application 的節點,含 service / pvc);**Containers 區塊**以 **workload kind + 非空 `data.containers`** 閘控;兩者與 Alerts 區塊(資料閘控)共存於同一**左鍵**面板;面板**不再有恆顯的屬性區塊**(promoted attributes 改由釘選 tooltip 承載,見「Node Detail 面板」),且 header **恆顯**(面板 ALWAYS 渲染,見「Node Detail 面板」)。
 
 **資料來源**:application name 來源為節點的 `data.application`(backend 於 pod 節點輸出;controller 由 `normalizeGraph` 自子 pod 聚合);containers 來源為節點的 `data.containers`(`Array<{ name, image }>`)。節點無 `data.application` 時 Application 區塊 MUST NOT 渲染;無 `data.containers`(或為空陣列)時 Containers 區塊 MUST NOT 渲染;兩者互不影響。
 
-**觸發**:在 pod/controller 節點上**左鍵**(cytoscape `tap`)MUST(a)選取該節點(沿用既有單選受控狀態,與藍色高亮 / 面板開關同步,面板隨之開啟),(b)**建立**該節點兩個 URL 查詢(application-detail 與 image-detail)所需的 input(application name, controller kind, controller name, time——time 為左鍵選取當下時間,Unix 秒),並以此 input **立即併發預取(eager prefetch)** 兩查詢——`config_changes`(application)與 `code_changes`(containers)MUST 在面板因左鍵選取 workload 節點而開啟(`enabled` 為 true,即 input 與 endpoint 皆可解析)時、**無需任何後續點擊**即同時發出。**右鍵(`cxttap`)不再開啟 detail 面板、不再建立查詢 input、不再發出任何查詢**(舊右鍵 detail 觸發與其原生 context menu 抑制一併移除)。非 workload 節點(無 `queryTarget`)左鍵選取 MUST NOT 建立查詢 input、MUST NOT 發出任何查詢(只顯屬性 / Alerts)。
+**觸發**:在 pod/controller 節點上**左鍵**(cytoscape `tap`)MUST(a)選取該節點(沿用既有單選受控狀態,與藍色高亮 / 面板開關同步,面板隨之開啟),(b)**建立**該節點兩個 URL 查詢(application-detail 與 image-detail)所需的 input(application name, controller kind, controller name, time——time 為左鍵選取當下時間,Unix 秒),並以此 input **立即併發預取(eager prefetch)** 兩查詢——`config_changes`(application)與 `code_changes`(containers)MUST 在面板因左鍵選取 workload 節點而開啟(`enabled` 為 true,即 input 與 endpoint 皆可解析)時、**無需任何後續點擊**即同時發出。**右鍵(`cxttap`)不再開啟 detail 面板、不再建立查詢 input、不再發出任何查詢**(舊右鍵 detail 觸發與其原生 context menu 抑制一併移除)。**屬於某 ArgoCD application 的 `service` / `pvc`**(帶 `data.application`)左鍵選取時亦建立查詢 input——`kind` / `name` 取**該節點自身**——並預取 `config_changes`(驅動其 Application 區塊);其 `code_changes` 雖由共用預取一併發出,但 service / pvc 無 containers,回傳結果不被使用(Containers 區塊不渲染)。**無 `data.application` 的非 workload 節點(無 `queryTarget`)左鍵選取 MUST NOT 建立查詢 input、MUST NOT 發出任何查詢**(其屬性由釘選 tooltip 承載,Alerts 視資料顯示)。
 
 **查詢契約**:兩個查詢 MUST 共用同一組 input——ArgoCD application name、pod-controller kind、pod-controller name、time。pod 節點的 controller kind/name 取自其 owner(`data.owner`);controller 節點取自身 kind/name;無 owner 的 standalone pod 以自身 kind(`pod`)與 name 帶入。回傳:
 
@@ -605,10 +629,12 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - **WHEN** 使用者**左鍵**選取的節點 `kind` 為 `pod` 或 controller 且帶對應資料(`data.application` / 非空 `data.containers`)
 - **THEN** 面板渲染 change-report 的 Application 區塊與 Containers 區塊
 
-#### Scenario: 非 pod/controller kind 不顯示 change-report 區塊
+#### Scenario: Containers 僅對 workload;service/pvc 帶 application 顯示 Application
 
-- **WHEN** 選取的節點 `kind` 為 `node` / `pvc` / `service` / `external` / `switch` / `cluster` / `storageclass`
-- **THEN** 帶 change-report 的 Application 與 Containers 區塊(`node-detail-section-application` / `node-detail-section-containers`)MUST NOT 渲染(即使該節點偶帶 `application` / `containers` 資料);若為 service/pvc 帶 `application`,其名稱改由屬性區塊呈現(見「Node Detail 面板」需求)
+- **WHEN** 選取的節點 `kind` 為 `service` / `pvc` 且帶 `data.application`
+- **THEN** **Application 區塊**(`node-detail-section-application`)渲染並預取 `config_changes`(以該節點自身 kind/name);**Containers 區塊**(`node-detail-section-containers`)MUST NOT 渲染(service/pvc 無 containers,即使資料偶帶 `containers`)
+- **WHEN** 選取的節點 `kind` 為 `node` / `external` / `switch` / `cluster` / `storageclass`,或為無 `data.application` 的 `service` / `pvc`
+- **THEN** Application 與 Containers 區塊皆 MUST NOT 渲染
 
 #### Scenario: 無 application 時僅隱藏 Application 區塊
 
@@ -727,10 +753,22 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 - **WHEN** panel option 未設定查詢 endpoint,且自查詢 targets 推導不出 datasource proxy path
 - **THEN** 左鍵開啟的面板中兩區塊照資料渲染,連結欄顯示「Not found」提示(`enabled` 為 false),且 MUST NOT 發出任何查詢
 
-#### Scenario: 非 workload 節點左鍵不觸發查詢
+#### Scenario: 帶 application 的 service/pvc 左鍵預取 config_changes
 
-- **WHEN** 使用者以左鍵 `tap` 選取一個非 workload 節點(如 `service` / `pvc` / `node`,無 `queryTarget`)
-- **THEN** 面板照常開啟(屬性 / Alerts 區塊照資料渲染),但 MUST NOT 建立查詢 input、MUST NOT 發出 application-detail / image-detail 查詢
+- **WHEN** 使用者左鍵選取一個帶 `data.application` 的 `service` 或 `pvc`,且 endpoint 可解析
+- **THEN** 系統以該節點**自身 kind/name** + application 建立查詢 input,預取 `config_changes`(驅動 Application 區塊的 Deployment Changes 連結)
+- **AND** Containers 區塊不渲染(無 containers;`code_changes` 的回傳結果不被使用)
+
+#### Scenario: 選取 application 群組預取其 config_changes
+
+- **WHEN** 使用者左鍵選取一個 ArgoCD `application` 群組節點(kind-less,帶 `application`),且 endpoint 可解析
+- **THEN** 系統以 `{ application: <app>, kind: 'application', name: <app>, time }` 建立查詢 input,預取 `config_changes`;Application 區塊渲染該 application 的 Deployment Changes 連結(header badge 顯示合成 `application` kind)
+- **AND** Containers 區塊不渲染(application 群組無 containers)
+
+#### Scenario: 無 application 的非 workload 節點左鍵不觸發查詢
+
+- **WHEN** 使用者以左鍵 `tap` 選取一個非 workload、**無 `data.application`** 的節點(如 `node` / `external`,或無 application 的 `service` / `pvc`;無 `queryTarget`)
+- **THEN** 面板仍渲染(header-only 或含 Alerts),節點屬性由右上角釘選 tooltip 承載,但 MUST NOT 建立查詢 input、MUST NOT 發出 application-detail / image-detail 查詢
 
 #### Scenario: 換節點 / 關閉 panel 清除狀態與快取並中止 in-flight
 
@@ -741,7 +779,6 @@ Panel SHALL 在 node-detail 面板中,**僅對 pod 與 workload controller**(`ki
 
 - **WHEN** 對 `src/**` 進行 source code 掃描
 - **THEN** 查詢僅經 `getBackendSrv()`;`src/**` 內無任何直接 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend 的程式碼
-
 ### Requirement: 圖例節點種類顯示/隱藏切換
 
 Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**顯示/隱藏切換按鈕**(`eye` / `eye-slash`),點擊切換該 kind 節點在畫布上的可見性。切換 MUST 寫入 panel option `visibleKinds`(經 `onOptionsChange` 部分更新)——options editor 的 kind multi-select 與圖例按鈕為**同一狀態**的兩個介面,MUST 雙向同步。隱藏一個 kind 時,**任一端點為該 kind 節點的邊** MUST 隨之隱藏(既有 `computeVisibility` 端點規則),且無可見邊與可見子節點的節點 MUST 被孤兒級聯隱藏(既有 `hideOrphans`)。
