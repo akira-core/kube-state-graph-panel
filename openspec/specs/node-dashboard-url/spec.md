@@ -30,21 +30,32 @@ Panel SHALL 僅對 **node-detail 面板會開啟的節點**請求 `/dashboard` �
 
 in-flight 查詢 MUST 於切換節點 / 關閉面板(unmount)時中止,且 MUST NOT 於中止或 unmount 後 setState。
 
-可用性 MUST 嚴格以 **HTTP 200 + 非空 `url`** 判定:回傳 `{ "url": string }` 且 `url` 非空 → **available**(渲染按鈕);非 200、`url` 為空、回應格式錯誤(非物件 / 無 `url`)、或網路錯誤 → **unavailable**(按鈕**不渲染**,且 MUST NOT 對使用者顯示任何錯誤訊息)。可用性語意與 `config_changes` / `code_changes` 一致。
+可用性 MUST 嚴格以 **HTTP 200 + 至少一筆非空連結** 判定:回傳 body 經 `parseDashboardLinks` 解析後得到**一筆或以上** `{ label, url }`(`url` 皆非空) → **available**(渲染入口);非 200、解析結果為空、回應格式錯誤、或網路錯誤 → **unavailable**(按鈕**不渲染**,且 MUST NOT 對使用者顯示任何錯誤訊息)。可用性語意與 `config_changes` / `code_changes` 一致。
+
+回應格式:
+
+- **新格式**:`{ "urls": [{ "label"?: string, "url": string }, …] }` — 略過無效項目;`label` 缺省時由 panel 補 fallback。
+- **舊格式(向後相容)**:`{ "url": string }` — 視為單一連結 `[{ label: "Dashboard", url }]`。
+- 當 `urls` 為非空陣列時 MUST **優先**採用 `urls`;僅在 `urls` 缺漏或過濾後為空時才 fallback 至 `url`。
 
 #### Scenario: 面板開啟即預取(左鍵與右鍵皆然)
 
 - **WHEN** 使用者左鍵(alerts view)或右鍵(detail view)開啟某適用節點的 detail 面板
 - **THEN** 系統發出一次 `GET <base>/dashboard`,參數為該節點組裝出的 param map(見「請求參數組裝」需求)
 
-#### Scenario: 200 + 非空 url 視為可用
+#### Scenario: 200 + urls 陣列視為可用
+
+- **WHEN** `/dashboard` 回傳 HTTP 200 且 body 為 `{ "urls": [{ "label": "Metrics", "url": "https://a" }, { "label": "Logs", "url": "https://b" }] }`
+- **THEN** 該查詢狀態為 available,`DashboardLookup` 為 `{ status: 'ready', urls: […] }`(兩筆),Dashboard 入口渲染
+
+#### Scenario: 200 + 非空 url(舊格式)視為可用
 
 - **WHEN** `/dashboard` 回傳 HTTP 200 且 body 為 `{ "url": "https://…" }`(`url` 非空)
-- **THEN** 該查詢狀態為 available,Dashboard 按鈕渲染
+- **THEN** 該查詢狀態為 available,`urls` 為單元素陣列 `[{ label: "Dashboard", url }]`,Dashboard 按鈕渲染
 
-#### Scenario: 非 200 / 空 url / 格式錯誤視為不可用且不報錯
+#### Scenario: 非 200 / 空 urls / 空 url / 格式錯誤視為不可用且不報錯
 
-- **WHEN** `/dashboard` 回非 200、或回 `{ "url": "" }`、或回應非物件 / 無 `url` 欄、或網路失敗
+- **WHEN** `/dashboard` 回非 200、或回 `{ "urls": [] }`、或回 `{ "url": "" }`、或回應非物件 / 無 `url` 欄、或網路失敗
 - **THEN** 該查詢狀態為 unavailable,Dashboard 按鈕 MUST NOT 渲染,且 MUST NOT 顯示任何錯誤訊息或殘留 spinner
 
 #### Scenario: base 解析為空時不發查詢
@@ -130,12 +141,22 @@ in-flight 查詢 MUST 於切換節點 / 關閉面板(unmount)時中止,且 MUST 
 
 ### Requirement: Dashboard 按鈕呈現
 
-當某節點的 `/dashboard` 查詢為 **available**(200 + 非空 `url`)時,Panel SHALL 於 node-detail 面板 **header 的節點名稱旁**渲染一顆 Dashboard 按鈕,且在 **`alerts`(左鍵)與 `detail`(右鍵)兩個 view 皆顯示**(header 為兩 view 共用,故單一放置即滿足)。按鈕 MUST 以新分頁開啟該 `url`(`target="_blank"`、`rel="noopener noreferrer"`)。查詢為 **loading** 或 **unavailable** 時 MUST 不渲染任何按鈕(無 spinner、無錯誤、無 placeholder),避免閃爍。按鈕 MUST 以 `@grafana/ui` 元件 + emotion `useStyles2` 實作,並共置於 `node-detail` feature、經其 `index.ts` barrel 匯出。
+當某節點的 `/dashboard` 查詢為 **available** 時,Panel SHALL 於 node-detail 面板 **header 的節點名稱旁**渲染 Dashboard 入口,且在 **`alerts`(左鍵)與 `detail`(右鍵)兩個 view 皆顯示**(header 為兩 view 共用,故單一放置即滿足)。查詢為 **loading** 或 **unavailable** 時 MUST 不渲染任何按鈕(無 spinner、無錯誤、無 placeholder),避免閃爍。入口型態依連結數決定:
 
-#### Scenario: 可用時於名稱旁顯示按鈕(兩 view)
+- **單一連結**(`urls.length === 1`):MUST 渲染一顆 `LinkButton` 文案 **Dashboard**,以新分頁開啟該 `url`(`target="_blank"`、`rel="noopener noreferrer"`)。
+- **多個連結**(`urls.length >= 2`):MUST 渲染一顆 **Dashboards** 觸發鈕與下拉 `Menu`,每個項目顯示對應 `label`,點擊以新分頁(`noopener,noreferrer`)開啟該 `url`。
 
-- **WHEN** 某適用節點的 `/dashboard` 查詢回傳 200 + 非空 `url`,且面板以 `alerts` 或 `detail` view 開啟
-- **THEN** header 於節點名稱旁渲染 Dashboard 按鈕,點擊以新分頁(`noopener,noreferrer`)開啟該 `url`
+按鈕 MUST 以 `@grafana/ui` 元件 + emotion `useStyles2` 實作,並共置於 `node-detail` feature、經其 `index.ts` barrel 匯出。
+
+#### Scenario: 單一連結維持 Dashboard 按鈕
+
+- **WHEN** 某適用節點的 `/dashboard` 解析為一筆連結,且面板以 `alerts` 或 `detail` view 開啟
+- **THEN** header 於節點名稱旁渲染文案為 **Dashboard** 的 `LinkButton`,點擊以新分頁(`noopener,noreferrer`)開啟該 `url`
+
+#### Scenario: 多連結顯示 Dashboards 選單
+
+- **WHEN** 某適用節點的 `/dashboard` 解析為兩筆或以上連結
+- **THEN** header 顯示 **Dashboards** 觸發鈕;展開後每個 `label` 可點擊並以新分頁開啟對應 `url`
 
 #### Scenario: loading / 不可用時不渲染按鈕
 
