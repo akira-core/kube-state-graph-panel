@@ -139,7 +139,7 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 
 裝飾性 `cluster` / `namespace` / `application` 群組的 accent 色(`clusterColor` / `namespaceColor` / `applicationColor`)MUST 為**依群組種類(kind)固定的單一色彩**——同種類的所有群組節點(不論其名稱)共用同一色彩,不再依名稱雜湊(hash)產生每一實例各異的色彩。三種 kind 的色彩 MUST 彼此不同,且 MUST 與既有邊色彩表(`EDGE_STYLE_BY_TYPE`)及 status 色彩(normal 綠、warning 黃、critical 紅)有足夠對比,確保邊線經過任一 compound 背板時仍清晰可辨。
 
-裝飾性 `cluster` / `namespace` / `application` 群組的 `data.label` MUST 以其 kind 為前綴,格式為 `${kind}:${name}`(例如名稱 `prod` 的 `cluster` 群組標籤為 `cluster:prod`,名稱 `checkout` 的 `namespace` 群組標籤為 `namespace:checkout`,名稱 `mongo` 的 `application` 群組標籤為 `application:mongo`)。此前綴由 `normalizeGraph` 產生,非 stylesheet 渲染時串接,故 legend、tooltip 等所有讀取 `data.label` 的消費端皆自動取得前綴後的名稱。此要求僅適用於三種裝飾性 compound 群組,不影響任何 leaf 節點(pod / service / pvc / node / storageclass)或 `controller` compound 的標籤格式。
+裝飾性 `cluster` / `namespace` / `application` 群組的 `data.label` MUST 以**首字大寫 kind 前綴詞 + `: `**(冒號後接一空格)為前綴,格式為 `${PREFIX}: ${name}`(例如名稱 `prod` 的 `cluster` 群組標籤為 `Cluster: prod`,名稱 `checkout` 的 `namespace` 群組標籤為 `Namespace: checkout`,名稱 `mongo` 的 `application` 群組標籤為 `Release Unit: mongo`)。**`application` 群組的顯示前綴詞重新命名為「Release Unit」**——此僅為顯示文字變更,內部 `type`/`kind` 字串、`isApplication` flag、`applicationColor`、CSS selector(`node[?isApplication]`)皆維持 `application` 不變。此前綴由 `normalizeGraph` 產生,非 stylesheet 渲染時串接,故 legend、tooltip 等所有讀取 `data.label` 的消費端皆自動取得前綴後的名稱。此要求僅適用於三種裝飾性 compound 群組,不影響任何 leaf 節點(pod / service / pvc / node / storageclass)或 `controller` compound 的標籤格式。整段標籤(前綴 + 名稱)沿用既有 `font-weight: 600` 樣式(getStylesheet.ts)——cytoscape 單一 label 不支援同節點內混合字重的局部粗體,故前綴與名稱共用同一字重。
 
 #### Scenario: 同 kind 的多個 cluster 群組共用同一色彩
 
@@ -154,9 +154,35 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 #### Scenario: 裝飾性群組標籤以 kind 為前綴
 
 - **WHEN** 一個名稱為 `prod` 的 `cluster` 群組、名稱為 `checkout` 的 `namespace` 群組、名稱為 `mongo` 的 `application` 群組被正規化
-- **THEN** 三者的 `data.label` 依序為 `cluster:prod`、`namespace:checkout`、`application:mongo`
+- **THEN** 三者的 `data.label` 依序為 `Cluster: prod`、`Namespace: checkout`、`Release Unit: mongo`
 
 #### Scenario: 非裝飾性節點標籤不受影響
 
 - **WHEN** 一個 `pod` / `service` / `pvc` / `node` / `storageclass` leaf 節點或 `controller` compound 節點被正規化
 - **THEN** 其 `data.label` 維持原名稱,不套用任何 kind 前綴
+
+### Requirement: physical-network 與 k8s node compound header 標籤對齊
+
+physical-network fabric box(`kind: network`,包住 switches 的 compound)與 k8s `node` **compound** box(node-layout 模式下包住 pod、即為 `:parent` 者)的 header 標籤,MUST 在**大小寫與字級**上對齊三個裝飾性群組 header:physical-network 名稱 title-case(`physical network` → `Physical Network`),k8s node 加 `Node: ` 前綴(`worker-0` → `Node: worker-0`),字級各自提升(network 17、node 18)以匹配群組 header。
+
+k8s node 的此對齊 MUST **僅在該 node 為 compound 時**套用:選擇器為 `node[kind='node']:parent`(node-layout 下包住 pod)加上 `node[kind='node'].cy-expand-collapse-collapsed-node`(收合後子節點移除、失去 `:parent`,以 class 維持 header 穩定)。**controller-layout 下 k8s node 為葉節點**(pod 掛在合成 controller 下,非掛在 node),不符任一選擇器,MUST 回退為 base `node` 一般標題(裸 `data.label`、base 字級、標籤置底)。葉節點永不為 compound,故永不帶 collapsed class,sibling 選擇器不會外洩至葉節點。
+
+此對齊 MUST 以 **stylesheet 的 render-only function `label` mapper** 實作,**MUST NOT** 改寫 `data.label`——因 k8s `node` 的 `data.label` 為其 identity 值:`/dashboard` 查詢的 `name=` 參數(`paramsFromData` 將 `label` 改名為 `name`)與 detail 面板標題(`NodeDetailPanel` 渲染 `node.label`)皆直接讀取之,若把前綴烤進 `data.label` 會送出錯誤的 `name=Node: worker-0` 並讓標題與 kind badge 重複。故此為刻意與裝飾性群組(前綴烤進 `data.label`)不對稱的設計:群組非 dashboard-eligible 且 `resolveSelectedNode` 對其回 null / 改用 `data.application`,烤入前綴不會外流至查詢或葉節點標題;node/network box 為 identity-bearing,其前綴必須僅止於呈現層。switch 葉節點不在此範圍。
+
+#### Scenario: physical-network fabric box header title-case 且字級放大
+
+- **WHEN** Panel 渲染 `kind: network` 的 physical-network fabric box(`data.label` 為 `physical network`)
+- **THEN** 其 on-canvas 標籤渲染為 `Physical Network`(逐字 title-case)、`font-size` 17、`font-weight` 600
+- **AND** 其 `data.label` 維持 `physical network` 不變
+
+#### Scenario: compound k8s node box header 加 `Node: ` 前綴且字級放大,identity 不變
+
+- **WHEN** Panel 於 node-layout 渲染一個包住 pod 的 compound k8s node(`kind: node`、`:parent`、`data.label` 為 `worker-0`)
+- **THEN** 其 on-canvas 標籤渲染為 `Node: worker-0`、`font-size` 18、`font-weight` 600
+- **AND** 其 `data.label` 維持 `worker-0`,故 `/dashboard` 查詢的 `name=` 參數與 detail 面板標題皆為 `worker-0`(不含前綴)
+- **AND** 該 compound 收合後(`.cy-expand-collapse-collapsed-node`)仍維持 `Node: worker-0` 對齊 header
+
+#### Scenario: leaf k8s node 回退一般標題
+
+- **WHEN** Panel 於 controller-layout 渲染一個葉 k8s node(`kind: node`、非 `:parent`、`data.label` 為 `worker-9`)
+- **THEN** 其標籤回退為 base `node` 一般標題:裸 `worker-9`、base 字級(11)、標籤置底,不加 `Node: ` 前綴、不放大

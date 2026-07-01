@@ -6,7 +6,7 @@
 //   * the legend's ApplicationLegend — the swatch must match the on-canvas backplate.
 //
 // One colour per KIND, not per instance: every application renders the SAME muted
-// terracotta so the graph reads by nesting + the `application:` label prefix, not by a
+// terracotta so the graph reads by nesting + the `Release Unit: ` label prefix, not by a
 // rainbow of per-name hues. Constraints (mechanically enforced by applicationPalette.test.ts):
 //   (1) MUST NOT equal any STATUS colour (green/yellow/red) — never read as node health.
 //   (2) MUST NOT equal any edge colour (EDGE_STYLE_BY_TYPE) — a low-saturation,

@@ -24,6 +24,13 @@ function resolveIconUri(kind: string | undefined, iconColor: string): string {
   return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
 }
 
+// Title-case each whitespace-separated word ("physical network" → "Physical Network").
+// Used ONLY as a render-time label mapper for the physical-network fabric box — it
+// never rewrites `data.label`, so the node's identity/query value is untouched.
+function titleCaseWords(text: string): string {
+  return text.replace(/\S+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
+}
+
 // Parent cluster's accent for a compound container's box tint + label, so node and
 // cluster read as one family. A COLLAPSED node loses :parent (children removed) and
 // reverts to base node styling — the intended "white label once collapsed" behaviour.
@@ -191,7 +198,7 @@ export function getStylesheet({
         'border-opacity': 0.5,
         label: 'data(label)',
         color: 'data(clusterColor)',
-        'font-size': 14,
+        'font-size': 18,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
@@ -215,7 +222,7 @@ export function getStylesheet({
         'border-opacity': 0.7,
         label: 'data(label)',
         color: 'data(namespaceColor)',
-        'font-size': 13,
+        'font-size': 17,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
@@ -239,7 +246,7 @@ export function getStylesheet({
         'border-opacity': 0.7,
         label: 'data(label)',
         color: 'data(applicationColor)',
-        'font-size': 13,
+        'font-size': 17,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
@@ -247,6 +254,45 @@ export function getStylesheet({
         padding: '12px',
       },
     },
+    {
+      // Physical-network fabric box (the `network` compound wrapping the switches).
+      // Aligns its header with the decorative group boxes: title-cased words + the same
+      // enlarged, semibold label. The label is a RENDER-ONLY function mapper (title-case
+      // the raw name) — `data.label` itself is left as the backend name, so nothing that
+      // reads identity (dashboard `name=` query, detail-panel title) is affected.
+      // Declared after node:parent so it wins the label/size for the wrapper.
+      selector: "node[kind='network']",
+      style: {
+        label: ((ele: cytoscape.NodeSingular): string =>
+          titleCaseWords(String(ele.data('label') ?? ''))) as unknown as string,
+        'font-size': 17,
+        'font-weight': 600,
+      },
+    },
+    // K8s `node` box — aligned with the decorative group headers ONLY WHEN it is an
+    // actual compound: a "Node: " kind prefix (mirroring `Cluster: `/`Namespace: `/
+    // `Release Unit: `) + the same enlarged, semibold label. RENDER-ONLY function mapper —
+    // `data.label` stays the bare resource name the dashboard `name=` query and the
+    // detail-panel title depend on. In node-layout the node wraps its pods (`:parent`); in
+    // controller-layout it is a plain leaf and MUST fall through to the base `node` title
+    // (bare label, base font). Gated on `:parent` for that reason; the `.collapsed`
+    // sibling keeps the treatment when a node-layout box is folded (children removed →
+    // no longer `:parent`) — a controller-layout leaf is never a compound, so it never
+    // carries the collapsed class and is unaffected. Both declared after node:parent.
+    ...(
+      [
+        "node[kind='node']:parent",
+        "node[kind='node'].cy-expand-collapse-collapsed-node",
+      ] as const
+    ).map((selector) => ({
+      selector,
+      style: {
+        label: ((ele: cytoscape.NodeSingular): string =>
+          `Node: ${String(ele.data('label') ?? '')}`) as unknown as string,
+        'font-size': 18,
+        'font-weight': 600,
+      },
+    })),
     {
       // Collapsed compound node. Heavier border signals it can be expanded; the +/-
       // cue is drawn by the expand-collapse extension independently.

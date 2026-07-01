@@ -416,6 +416,85 @@ describe('getStylesheet', () => {
     expect(appIdx).toBeLessThan(selectors.indexOf('node:selected'));
   });
 
+  it('aligns the physical-network fabric box header: title-cased render-only label + enlarged semibold font', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const idx = selectors.indexOf("node[kind='network']");
+    expect(idx).toBeGreaterThan(-1);
+    // Declared after node:parent (so it wins the wrapper's label/size) and before the
+    // selection ring.
+    expect(idx).toBeGreaterThan(selectors.indexOf('node:parent'));
+    expect(idx).toBeLessThan(selectors.indexOf('node:selected'));
+    const style = sheet[idx]?.style ?? {};
+    expect(style['font-size']).toBe(17);
+    expect(style['font-weight']).toBe(600);
+    // Render-only label mapper title-cases each word; it NEVER rewrites data.label.
+    const labelFn = style.label as NodeFn;
+    expect(labelFn(fakeEle({ label: 'physical network' }))).toBe('Physical Network');
+    expect(labelFn(fakeEle({ label: 'core-fabric' }))).toBe('Core-fabric');
+  });
+
+  it('aligns the k8s node box header ONLY when compound: "Node: " render-only prefix + enlarged semibold font, gated on :parent (+ collapsed sibling)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const parentIdx = selectors.indexOf("node[kind='node']:parent");
+    const collapsedIdx = selectors.indexOf("node[kind='node'].cy-expand-collapse-collapsed-node");
+    // A bare `node[kind='node']` selector MUST NOT exist — a leaf k8s node keeps the
+    // normal title; only a compound (or a folded compound) is styled.
+    expect(selectors).not.toContain("node[kind='node']");
+    expect(parentIdx).toBeGreaterThan(-1);
+    expect(collapsedIdx).toBeGreaterThan(-1);
+    // After node:parent (wins the compound header in node-layout), before selection ring.
+    expect(parentIdx).toBeGreaterThan(selectors.indexOf('node:parent'));
+    expect(parentIdx).toBeLessThan(selectors.indexOf('node:selected'));
+    for (const idx of [parentIdx, collapsedIdx]) {
+      const style = sheet[idx]?.style ?? {};
+      expect(style['font-size']).toBe(18);
+      expect(style['font-weight']).toBe(600);
+      // Render-only "Node: " prefix — data.label stays the bare name the dashboard `name=`
+      // query and detail-panel title depend on.
+      const labelFn = style.label as NodeFn;
+      expect(labelFn(fakeEle({ label: 'worker-0' }))).toBe('Node: worker-0');
+    }
+  });
+
+  it('renders "Node: <name>" enlarged for a COMPOUND k8s node but the bare normal title for a LEAF k8s node', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        // Compound k8s node (node-layout): wraps a pod → is a :parent.
+        { group: 'nodes', data: { id: 'node/worker-0', label: 'worker-0', kind: 'node' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'node/worker-0' } },
+        // Leaf k8s node (controller-layout): no children.
+        { group: 'nodes', data: { id: 'node/worker-9', label: 'worker-9', kind: 'node' } },
+      ],
+    });
+    const compound = cy.getElementById('node/worker-0');
+    const leaf = cy.getElementById('node/worker-9');
+    // Compound → aligned header.
+    expect(compound.style('label')).toBe('Node: worker-0');
+    expect(compound.style('font-size')).toBe('18px');
+    // Leaf → normal node title (bare label, base 11px font), identity value intact both ways.
+    expect(leaf.style('label')).toBe('worker-9');
+    expect(leaf.style('font-size')).toBe('11px');
+    expect(compound.data('label')).toBe('worker-0');
+    expect(leaf.data('label')).toBe('worker-9');
+    // Fold the compound → children removed, no longer :parent, but the .collapsed sibling
+    // keeps the aligned header (it was a compound).
+    compound.addClass('cy-expand-collapse-collapsed-node');
+    expect(compound.style('label')).toBe('Node: worker-0');
+    expect(compound.style('font-size')).toBe('18px');
+    cy.destroy();
+  });
+
   it('keeps namespace / application accents in both expanded and collapsed states (no :parent dependency)', () => {
     const cy = cytoscape({
       headless: true,

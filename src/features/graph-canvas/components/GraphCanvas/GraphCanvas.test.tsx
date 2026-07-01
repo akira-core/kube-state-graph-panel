@@ -37,10 +37,10 @@ const elements: cytoscape.ElementDefinition[] = [
   { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0' } },
   // Cluster backplate: decorative + NON-selectable (mirrors normalize) — tap deselects,
   // collapse is dbltap-driven.
-  { group: 'nodes', selectable: false, data: { id: 'cl', isCluster: true, label: 'cluster:demo' } },
+  { group: 'nodes', selectable: false, data: { id: 'cl', isCluster: true, label: 'Cluster: demo' } },
   // Namespace group: decorative but SELECTABLE (mirrors normalize) — its selection
   // surfaces the +/- cue; only cluster carries selectable:false.
-  { group: 'nodes', data: { id: 'ns', isNamespace: true, label: 'namespace:shop' } },
+  { group: 'nodes', data: { id: 'ns', isNamespace: true, label: 'Namespace: shop' } },
   // Controller group: detail-eligible, so it stays SELECTABLE (no selectable:false) — its
   // clicks must reach the detail panel (mirrors normalize).
   { group: 'nodes', data: { id: 'ctrl', isController: true, kind: 'statefulset', label: 'mongo' } },

@@ -27,6 +27,22 @@
 
 - [x] 5.1 `specs/panel-rendering/spec.md` (MODIFIED: 互動與選取狀態; ADDED: 裝飾性 compound 群組使用 per-kind 固定色彩與 kind 前綴標籤)
 
+## 5a. Label prefix refinement (title-case + space-after-colon + application→Release Unit rename)
+
+- [x] 5a.1 `normalize.ts`: replace `DECORATIVE_GROUP_TYPES` Set with a `GROUP_LABEL_PREFIX` lookup (`cluster`→`Cluster`, `namespace`→`Namespace`, `application`→`Release Unit`); build `displayLabel` as `${prefix}: ${name}` (space after colon). Internal `type`/`kind` string, `isApplication`, `applicationColor` unaffected — display-only rename.
+- [x] 5a.2 `normalize.test.ts`: update the three kind-prefixed label assertions to `Cluster: demo` / `Namespace: shop` / `Release Unit: checkout`.
+- [x] 5a.3 `GraphCanvas.test.tsx`: update `cluster`/`namespace` fixture `label` values to match the new format for consistency with normalize.
+- [x] 5a.4 `clusterPalette.ts` / `namespacePalette.ts` / `applicationPalette.ts`: fix stale comments referencing the old `kind:` prefix format.
+- [x] 5a.5 `proposal.md` / `design.md` / `specs/panel-rendering/spec.md`: update label-prefix examples and the "Release Unit" rename rationale (cytoscape has no mixed-weight rich text, so "bold" stays whole-label via existing `font-weight: 600`, not prefix-only).
+- [x] 5a.6 `getStylesheet.ts`: bump `node[?isCluster]` label `font-size` 14→18, `node[?isNamespace]`/`node[?isApplication]` 13→17 (two size-levels up on the three decorative compound kinds only; generic `node:parent` compound label untouched).
+
+## 5b. Physical-network + k8s-node compound-header label alignment (capital + size)
+
+- [x] 5b.1 `getStylesheet.ts`: add `titleCaseWords` helper (render-only word title-caser).
+- [x] 5b.2 `getStylesheet.ts`: add `node[kind='network']` selector — RENDER-ONLY function `label` mapper title-cases the fabric name (`physical network`→`Physical Network`) + `font-size` 17 / `font-weight` 600. Declared after `node:parent` so it wins the wrapper header. `data.label` untouched.
+- [x] 5b.3 `getStylesheet.ts`: add k8s-node header styling — RENDER-ONLY function `label` mapper prefixes `Node: ` (mirroring `Cluster: `/`Namespace: `/`Release Unit: `) + `font-size` 18 / `font-weight` 600. `data.label` stays the bare resource name that the dashboard `name=` query (`paramsFromData` label→name) and the detail-panel title (`NodeDetailPanel` `node.label`) depend on — so neither breaks. **Gated on the node being an actual compound**: `node[kind='node']:parent` (node-layout, wraps pods) + a `node[kind='node'].cy-expand-collapse-collapsed-node` sibling (folded compound). A controller-layout **leaf** k8s node matches neither → falls through to the base `node` title (bare label, base font).
+- [x] 5b.4 `getStylesheet.test.ts`: assert selectors' ordering (after `node:parent`, before `node:selected`), font-size/weight, the render-only label mappers (`Physical Network`, `Node: worker-0`), that no bare `node[kind='node']` selector exists, and a headless case proving a COMPOUND k8s node renders `Node: worker-0`@18px while a LEAF k8s node renders bare `worker-9`@11px (identity `data.label` intact both ways, treatment survives fold); snapshot updated.
+
 ## 6. Verify
 
 - [x] 6.1 `npm run typecheck && npm run lint && npm run test:ci` _(all green: 77 suites / 723 tests / 1 snapshot)_

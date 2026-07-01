@@ -460,8 +460,8 @@ describe('normalizeGraph', () => {
     // Cluster container is recognised and assigned the FIXED per-kind cluster colour.
     expect(byId.get('cluster:demo')?.isCluster).toBe(true);
     expect(byId.get('cluster:demo')?.clusterColor).toBe(CLUSTER_COLOR);
-    // Cluster label is kind-prefixed (`cluster:<name>`); the raw name lives on data.cluster.
-    expect(byId.get('cluster:demo')?.label).toBe('cluster:demo');
+    // Cluster label is kind-prefixed (`Cluster: <name>`); the raw name lives on data.cluster.
+    expect(byId.get('cluster:demo')?.label).toBe('Cluster: demo');
     expect(byId.get('cluster:demo')?.cluster).toBe('demo');
     // A non-decorative leaf keeps its unprefixed name as label.
     expect(byId.get('demo/p1')?.label).toBe('web');
@@ -510,7 +510,7 @@ describe('normalizeGraph', () => {
       expect(d?.isNamespace).toBe(true);
       expect(d?.namespace).toBe('shop');
       expect(d?.namespaceColor).toBe(NAMESPACE_COLOR); // fixed per-kind colour
-      expect(d?.label).toBe('namespace:shop'); // kind-prefixed label; raw name on data.namespace
+      expect(d?.label).toBe('Namespace: shop'); // kind-prefixed label; raw name on data.namespace
       expect(d?.kind).toBeUndefined();
       expect(d?.parent).toBe('cluster/prod'); // passthrough verbatim
       expect(elById(raw).get('prod/namespace/shop')?.selectable).toBeUndefined(); // selectable (no selectable:false)
@@ -537,7 +537,7 @@ describe('normalizeGraph', () => {
       expect(d?.isApplication).toBe(true);
       expect(d?.application).toBe('checkout');
       expect(d?.applicationColor).toBe(APPLICATION_COLOR); // fixed per-kind colour
-      expect(d?.label).toBe('application:checkout'); // kind-prefixed label; raw name on data.application
+      expect(d?.label).toBe('Release Unit: checkout'); // renamed kind-prefix; raw name on data.application
       expect(d?.kind).toBeUndefined();
       expect(d?.parent).toBe('prod/namespace/shop');
       expect(elById(raw).get('prod/namespace/shop/application/checkout')?.selectable).toBeUndefined(); // selectable (no selectable:false)

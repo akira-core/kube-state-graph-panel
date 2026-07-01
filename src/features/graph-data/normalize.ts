@@ -50,11 +50,18 @@ function isGroupType(type: string): boolean {
 }
 
 // The three PURELY-decorative group kinds — excludes `controller`, which is a real
-// workload kind (kind-ful, own detail panel). Their on-canvas label is kind-prefixed
-// (`cluster:prod`, `namespace:shop`, `application:mongo`) since one fixed colour per kind
-// no longer disambiguates instances; the raw name still lives on data.cluster/namespace/
-// application. `cluster` is additionally rendered non-selectable (see parseNodes).
-const DECORATIVE_GROUP_TYPES = new Set(['cluster', 'namespace', 'application']);
+// workload kind (kind-ful, own detail panel). Their on-canvas label is prefixed with a
+// title-case kind word + ": " (`Cluster: prod`, `Namespace: shop`, `Release Unit: mongo`)
+// since one fixed colour per kind no longer disambiguates instances; the raw name still
+// lives on data.cluster/namespace/application. `application`'s prefix reads "Release Unit"
+// for display only — the internal type/kind string stays `application` (isApplication,
+// applicationColor, GraphNodeKind, CSS selectors) and is unaffected. `cluster` is
+// additionally rendered non-selectable (see parseNodes).
+const GROUP_LABEL_PREFIX: Record<string, string> = {
+  cluster: 'Cluster',
+  namespace: 'Namespace',
+  application: 'Release Unit',
+};
 
 // Panel-side identity keyed off upstream `type` (backend D6):
 //   `cluster` / `namespace` / `application` → kind-less decorative accent group;
@@ -273,8 +280,10 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const labels = isStringRecord(d.labels) ? d.labels : undefined;
     const namespace = labels?.namespace;
     const label = isString(d.name) ? d.name : d.id;
-    // Decorative groups render a kind-prefixed label; every other node keeps its raw name.
-    const displayLabel = DECORATIVE_GROUP_TYPES.has(d.type) ? `${d.type}:${label}` : label;
+    // Decorative groups render an uppercase-kind-prefixed label; every other node keeps
+    // its raw name.
+    const groupLabelPrefix = GROUP_LABEL_PREFIX[d.type];
+    const displayLabel = groupLabelPrefix !== undefined ? `${groupLabelPrefix}: ${label}` : label;
     const isGroup = isGroupType(d.type);
     // Data-driven status: keep only a valid backend status on the element (absent → no
     // `status` field → no border via `node[status]`). For worstStatus aggregation, an
