@@ -1,5 +1,5 @@
-// The two fixed trailing path SEGMENTS the right-click Change Report lookups
-// append to the resolved detail base (see resolveDetailEndpoint). The base
+// The two fixed trailing path SEGMENTS the Change Report lookups (fired on node
+// selection) append to the resolved detail base (see resolveDetailEndpoint). The base
 // already carries the shared prefix — either the explicit `detailEndpoint`
 // option, or the datasource proxy mount + the graph query's own directory — so
 // the detail endpoints resolve as SIBLINGS of the graph query: a graph query at

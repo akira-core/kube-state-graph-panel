@@ -1,10 +1,10 @@
 import type cytoscape from 'cytoscape';
 
 import { APPLICATION_BEARING_KINDS } from '../../shared/constants/applicationBearingKinds';
-import { colorForApplication } from '../../shared/constants/applicationPalette';
-import { colorForCluster } from '../../shared/constants/clusterPalette';
+import { APPLICATION_COLOR } from '../../shared/constants/applicationPalette';
+import { CLUSTER_COLOR } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
-import { colorForNamespace } from '../../shared/constants/namespacePalette';
+import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
 import { isPlainObject } from '../../shared/guards/isPlainObject';
 import type { ContainerSpec } from '../../shared/types/containerSpec';
@@ -49,6 +49,13 @@ function isGroupType(type: string): boolean {
   return type === 'cluster' || type === 'namespace' || type === 'application' || type === 'controller';
 }
 
+// The three PURELY-decorative group kinds — excludes `controller`, which is a real
+// workload kind (kind-ful, own detail panel). Their on-canvas label is kind-prefixed
+// (`cluster:prod`, `namespace:shop`, `application:mongo`) since one fixed colour per kind
+// no longer disambiguates instances; the raw name still lives on data.cluster/namespace/
+// application. `cluster` is additionally rendered non-selectable (see parseNodes).
+const DECORATIVE_GROUP_TYPES = new Set(['cluster', 'namespace', 'application']);
+
 // Panel-side identity keyed off upstream `type` (backend D6):
 //   `cluster` / `namespace` / `application` → kind-less decorative accent group;
 //   `controller` → kind-less group flagged isController (kind added in enrichControllers);
@@ -64,13 +71,13 @@ type NodeIdentity =
 
 function resolveNodeIdentity(type: string, label: string, status: NodeStatus | undefined): NodeIdentity {
   if (type === 'cluster') {
-    return { isCluster: true, cluster: label, clusterColor: colorForCluster(label) };
+    return { isCluster: true, cluster: label, clusterColor: CLUSTER_COLOR };
   }
   if (type === 'namespace') {
-    return { isNamespace: true, namespace: label, namespaceColor: colorForNamespace(label) };
+    return { isNamespace: true, namespace: label, namespaceColor: NAMESPACE_COLOR };
   }
   if (type === 'application') {
-    return { isApplication: true, application: label, applicationColor: colorForApplication(label) };
+    return { isApplication: true, application: label, applicationColor: APPLICATION_COLOR };
   }
   if (type === 'controller') {
     return { isController: true };
@@ -266,6 +273,8 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const labels = isStringRecord(d.labels) ? d.labels : undefined;
     const namespace = labels?.namespace;
     const label = isString(d.name) ? d.name : d.id;
+    // Decorative groups render a kind-prefixed label; every other node keeps its raw name.
+    const displayLabel = DECORATIVE_GROUP_TYPES.has(d.type) ? `${d.type}:${label}` : label;
     const isGroup = isGroupType(d.type);
     // Data-driven status: keep only a valid backend status on the element (absent → no
     // `status` field → no border via `node[status]`). For worstStatus aggregation, an
@@ -297,15 +306,18 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
-      // Every node — including the decorative cluster / namespace / application groups —
-      // is selectable (cytoscape default), so the built-in expand-collapse +/- cue can
-      // surface on the selected compound parent. Selecting a decorative group latches the
-      // selection ring but opens NO detail panel: resolveSelectedNode / isDashboardEligible
-      // returns null for isCluster / isNamespace / isApplication. See compound-parent-collapse-cue.
+      // The decorative `cluster` group is NON-selectable: a tap on it deselects like a
+      // background tap (never opens a detail panel), and its expand-collapse `+/-` cue —
+      // which is selection-driven — therefore never surfaces; collapse/expand is instead
+      // a dbltap gesture (see GraphCanvas.clusterCollapseToggle). The `namespace` /
+      // `application` groups stay selectable so their cue still surfaces; selecting them
+      // opens NO detail panel EXCEPT `application` (resolveSelectedNode returns null for
+      // isNamespace, resolves isApplication). Leaf + controller compounds stay selectable.
+      ...('isCluster' in identity ? { selectable: false } : {}),
       data: {
         id: d.id,
         ...identity,
-        label,
+        label: displayLabel,
         ...(isString(d.parent) ? { parent: d.parent } : {}),
         ...(isString(namespace) ? { namespace } : {}),
         ...(isNonEmptyStringArray(d.ipaddress) ? { ipAddress: d.ipaddress } : {}),
@@ -364,8 +376,8 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
 }
 
 // Stage 3 (D5) — enrich the backend's `controller` group nodes from their child pods so the
-// right-click detail panel (ApplicationTable / ContainerTable / dashboard URL) and the
-// collapsed-border tint keep working. The backend emits the controller group + its parent
+// (left-click selection) detail panel (ApplicationTable / ContainerTable / dashboard URL) and
+// the collapsed-border tint keep working. The backend emits the controller group + its parent
 // chain directly (D1, no client synthesis); the panel only decorates it. Deterministic,
 // immutable: a NEW element is produced for each controller; child pod elements and the input
 // array are never mutated (alert pod-backfill copies the alert). Children = pods whose

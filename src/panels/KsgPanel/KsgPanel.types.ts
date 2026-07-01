@@ -26,7 +26,7 @@ export interface KsgPanelOptions {
   // Name of an EXISTING dashboard variable to write the LEFT-clicked pod's name
   // into, but ONLY when that pod's status is non-normal (warning/critical), so a
   // sibling panel can query that one pod via $selected_pod. Cleared ($__empty) on
-  // deselect / a normal pod / a non-pod / a right-click. Empty (default) disables
+  // deselect / a normal pod / a non-pod. Empty (default) disables
   // it. Use a TEXTBOX (or custom + allowCustomValue) variable — a query/options
   // variable would drop the externally-written value — and do NOT reference it in
   // this panel's own query (self-filter loop). Independent of podListVariable.

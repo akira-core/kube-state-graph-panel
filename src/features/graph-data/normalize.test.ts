@@ -1,5 +1,9 @@
 import type cytoscape from 'cytoscape';
 
+import { APPLICATION_COLOR } from '../../shared/constants/applicationPalette';
+import { CLUSTER_COLOR } from '../../shared/constants/clusterPalette';
+import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
+
 import { normalizeGraph } from './normalize';
 
 // Fixtures mirror the upstream kube-state-graph D6 cytoscape payload contract
@@ -453,9 +457,14 @@ describe('normalizeGraph', () => {
     expect(errors).toEqual([]);
 
     const byId = new Map(elements.map((e) => [e.data.id as string, e.data as Record<string, unknown>]));
-    // Cluster container is recognised and assigned a palette colour (panel concern).
+    // Cluster container is recognised and assigned the FIXED per-kind cluster colour.
     expect(byId.get('cluster:demo')?.isCluster).toBe(true);
-    expect(typeof byId.get('cluster:demo')?.clusterColor).toBe('string');
+    expect(byId.get('cluster:demo')?.clusterColor).toBe(CLUSTER_COLOR);
+    // Cluster label is kind-prefixed (`cluster:<name>`); the raw name lives on data.cluster.
+    expect(byId.get('cluster:demo')?.label).toBe('cluster:demo');
+    expect(byId.get('cluster:demo')?.cluster).toBe('demo');
+    // A non-decorative leaf keeps its unprefixed name as label.
+    expect(byId.get('demo/p1')?.label).toBe('web');
     // The backend's `parent` is passed through verbatim — no panel-side synthesis.
     expect(byId.get('demo/node-a')?.parent).toBe('cluster:demo');
     expect(byId.get('demo/p1')?.parent).toBe('demo/node-a');
@@ -465,11 +474,11 @@ describe('normalizeGraph', () => {
     // Exactly the four input nodes — nothing invented.
     expect(elements.filter((e) => e.group === 'nodes')).toHaveLength(4);
 
-    // Every compound parent — including the decorative cluster — is selectable so the
-    // built-in expand-collapse +/- cue can surface on selection; normalize no longer
-    // marks any node selectable:false (cytoscape's default selectable:true applies).
+    // The decorative cluster is NON-selectable: tapping it deselects like a background
+    // tap and its `+/-` cue never surfaces (collapse is dbltap-driven instead). Other
+    // compound parents (k8s node, controller) stay selectable (cytoscape default).
     const elById = new Map(elements.map((e) => [e.data.id as string, e]));
-    expect(elById.get('cluster:demo')?.selectable).toBeUndefined();
+    expect(elById.get('cluster:demo')?.selectable).toBe(false);
     expect(elById.get('demo/node-a')?.selectable).toBeUndefined();
     expect(elById.get('demo/p1')?.selectable).toBeUndefined();
   });
@@ -500,7 +509,8 @@ describe('normalizeGraph', () => {
       const d = byId(raw).get('prod/namespace/shop');
       expect(d?.isNamespace).toBe(true);
       expect(d?.namespace).toBe('shop');
-      expect(typeof d?.namespaceColor).toBe('string');
+      expect(d?.namespaceColor).toBe(NAMESPACE_COLOR); // fixed per-kind colour
+      expect(d?.label).toBe('namespace:shop'); // kind-prefixed label; raw name on data.namespace
       expect(d?.kind).toBeUndefined();
       expect(d?.parent).toBe('cluster/prod'); // passthrough verbatim
       expect(elById(raw).get('prod/namespace/shop')?.selectable).toBeUndefined(); // selectable (no selectable:false)
@@ -526,7 +536,8 @@ describe('normalizeGraph', () => {
       const d = byId(raw).get('prod/namespace/shop/application/checkout');
       expect(d?.isApplication).toBe(true);
       expect(d?.application).toBe('checkout');
-      expect(typeof d?.applicationColor).toBe('string');
+      expect(d?.applicationColor).toBe(APPLICATION_COLOR); // fixed per-kind colour
+      expect(d?.label).toBe('application:checkout'); // kind-prefixed label; raw name on data.application
       expect(d?.kind).toBeUndefined();
       expect(d?.parent).toBe('prod/namespace/shop');
       expect(elById(raw).get('prod/namespace/shop/application/checkout')?.selectable).toBeUndefined(); // selectable (no selectable:false)

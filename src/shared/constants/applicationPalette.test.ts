@@ -1,33 +1,27 @@
-import { APPLICATION_PALETTE, colorForApplication } from './applicationPalette';
-import { CLUSTER_PALETTE } from './clusterPalette';
-import { NAMESPACE_PALETTE } from './namespacePalette';
+import { APPLICATION_COLOR } from './applicationPalette';
+import { CLUSTER_COLOR } from './clusterPalette';
+import { EDGE_STYLE_BY_TYPE } from './colorByEdgeType';
+import { STATUS_COLOR } from './colorByStatus';
+import { NAMESPACE_COLOR } from './namespacePalette';
 
-// The STATUS colours an application tint MUST never reuse (so it is never read as health).
-const STATUS_HEXES = ['#73BF69', '#F2CC0C', '#E02F44'];
+const edgeColors = new Set(Object.values(EDGE_STYLE_BY_TYPE).map((s) => s.color.toLowerCase()));
+const statusColors = new Set(Object.values(STATUS_COLOR).map((c) => c.toLowerCase()));
 
-describe('applicationPalette', () => {
-  it('colorForApplication is deterministic per name and returns a palette member', () => {
-    expect(colorForApplication('checkout')).toBe(colorForApplication('checkout'));
-    expect(APPLICATION_PALETTE as readonly string[]).toContain(colorForApplication('checkout'));
-    expect(APPLICATION_PALETTE as readonly string[]).toContain(colorForApplication('mongo'));
+describe('APPLICATION_COLOR', () => {
+  it('is a single fixed hex constant (one colour for every application, no per-name hashing)', () => {
+    expect(APPLICATION_COLOR).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
 
-  it('returns a stable palette member for the empty string (no throw)', () => {
-    expect(APPLICATION_PALETTE as readonly string[]).toContain(colorForApplication(''));
-    expect(colorForApplication('')).toBe(colorForApplication(''));
+  it('never reuses a status colour (an application tint must never read as node health)', () => {
+    expect(statusColors.has(APPLICATION_COLOR.toLowerCase())).toBe(false);
   });
 
-  it('avoids the STATUS colours (never confused with node health)', () => {
-    const lower = APPLICATION_PALETTE.map((c) => c.toLowerCase());
-    for (const status of STATUS_HEXES) {
-      expect(lower).not.toContain(status.toLowerCase());
-    }
+  it('never reuses an edge colour (edges must stay legible crossing the backplate)', () => {
+    expect(edgeColors.has(APPLICATION_COLOR.toLowerCase())).toBe(false);
   });
 
-  it('does not collide with CLUSTER_PALETTE or NAMESPACE_PALETTE (nested boxes must stay distinguishable)', () => {
-    const outer = new Set([...CLUSTER_PALETTE, ...NAMESPACE_PALETTE].map((c) => c.toLowerCase()));
-    for (const c of APPLICATION_PALETTE) {
-      expect(outer.has(c.toLowerCase())).toBe(false);
-    }
+  it('differs from the cluster and namespace kind colours (nested boxes stay apart)', () => {
+    expect(APPLICATION_COLOR.toLowerCase()).not.toBe(CLUSTER_COLOR.toLowerCase());
+    expect(APPLICATION_COLOR.toLowerCase()).not.toBe(NAMESPACE_COLOR.toLowerCase());
   });
 });

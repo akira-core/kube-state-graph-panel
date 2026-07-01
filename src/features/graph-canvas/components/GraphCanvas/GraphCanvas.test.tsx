@@ -3,25 +3,44 @@ import cytoscape from 'cytoscape';
 import React from 'react';
 
 // A REAL headless cytoscape instance stands in for the one useCytoscape would
-// build, so the cxttap/tap effects bind against genuine event plumbing. The refs
+// build, so the tap/dbltap effects bind against genuine event plumbing. The refs
 // are dereferenced lazily (inside the arrow bodies), keeping hoisting order safe.
 const mockCyRef: { current: cytoscape.Core | null } = { current: null };
 const mockContainerRef = React.createRef<HTMLDivElement>();
+
+// Stand-in expand-collapse api. The real useExpandCollapse would only populate
+// apiRef when collapse is wired + the extension is registered (not in jsdom); the
+// mock just injects this fake so the dbltap → api toggle path is exercisable.
+const mockExpandApi = {
+  isExpandable: jest.fn(() => false),
+  isCollapsible: jest.fn(() => false),
+  expand: jest.fn(),
+  collapse: jest.fn(),
+};
 
 jest.mock('../../hooks/useCytoscape', () => ({
   useCytoscape: (): unknown => ({ containerRef: mockContainerRef, cyRef: mockCyRef, isReady: true }),
 }));
 // fcose/dagre are not registered in the jest env — layout is not under test here.
 jest.mock('../../hooks/useGraphLayout', () => ({ useGraphLayout: (): void => undefined }));
+// Inject the fake expand-collapse api into GraphCanvas's apiRef (headless jsdom has
+// no real extension); lets the dbltap handler reach a working api under test.
+jest.mock('../../hooks/useExpandCollapse', () => ({
+  useExpandCollapse: (props: { apiRef: { current: unknown } }): void => {
+    props.apiRef.current = mockExpandApi;
+  },
+}));
 
 import { GraphCanvas } from './GraphCanvas';
 
 const elements: cytoscape.ElementDefinition[] = [
   { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0' } },
-  // Cluster backplate: decorative, never selectable (mirrors normalize).
-  { group: 'nodes', selectable: false, data: { id: 'cl', isCluster: true, label: 'demo' } },
-  // Namespace group: decorative, never selectable (mirrors normalize).
-  { group: 'nodes', selectable: false, data: { id: 'ns', isNamespace: true, label: 'shop' } },
+  // Cluster backplate: decorative + NON-selectable (mirrors normalize) — tap deselects,
+  // collapse is dbltap-driven.
+  { group: 'nodes', selectable: false, data: { id: 'cl', isCluster: true, label: 'cluster:demo' } },
+  // Namespace group: decorative but SELECTABLE (mirrors normalize) — its selection
+  // surfaces the +/- cue; only cluster carries selectable:false.
+  { group: 'nodes', data: { id: 'ns', isNamespace: true, label: 'namespace:shop' } },
   // Controller group: detail-eligible, so it stays SELECTABLE (no selectable:false) — its
   // clicks must reach the detail panel (mirrors normalize).
   { group: 'nodes', data: { id: 'ctrl', isController: true, kind: 'statefulset', label: 'mongo' } },
@@ -43,6 +62,10 @@ function renderCanvas(handlers: { onSelect?: (id: string | null) => void }): Ret
 describe('GraphCanvas selection wiring (left-click only; right-click detail removed)', () => {
   beforeEach(() => {
     mockCyRef.current = cytoscape({ headless: true, elements });
+    mockExpandApi.isExpandable.mockReturnValue(false);
+    mockExpandApi.isCollapsible.mockReturnValue(false);
+    mockExpandApi.expand.mockClear();
+    mockExpandApi.collapse.mockClear();
   });
 
   afterEach(() => {
@@ -65,6 +88,29 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
     expect(onSelect).toHaveBeenCalledWith('p1');
     mockCyRef.current!.getElementById('ctrl').emit('tap');
     expect(onSelect).toHaveBeenCalledWith('ctrl');
+  });
+
+  it('a left-tap on the non-selectable cluster deselects (background-tap behaviour, no detail)', () => {
+    const onSelect = jest.fn();
+    renderCanvas({ onSelect });
+    mockCyRef.current!.getElementById('cl').emit('tap');
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it('double-tapping a cluster toggles its collapse via the expand-collapse api', () => {
+    mockExpandApi.isExpandable.mockReturnValue(true);
+    renderCanvas({ onSelect: jest.fn() });
+    mockCyRef.current!.getElementById('cl').emit('dbltap');
+    expect(mockExpandApi.expand).toHaveBeenCalled();
+    expect(mockExpandApi.collapse).not.toHaveBeenCalled();
+  });
+
+  it('double-tapping a non-cluster node never touches the expand-collapse api', () => {
+    mockExpandApi.isExpandable.mockReturnValue(true);
+    renderCanvas({ onSelect: jest.fn() });
+    mockCyRef.current!.getElementById('p1').emit('dbltap');
+    expect(mockExpandApi.expand).not.toHaveBeenCalled();
+    expect(mockExpandApi.collapse).not.toHaveBeenCalled();
   });
 
   it('leaves the native context menu alone (right-click is no longer intercepted)', () => {

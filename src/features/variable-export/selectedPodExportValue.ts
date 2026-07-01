@@ -16,8 +16,13 @@ const NON_NORMAL_STATUS: ReadonlySet<NodeStatus> = new Set<NodeStatus>(['warning
 /**
  * The value to write into the selected-pod variable: `[label]` ONLY when this is a
  * LEFT-click selection of a pod whose status is non-normal; otherwise `[]` (which the
- * writer turns into the `$__empty` clear sentinel). Right-click (`isLeftClick: false`),
- * a normal/status-less pod, a non-pod, and no selection all clear.
+ * writer turns into the `$__empty` clear sentinel). A normal/status-less pod, a non-pod,
+ * and no selection all clear.
+ *
+ * `isLeftClick` is retained for completeness (the `false` branch clears), but production
+ * has only one selection path — left-click — so KsgPanel always passes `true`; there is
+ * no live right-click gesture feeding this. The parameter/`false` branch is dead but kept
+ * so the pure decision stays total and independently testable.
  */
 export function selectedPodExportValue(node: SelectedPodExportInput | null, isLeftClick: boolean): string[] {
   if (!isLeftClick || node === null) {

@@ -13,6 +13,7 @@ import { useGraphResize } from '../../hooks/useGraphResize';
 import { useLayoutRunToken } from '../../hooks/useLayoutRunToken';
 import { useSelectionFocus } from '../../hooks/useSelectionFocus';
 
+import { clusterCollapseToggle } from './clusterCollapseToggle';
 import type { GraphCanvasProps } from './GraphCanvas.types';
 import { selectSingle } from './selectSingle';
 
@@ -141,6 +142,31 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     };
     // isReady gates binding until the instance exists.
   }, [cyRef, onSelect, isReady]);
+
+  // Double-tap a (non-selectable) cluster to collapse/expand it — clusters can't surface
+  // the selection-driven `+/-` cue, so dbltap is their toggle gesture. Routes through the
+  // shared expand-collapse api (populated by useExpandCollapse only when collapse is wired,
+  // else null → no-op); the isCluster gate + toggle decision live in clusterCollapseToggle.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (cy === null) {
+      return;
+    }
+    const handleDblTap = (evt: cytoscape.EventObject): void => {
+      const api = apiRef.current;
+      if (api === null || evt.target === cy) {
+        return;
+      }
+      const node = evt.target as cytoscape.NodeSingular;
+      if (node.isNode()) {
+        clusterCollapseToggle(node, api);
+      }
+    };
+    cy.on('dbltap', handleDblTap);
+    return (): void => {
+      cy.off('dbltap', handleDblTap);
+    };
+  }, [cyRef, isReady]);
 
   // Mirror selectedId into cytoscape's single selection so the highlight tracks the
   // detail panel. `elements` is a dep: a rebuild/re-add brings the node back UNSELECTED

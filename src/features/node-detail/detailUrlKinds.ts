@@ -2,7 +2,7 @@ import { CATEGORY_BY_KIND } from '../../shared/constants/categoryByKind';
 import type { GraphNodeKind, NodeKind } from '../../shared/constants/types';
 
 // The kinds whose node-detail panel carries the Application / Containers sections
-// and whose right-click fires the detail-URL queries — exactly the Workloads
+// and whose (left-click) selection fires the detail-URL queries — exactly the Workloads
 // category (pod + the five workload controllers). Derived from the single-source
 // CATEGORY_BY_KIND (a compiler-exhaustive Record<NodeKind, …>) instead of a
 // hand-maintained parallel list, so a future workload kind cannot silently miss

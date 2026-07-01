@@ -360,11 +360,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
-  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, left OR
-  // right click) — the button appears in both views — not the right-click-only
-  // detailRequest. Params = selected node + children (compound merge); undefined idles the
-  // hook. The dashboard time range rides as from_time/to_time (Unix seconds) and is a memo
-  // dep, so a range change rebuilds params and the hook refetches.
+  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, set by
+  // left-click selection — the sole selection path now). Params = selected node + children
+  // (compound merge); undefined idles the hook. The dashboard time range rides as
+  // from_time/to_time (Unix seconds) and is a memo dep, so a range change rebuilds params
+  // and the hook refetches.
   const dashboardParams = useMemo(
     () => assembleDashboardParams(elements, selectedNodeId, data.timeRange),
     [elements, selectedNodeId, data.timeRange]

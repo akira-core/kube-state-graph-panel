@@ -138,8 +138,8 @@ function deriveApplication(
 }
 
 /**
- * Eager detail-URL prefetch for a right-clicked pod/controller: fires both queries in
- * parallel through the Grafana backend proxy (`getBackendSrv()` — the panel never
+ * Eager detail-URL prefetch for a (left-click) selected pod/controller: fires both queries
+ * in parallel through the Grafana backend proxy (`getBackendSrv()` — the panel never
  * fetches external URLs directly) and exposes resolved URLs as per-target state.
  *
  * Effect is keyed on the request-key STRING, not the `input` object: a same-value data
