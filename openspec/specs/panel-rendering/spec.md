@@ -34,17 +34,22 @@ Panel SHALL 透過 cytoscape.js 在指定 DOM 容器中渲染 nodes 與 edges,�
 
 ### Requirement: 邊顏色依關係類型對應
 
-系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉涵蓋後端輸出的邊型別(`pod-runs-on-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `switch-to-switch` / `node-to-switch`),外加 panel 自 pod `data.owner` 合成的 `controller-owns-pod`(此型別**非**後端輸出,見 graph-data-integration),共 8 種。`pod-calls-service` 與 `service-selects-pod` MUST 共用與 `pod-calls-pod` **相同的橘色 `#f97316`**——一個 pod→service→pod hop 本質仍是 pod-to-pod 關係、只多一層 Service;這兩個服務型別並 MUST **自 edge legend 省略**(無獨立列、亦無額外合併列),由 `pod-calls-pod` 的單一列代表——該列渲染為 `pod ↔ pod/service`(雙向箭頭 glyph),標示其同時涵蓋直連與經 Service 的 pod-to-pod 關係(見下「圖例」需求)。(歷史:曾為綠 `#10b981`,撞 status-normal 綠;再短暫為靛;最終統一為 pod-calls-pod 橘。)所有邊皆實線,方向以**箭頭**區分;`switch-to-switch` 與 `node-to-switch`(後端 v0.0.18 物理網路 fabric)MUST **完全共用同一 infra 色與實線線型**,並走相同的正交(`taxi`)路由(見 switch-tier-layout 規格),視覺上等同——`node-to-switch` 不再使用獨立靛色或 bézier,僅以端點(`<node> → <switch>` vs `<switch> → <switch>`)區分,使 K8s node 的上行連線讀起來即為 switch fabric 的一部分。`colorByEdgeType.ts` 同時匯出 `EDGE_ENDPOINTS_BY_TYPE`(每個 edge type 的來源/目標 `NodeKind`),供 legend 將 edge type 渲染為 `<from> → <to>`;`controller-owns-pod` 的端點 MUST 為 `<controller> → <pod>`,`switch-to-switch` 為 `<switch> → <switch>`,`node-to-switch` 為 `<node> → <switch>`。
+系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉涵蓋後端輸出的邊型別(`pod-to-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `pvc-to-storageclass` / `switch-to-switch` / `node-to-switch`),共 8 種,**皆為後端輸出**——panel 隨後端 D6 階層採用而退役兩個舊有合成邊:`pod-runs-on-node`(pod-runs-on-node 不再是巢狀或合成邊,改由後端 `pod-to-node` 邊取代)與 `controller-owns-pod`(controller 群組改由後端輸出,panel 不再自 pod `data.owner` 合成此邊,見 graph-data-integration)。`pod-to-node`(`pod → node`)MUST 以藍色 `#3b82f6`(舊 blue)實線渲染;`pvc-to-storageclass`(`pvc → storageclass`)MUST 以紫色 `#8b5cf6`(storage violet)實線渲染,且此色 MUST **刻意有別於** `pod-mounts-pvc` 的 `#a855f7`,使兩條 storage 邊在視覺上可區分。`pod-calls-service` 與 `service-selects-pod` MUST 共用與 `pod-calls-pod` **相同的橘色 `#f97316`**——一個 pod→service→pod hop 本質仍是 pod-to-pod 關係、只多一層 Service;這兩個服務型別並 MUST **自 edge legend 省略**(無獨立列、亦無額外合併列),由 `pod-calls-pod` 的單一列代表——該列渲染為 `pod ↔ pod/service`(雙向箭頭 glyph),標示其同時涵蓋直連與經 Service 的 pod-to-pod 關係(見下「圖例」需求)。所有邊皆實線,方向以**箭頭**區分;`switch-to-switch` 與 `node-to-switch`(後端 v0.0.18 物理網路 fabric)MUST **完全共用同一 infra 色與實線線型**,並走相同的正交(`taxi`)路由(見 switch-tier-layout 規格),視覺上等同——`node-to-switch` 不再使用獨立靛色或 bézier,僅以端點(`<node> → <switch>` vs `<switch> → <switch>`)區分,使 K8s node 的上行連線讀起來即為 switch fabric 的一部分。`colorByEdgeType.ts` 同時匯出 `EDGE_ENDPOINTS_BY_TYPE`(每個 edge type 的來源/目標 `NodeKind`),供 legend 將 edge type 渲染為 `<from> → <to>`;`pod-to-node` 的端點 MUST 為 `<pod> → <node>`,`pvc-to-storageclass` 為 `<pvc> → <storageclass>`,`switch-to-switch` 為 `<switch> → <switch>`,`node-to-switch` 為 `<node> → <switch>`。
 
 #### Scenario: 已知邊類型對應到正確顏色
 
-- **WHEN** 邊 data 帶有 `edgeType: 'controller-owns-pod'`(或其他已定義 type)
-- **THEN** 該邊以對應顏色與線型渲染,且與 `colorByEdgeType.ts` 定義一致
+- **WHEN** 邊 data 帶有 `edgeType: 'pod-to-node'`(或其他已定義 type)
+- **THEN** 該邊以對應顏色與線型渲染(`pod-to-node` 為藍 `#3b82f6` 實線),且與 `colorByEdgeType.ts` 定義一致
+
+#### Scenario: 兩條 storage 邊以不同紫色區分
+
+- **WHEN** 圖中同時存在 `pod-mounts-pvc` 與 `pvc-to-storageclass` 邊
+- **THEN** `pod-mounts-pvc` 以 `#a855f7`、`pvc-to-storageclass` 以 `#8b5cf6` 渲染,兩色刻意不同使兩條 storage 邊可區分閱讀
 
 #### Scenario: 邊顏色不與 status 顏色衝突
 
 - **WHEN** 檢視 `EDGE_STYLE_BY_TYPE` 中任一 edge type 的顏色
-- **THEN** 其顏色 MUST NOT 等於 `STATUS_COLOR` 的任一值(綠 `#73BF69` / 黃 `#F2CC0C` / 紅 `#E02F44`)——特別是服務邊改用與 `pod-calls-pod` 相同的橘色(非綠色),以免與健康狀態邊框混淆
+- **THEN** 其顏色 MUST NOT 等於 `STATUS_COLOR` 的任一值(綠 `#73BF69` / 黃 `#F2CC0C` / 紅 `#E02F44`)——`pod-to-node` `#3b82f6`、`pvc-to-storageclass` `#8b5cf6` 與服務邊橘色 `#f97316` 皆滿足此條件
 
 #### Scenario: node-to-switch 與 switch-to-switch 視覺一致
 
@@ -134,6 +139,7 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 
 - **WHEN** 某 compound parent 已被選取並顯示其 `+/-` cue,使用者點擊該 cue 範圍
 - **THEN** 該 parent 的收合 / 展開狀態被切換(經 expand-collapse api),且 `collapsedIds` 隨之更新(沿用既有 cue 事件 → `onCollapsedChange` 路徑)
+
 ### Requirement: 收合的裝飾群組顯示 folder icon
 
 裝飾性 `cluster` / `namespace` / `application` 群組在**收合**(`.cy-expand-collapse-collapsed-node`)時 MUST 於框中央顯示一個 **folder glyph**,以該群組的 accent 色(`clusterColor` / `namespaceColor` / `applicationColor`)上色(`background-fit: contain`)。**展開**時維持現狀——無中央 icon 的 labelled 容器(`background-image: 'none'`)。此 folder icon 為 gap-fill:具 `kind` 的 compound(`controller` / k8s `node` / `storageclass`)在收合時本就回退顯示其 kind icon(base `node` 規則),MUST NOT 受影響(folder 選擇器僅匹配 `isCluster` / `isNamespace` / `isApplication`)。folder glyph 為 `NodeKind` 之外的獨立 SVG(`FOLDER_ICON_SVG`,裝飾 kind 非 `NodeKind`,不入 `ICON_SVG_BY_KIND`)。
@@ -174,7 +180,9 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 
 ### Requirement: 圖例 (Legend)
 
-Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod-calls-pod` 的 `pod ↔ pod/service` 雙向列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。kind 列的文字標籤預設為 kind 字串本身,惟 MUST 支援 display-name 覆寫(`NodeLegend` 內的查表):`network` MUST 顯示為 `physical network`。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。例外:`pod-calls-pod` 列 MUST 渲染為 `pod ↔ pod/service`(雙向箭頭 glyph,兩端皆有箭頭),代表被省略的服務邊對。legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → `Edge Types` → `Status` → 三個 swatch 區段(`Clusters` → `Nodes`|`Controllers` → `Storage Classes`);亦即 swatch 區段置於 `Status` **之後**(legend 底部)。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Edge Types` / `Status` / `Clusters` / `Storage Classes`)。
+Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod-calls-pod` 的 `pod ↔ pod/service` 雙向列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。kind 列的文字標籤預設為 kind 字串本身,惟 MUST 支援 display-name 覆寫(`NodeLegend` 內的查表):`network` MUST 顯示為 `physical network`。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。例外:`pod-calls-pod` 列 MUST 渲染為 `pod ↔ pod/service`(雙向箭頭 glyph,兩端皆有箭頭),代表被省略的服務邊對。
+
+legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → `Edge Types` → `Status` → swatch 區段(`Clusters` → `Nodes`|`Controllers` → `Namespaces` → `Applications`);亦即 swatch 區段置於 `Status` **之後**(legend 底部)。其中 `Namespaces`(`NamespaceLegend`)與 `Applications`(`ApplicationLegend`,標題 `Applications` / 應用程式)為 **mode-gated**:僅在 `controller` 模式渲染(`node` 模式剝除 namespace / application 群組,故兩區段 MUST `return null`);`NamespaceLegend` 由後端 `isNamespace` 群組節點餵入(以 `namespaceColor` accent 上色)、`ApplicationLegend` 由後端 `isApplication` 群組節點餵入(以 `applicationColor` accent 上色,`applicationPalette` 衍生)。舊有的 `StorageClassLegend`(`Storage Classes` swatch 區段)MUST **移除**——`storageclass` 於後端 D6 階層改為 cluster 下的一般 leaf,故 MUST 改以其 `storageclass` glyph 列於 `NodeLegend` 的 `Storage` 大類(經既有 `categoryByKind` wiring),不再有獨立 swatch 區段。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Edge Types` / `Status` / `Clusters` / `Namespaces` / `Applications`)。
 
 #### Scenario: Node legend 只列出以 glyph 呈現的 kind,依大類分組
 
@@ -192,6 +200,16 @@ Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與�
 - **WHEN** 圖中存在 `pod-calls-service` / `service-selects-pod` 邊
 - **THEN** 該兩型別 MUST NOT 出現於 edge legend(無獨立列、亦無額外合併列);它們在 canvas 以與 `pod-calls-pod` 相同的橘色繪製,於 legend 由 `pod-calls-pod` 列代表——該列渲染為 `pod ↔ pod/service`(雙向箭頭 glyph)
 
+#### Scenario: Applications swatch 區段列出後端 application 群組(mode-gated)
+
+- **WHEN** `controller` 模式下圖中含後端 `isApplication` 群組節點
+- **THEN** `ApplicationLegend`(標題 `Applications`)以各 application 名稱列出 swatch,顏色取自 `applicationColor`(`applicationPalette` accent);切換為 `node` 模式時 application 群組被剝除,該區段 `return null`(與 `Namespaces` 區段一致 mode-gated)
+
+#### Scenario: storageclass 以 NodeLegend glyph 呈現、無獨立 swatch 區段
+
+- **WHEN** 圖中含 storageclass leaf 節點
+- **THEN** `storageclass` 以其 glyph 列於 `NodeLegend` 的 `Storage` 大類;legend MUST NOT 渲染任何 `Storage Classes` swatch 區段(`StorageClassLegend` 已移除)
+
 #### Scenario: 對應集合為空時不渲染
 
 - **WHEN** 圖中無任何節點(或無任何 drawn 邊)
@@ -206,10 +224,23 @@ Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
 
 被選取節點的資料源為已 gated 的 `resolveSelectedNode`(可見 + 未被收合祖先隱藏 + detail-eligible),故裝飾性 **`cluster` / `namespace`** 群組(`resolveSelectedNode` 回 `null`)**不**釘選、其 hover 行為不變;**`application` 群組現為 detail-eligible**,選取時**亦釘選**(顯示合成 `kind: application` + 其名稱)。釘選卡片**無關閉鈕**:取消選取(點背景 / 邊、切換節點、kind / edge 過濾、收合祖先、資料刷新移除)即自動清除釘選並恢復 hover 模式。樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
 
+`storageclass` leaf 節點 MUST 走**一般 node-tooltip 路徑**——它於後端 D6 階層自帶 `kind`(`storageclass`)、`labels.cluster`、`provisioner` 與 `parameters`,tooltip(hover 浮動或釘選)直接顯示這些自帶欄位;舊有「自子 PVC 節點合成 context」路徑(`gatherStorageClassContext`、`HoveredElement.storageClass` 欄、`HoverTooltip` 的 `isStorageClass` 分支)MUST 移除。kind-less 的 backend 群組(`isNamespace` / `isApplication`)MUST 由旗標推導一個**合成 `kind` row**(`isApplication` → `application`、`isNamespace` → `namespace`)——純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見);`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用。
+
 #### Scenario: Hover 節點顯示節點 metadata（無選取時）
 
 - **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一節點
 - **THEN** `HoverTooltip` 浮動顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時)、`application`(ArgoCD application;凡 leaf 帶 `data.application`——pod / service / pvc 與聚合後的 controller——即顯示,惟裝飾性 `application` 群組節點 MUST NOT 顯示此 row 以免與其合成 `kind`/`name` 重複),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+
+#### Scenario: Hover storageclass leaf 顯示自帶 metadata（未選取）
+
+- **WHEN** 無選取時,滑鼠移至一個 storageclass leaf(巢狀於某 cluster,自帶 `kind: storageclass`、`labels.cluster`、`provisioner`、`parameters`)
+- **THEN** tooltip 浮動顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、`provisioner: <name>`,以及每個 backing-storage 參數一列(如 `pool: kube`、`selector: tier=fast`;key 排序、值換行)
+- **AND** MUST NOT 以子 PVC 節點合成 `PVCs (N)` 清單(該合成路徑已隨 storageclass 改為 leaf 而移除;PVC 以 `pvc-to-storageclass` 邊相連而非巢狀)
+
+#### Scenario: Hover kind-less 群組(namespace / application)顯示合成 kind
+
+- **WHEN** 使用者 hover 於一個 backend `namespace` 或 `application` 群組節點(kind-less:無 `data.kind`,僅帶 `isNamespace` / `isApplication` 旗標)
+- **THEN** `HoverTooltip` MUST 由該旗標推導出一個合成 `kind` row(`isApplication` → `application`、`isNamespace` → `namespace`)並顯示,使 hover 不致只剩裸 name;此 row 為純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見)。`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用
 
 #### Scenario: Hover 邊顯示邊 metadata（無選取時）
 
@@ -266,7 +297,8 @@ Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
 #### Scenario: 選取 storageclass 釘選 provisioner 與 parameters
 
 - **WHEN** 使用者左鍵選取一個 storageclass leaf
-- **THEN** tooltip 釘選顯示 `kind: storageclass` + `provisioner` + 每個 backing-storage parameter(key 排序、值換行);底部 detail 面板因無 change-report / alerts 區塊而不渲染(除非有 ready dashboard URL,見「Node Detail 面板」)
+- **THEN** tooltip 釘選顯示 `kind: storageclass` + `provisioner` + 每個 backing-storage parameter(key 排序、值換行);底部 detail 面板因無 change-report / alerts 區塊而僅渲染 header(見「Node Detail 面板」)
+
 ### Requirement: Node Kind / Edge Type 過濾
 
 Panel SHALL 透過 Grafana panel options 提供兩個 `MultiSelect` 欄位 —— `visibleKinds`(可見的 `NodeKind` 集合)與 `visibleEdgeTypes`(可見的 `EdgeType` 集合)—— 預設為對應表(`ICON_SVG_BY_KIND` / 當前模式的 `drawnEdgeTypesForMode`)的全部 keys,惟 `network` MUST 自 `visibleKinds` 的選項與預設(`ALL_KINDS`)排除:虛擬 fabric wrapper 不是可過濾的資源 kind,`computeVisibility` MUST 對 `network` kind 一律視為可見——cytoscape 的有效可見性為元素與其所有祖先的 AND,藏掉 wrapper 會連帶藏掉其下所有 switch(包含 dashboard 在該 kind 存在前已儲存 `visibleKinds` 清單的情境);wrapper 仍會在其 switch 全被過濾後經 orphan 級聯收掉。被過濾的元素 MUST 以 `visibility: hidden` 隱藏(保留位置,不觸發 cytoscape 重新 layout),且過濾邏輯 MUST 集中於純函式 `computeVisibility(elements, visibleKinds, visibleEdgeTypes)` 以利單測。
@@ -466,9 +498,10 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 
 - **WHEN** 選取的節點無 `alerts` 欄位或為空陣列
 - **THEN** Alerts 區塊(`node-detail-section-alerts`)MUST NOT 渲染(不顯示表格、亦不顯示舊的「No alerts」訊息);其他有資料區塊照常渲染,若無其他 body 區塊則面板仍渲染 header-only
+
 ### Requirement: 容器圖例(NodeContainerLegend)隨 pod-parent 模式切換容器來源
 
-`NodeContainerLegend`(以 cluster 色上色的 compound 容器清單,含「全部摺疊 / 展開」切換)列出的容器來源 MUST 隨 `podParentMode` 切換:`node` 模式列出 K8s `node` 容器(`cluster > node > pod` 的中間層);`controller` 模式改列 controller 容器(`cluster > controller > pod` 的中間層)。兩模式皆以容器所屬 cluster 的 accent 色上色(與 canvas 容器底色同源),且「全部摺疊」切換 MUST 作用於**當前模式**的容器集合(經 `deriveNodeContainers` 等單一來源導出,使切換鈕與 canvas 容器永遠指向同一組)。容器圖例 MUST 在當前模式無任何 compound 容器時 `return null`。
+`NodeContainerLegend`(以 cluster 色上色的 compound 容器清單,含「全部摺疊 / 展開」切換)列出的容器來源 MUST 隨 `podParentMode` 切換:`node` 模式列出 K8s `node` 容器(`cluster > node > pod` 的中間層);`controller` 模式改列 controller 容器(`cluster > controller > pod` 的中間層)。controller 容器來源 MUST 為**後端 `controller` 群組節點**(經 enrichment 標 `isController: true`、kind 衍生自子 pod 的 `owner.kind`),而非 panel 合成(`synthesizeControllers` 已移除);`deriveNodeContainers` 於 controller 模式以 `d.isController === true` 認定容器。兩模式皆以容器所屬 cluster 的 accent 色上色(與 canvas 容器底色同源),且「全部摺疊」切換 MUST 作用於**當前模式**的容器集合(經 `deriveNodeContainers` 等單一來源導出,使切換鈕與 canvas 容器永遠指向同一組)。容器圖例 MUST 在當前模式無任何 compound 容器時 `return null`。
 
 #### Scenario: node 模式列 K8s node 容器
 
@@ -477,7 +510,7 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 
 #### Scenario: controller 模式列 controller 容器
 
-- **WHEN** `podParentMode === 'controller'` 且圖中有裝載 pod 的 controller
+- **WHEN** `podParentMode === 'controller'` 且圖中有裝載 pod 的後端 `controller` 群組(`isController: true`)
 - **THEN** `NodeContainerLegend` 改列這些 controller(以各自 cluster 色);「全部摺疊」改作用於 controller 容器集合
 
 #### Scenario: 當前模式無容器時不渲染
@@ -485,45 +518,9 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 - **WHEN** 當前模式下圖中無任何 compound 容器(例:無 owner 的裸 pod 在 controller 模式)
 - **THEN** `NodeContainerLegend` `return null`,不渲染空標題
 
-### Requirement: StorageClass compound 容器渲染與圖例(**完全比照 K8s node 容器**)
-
-StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeKind`**(`'storageclass'` ∈ `NodeKind`、∈ `ICON_SVG_BY_KIND`、`categoryByKind` → `Storage`),同時由 normalize 標 `isStorageClass: true`。它 MUST 與 K8s `node` 容器**完全對等**地渲染與處理:
-
-- stylesheet MUST **不**含任何 storageclass 專屬選擇器:它走 base `node`(由 `kind` 解析 icon)+ `node:parent`。故**展開**(為 `:parent`)時是不帶 icon、取**父 cluster** accent 的純分組 backplate;**收合 / leaf**(非 `:parent`)時顯示其 `storageclass` kind icon(三層磁碟堆疊 glyph)——與收合的 K8s `node` 容器一致。它 MUST 保持可互動、可收合(無 `events:'no'`)。MUST NOT 攜帶 status / alerts。
-- `isStorageClass` 旗標 MUST 僅驅動兩項非樣式行為:(a)獨立「Storage classes」swatch legend 區段;(b)tooltip context 合成(provisioner / parameters)。storageclass 為 **detail-eligible**(`isDashboardEligible` 僅排除裝飾性 `cluster` / `namespace` / `application`,**不**排除 storageclass):左鍵選取時其 `kind` / `provisioner` / `parameters` 由**右上角釘選 tooltip** 呈現(見「Hover Tooltip」pinned 模式),底部 detail 面板因無 change-report / alerts 區塊而 `return null`(除非有 ready dashboard URL,見「Node Detail 面板」)。
-- Panel MUST 提供**獨立**的「Storage classes」swatch legend 區段(`StorageClassLegend`,經純函式 `deriveStorageClassContainers` 導出、以父 cluster 色上色、name 去重、childless 者視為 leaf 不列入),含「全部摺疊 / 展開」切換。此區段 MUST 為 **mode-independent**(`node` / `controller` 兩模式皆顯示),且無 storageclass 容器時 MUST `return null`。
-- tooltip MUST 顯示 context(**未選取時 hover 浮動、選取時釘選於右上角,內容相同**):`kind: storageclass`(因已有 kind 而自然顯示)+ 其 cluster(`useHoverElement` 自父 cluster 容器讀)+ `provisioner` + 其 backing-storage `parameters`(typed string map;每個 entry 一列、key 排序、值換行——值如 selector 可能長)。
-
-#### Scenario: 展開的 storageclass 群組為無 icon 的 cluster 上色容器
-
-- **WHEN** 圖中有一個展開的 `isStorageClass` 容器,巢狀於某 cluster 容器、其下有 PVC 子節點
-- **THEN** 該容器以 `round-rectangle` 渲染、`background-image` 為 `none`、底色取父 cluster accent;其下 PVC 仍各自攜帶 pvc icon
-
-#### Scenario: 收合 / leaf 的 storageclass 群組顯示 storage glyph
-
-- **WHEN** 該 storageclass 節點為收合或 childless(非 `:parent`)
-- **THEN** 其 `background-image` 為 theme 上色的 `storageclass` kind icon(`ICON_SVG_BY_KIND.storageclass`,三層磁碟堆疊),比照收合的 K8s `node` 容器
-
-#### Scenario: 無 storageclass 時不渲染該區段
-
-- **WHEN** 資料中無任何 storageclass 容器
-- **THEN** 「Storage classes」legend 區段 `return null`,不渲染空標題
-
-#### Scenario: storageclass hover 顯示 provisioner 與 parameters(D6 leaf,未選取)
-
-- **WHEN** 無選取時,滑鼠移至一個 storageclass leaf(巢狀於某 cluster)
-- **THEN** tooltip 浮動顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、`provisioner: <name>`,以及每個 backing-storage 參數一列(如 `pool: kube`、`selector: tier=fast`;key 排序、值換行)
-- **AND** MUST NOT 顯示舊的合成 `PVCs (N)` 清單(storageclass 已是 leaf,PVC 以 `pvc-to-storageclass` 邊相連而非巢狀)
-- **AND** 左鍵選取該 storageclass 時,同一內容改釘選於右上角(見「Hover Tooltip」pinned 模式)
-
-#### Scenario: storageclass 容器預設收合(mode-independent)
-
-- **WHEN** Panel 首次載入且圖中含 storageclass 容器
-- **THEN** 所有 storageclass 容器 MUST 預設**收合**(`node` / `controller` 兩模式皆然),其 id 於首次載入即併入 `collapsedIds` 推給 GraphCanvas;ref 守衛使後續 data refresh **不**重收(使用者展開的 storageclass 保持展開)
-- **AND** 因預設已收合,「Storage classes」collapse 切換鈕(`storageclass-collapse-toggle`)首次點擊作為「全部展開」動作
 ### Requirement: 收合容器(controller / k8s node)邊框依最差子節點 status 上色
 
-當一個**容器收合**時(controller 或 k8s `node`),其矩形邊框 MUST 以它**收合後會隱藏的最差 status** 對應的 `STATUS_COLOR`(`normal` 綠 `#73BF69` / `warning` 黃 / `critical` 紅)上色——**含 `normal`**:旗下全健康的容器收合時 MUST 畫 `normal` 綠框(明確的好消息,而非中性無框)。資料來源為 normalize 彙整於該節點的 `data.worstStatus`(見 graph-data-integration:controller = 子 pod 最差 status,**一律寫入**;k8s node = 自身 status 與子 pod status 之最差,worst-wins,**有 status 資訊時寫入**——自身無 status 且無任何子 pod 的 node 無此欄,收合維持中性邊框,「無資訊」不得偽裝成 normal)。stylesheet MUST 以 `node[worstStatus="<status>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 `statusSelectors`(資料驅動的 `node[status="<s>"]`——**任何帶 `status` 的節點**畫自身 status 邊框,非 pod/node/pvc 白名單;normalize 只在後端實際給 status 時才寫該欄,故 service / external / cluster / storageclass 等無 status 者維持中性邊框)**之後**,使**收合的 k8s node** 的最差子節點 status 能覆寫其自身 status 邊框;controller 無 status 邊框,故此為其唯一上色。`node:selected` 以 outline/underlay 呈現故不影響此邊框色。**展開**的容器不套此選擇器(controller 維持中性 `:parent` 容器邊框、k8s node 維持自身 status 邊框)。採 **status**(非 alert severity):`info` 僅存在於 alert、不在 status 量尺,故收合框永不為 info(`SEVERITY_COLOR` 仍只服務 detail panel 的 alert 表)。
+當一個**容器收合**時(controller 或 k8s `node`),其矩形邊框 MUST 以它**收合後會隱藏的最差 status** 對應的 `STATUS_COLOR`(`normal` 綠 `#73BF69` / `warning` 黃 / `critical` 紅)上色——**含 `normal`**:旗下全健康的容器收合時 MUST 畫 `normal` 綠框(明確的好消息,而非中性無框)。資料來源為 normalize 彙整於該節點的 `data.worstStatus`(見 graph-data-integration:controller = 自子 pod(`pod.parent === controllerId`)聚合之最差 status,**一律寫入**;k8s node = 自身 status 與**其 pod** status 之最差,worst-wins——`controller` 視圖下 pod 不再巢狀於 node,故 node 的 pod 改以**經 `pod-to-node` 邊可達的 pod** 認定(D8),`node` 視圖下 pod 重新巢狀於 node 則沿用子節點認定;**有 status 資訊時寫入**——自身無 status 且無任何(可達或巢狀)pod 的 node 無此欄,收合維持中性邊框,「無資訊」不得偽裝成 normal)。stylesheet MUST 以 `node[worstStatus="<status>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 `statusSelectors`(資料驅動的 `node[status="<s>"]`——**任何帶 `status` 的節點**畫自身 status 邊框,非 pod/node/pvc 白名單;normalize 只在後端實際給 status 時才寫該欄,故 service / external / cluster / storageclass 等無 status 者維持中性邊框)**之後**,使**收合的 k8s node** 的最差子節點 status 能覆寫其自身 status 邊框;controller 無 status 邊框,故此為其唯一上色。`node:selected` 以 outline/underlay 呈現故不影響此邊框色。**展開**的容器不套此選擇器(controller 維持中性 `:parent` 容器邊框、k8s node 維持自身 status 邊框)。採 **status**(非 alert severity):`info` 僅存在於 alert、不在 status 量尺,故收合框永不為 info(`SEVERITY_COLOR` 仍只服務 detail panel 的 alert 表)。
 
 #### Scenario: 收合 controller 顯示最差子 pod status
 
@@ -532,9 +529,14 @@ StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeK
 - **WHEN** 同一 controller **展開**
 - **THEN** 邊框回到中性 `:parent` 容器色
 
+#### Scenario: k8s node worstStatus 經 pod-to-node 邊計算
+
+- **WHEN** `controller` 視圖下,某 k8s `node` 自身 `status: normal`、且有 pod 經 `pod-to-node` 邊指向它、該 pod `status: critical`(此時 pod 巢狀於 controller、非 node)
+- **THEN** normalize 將 `data.worstStatus` 寫為 `critical`(自 `pod-to-node` 邊可達 pod 取最差);`node` 視圖下 pod 重新巢狀於 node 時,以子節點認定亦得相同結果
+
 #### Scenario: 收合 k8s node 以最差子 status 覆寫自身 status 邊框
 
-- **WHEN** 某 k8s `node` 自身 `status: normal`、旗下有 pod `status: critical`,使用者**收合**該 node
+- **WHEN** 某 k8s `node` 自身 `status: normal`、旗下有 pod `status: critical`(經 `pod-to-node` 邊或巢狀認定),使用者**收合**該 node
 - **THEN** 收合的 node 矩形邊框以 `STATUS_COLOR.critical`(紅)上色(覆寫其自身 normal 綠)
 - **WHEN** 同一 node **展開**
 - **THEN** 邊框回到自身 status(`normal` 綠);其子 pod 各自顯示自身 status 邊框
@@ -546,17 +548,17 @@ StorageClass 群組(`data.type === 'storageclass'`)MUST 為一個**真的 `NodeK
 
 #### Scenario: 無 status 資訊的 k8s node 收合維持中性邊框
 
-- **WHEN** 某 k8s `node` 自身無 `status` 且無任何子 pod
+- **WHEN** 某 k8s `node` 自身無 `status` 且無任何(可達或巢狀)pod
 - **THEN** 該 node 無 `data.worstStatus`,收合時維持中性容器邊框(「無資訊」不是「正常」)
 
 ### Requirement: Node-kinds 圖例 collapse-aware(只列實際以 glyph 呈現者)
 
-icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(elements, collapsedIds)` 導出,只列出**目前以 glyph 呈現於畫布**的 kind——而非單純「資料中出現過」的 kind。判定規則(對每個非 cluster、帶 `kind` 的節點):被收合祖先隱藏者**不**計入;**展開的**容器(其 id 為他人 `parent` 且自身未收合)**不**計入(它在 Clusters / Nodes|Controllers / Storage Classes swatch 區段呈現);其餘(drawn leaf 或**收合的**容器)計入其 kind。`cluster`(無 kind)永不計入。此規則取代舊有的 `presentKinds` + `deriveContainers.showNodeKindIcon`,使 node / controller / storageclass 三種容器一致。
+icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(elements, collapsedIds)` 導出,只列出**目前以 glyph 呈現於畫布**的 kind——而非單純「資料中出現過」的 kind。判定規則(對每個非 cluster、帶 `kind` 的節點):被收合祖先隱藏者**不**計入;**展開的**容器(其 id 為他人 `parent` 且自身未收合)**不**計入(它在 Clusters / Nodes|Controllers swatch 區段呈現);其餘(drawn leaf 或**收合的**容器)計入其 kind。`cluster`(無 kind)永不計入。此規則取代舊有的 `presentKinds` + `deriveContainers.showNodeKindIcon`,使 node / controller 容器一致;`storageclass` 於後端 D6 階層改為 cluster 下的 leaf、**不再是容器**,恆以其 glyph(drawn leaf)計入,不再因「收合 / 展開」而於 Node-kinds 圖例進退。
 
-#### Scenario: 收合 storageclass 時 Node-kinds 以 storageclass 取代 pvc
+#### Scenario: storageclass 恆以 leaf glyph 計入 Node-kinds
 
-- **WHEN** 某 storageclass 容器(其下 PVC)被收合
-- **THEN** 其 PVC 因被收合祖先隱藏而退出 Node-kinds 圖例,收合的 storageclass 顯示其 glyph 而進入——即 STORAGE 大類由 `pvc` 變為 `storageclass`;展開後還原為 `pvc`
+- **WHEN** 圖中含 storageclass leaf(後端 D6 階層下 storageclass 為 cluster 下的 leaf,非容器)且其鄰近有 pvc leaf
+- **THEN** Node-kinds 圖例的 `Storage` 大類同時列出 `pvc` 與 `storageclass` 兩個 glyph;`storageclass` 不再因「收合」而與 `pvc` 互換(它從不是容器)
 
 #### Scenario: 收合容器時其子 kind 退出、容器 kind 進入(node / controller 同理)
 
@@ -779,6 +781,7 @@ Panel SHALL 在 node-detail 面板中提供帶 change-report 查詢的 **Applica
 
 - **WHEN** 對 `src/**` 進行 source code 掃描
 - **THEN** 查詢僅經 `getBackendSrv()`;`src/**` 內無任何直接 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend 的程式碼
+
 ### Requirement: 圖例節點種類顯示/隱藏切換
 
 Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**顯示/隱藏切換按鈕**(`eye` / `eye-slash`),點擊切換該 kind 節點在畫布上的可見性。切換 MUST 寫入 panel option `visibleKinds`(經 `onOptionsChange` 部分更新)——options editor 的 kind multi-select 與圖例按鈕為**同一狀態**的兩個介面,MUST 雙向同步。隱藏一個 kind 時,**任一端點為該 kind 節點的邊** MUST 隨之隱藏(既有 `computeVisibility` 端點規則),且無可見邊與可見子節點的節點 MUST 被孤兒級聯隱藏(既有 `hideOrphans`)。
@@ -808,13 +811,13 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 
 #### Scenario: 隱藏不清除收合狀態
 
-- **WHEN** 某 storageclass 容器處於收合狀態,使用者隱藏 `storageclass` kind 後再重新顯示
-- **THEN** 該 storageclass 容器恢復顯示且**維持收合**(收合狀態未被切換動作清除)
+- **WHEN** 某 K8s `node` 容器處於收合狀態,使用者隱藏 `node` kind 後再重新顯示
+- **THEN** 該 node 容器恢復顯示且**維持收合**(收合狀態未被切換動作清除)
 
 #### Scenario: controller 模式隱藏 pod 觸發孤兒級聯
 
-- **WHEN** controller 模式下使用者隱藏 `pod` kind,且某 controller 盒除 `controller-owns-pod` 外無其他可見邊與可見子節點
-- **THEN** `controller-owns-pod` 邊隨 pod 端點隱藏,該 controller 盒被孤兒級聯一併隱藏
+- **WHEN** controller 模式下使用者隱藏 `pod` kind,且某 controller 盒自身無 incident drawn edge(pod 巢狀於其中,`pod-to-node` 由 pod 指向 K8s node、不經 controller),其子 pod 全數被隱藏
+- **THEN** 該 controller 盒因無可見子節點且無可見邊而被孤兒級聯一併隱藏
 
 #### Scenario: 模式切換保留隱藏設定
 
