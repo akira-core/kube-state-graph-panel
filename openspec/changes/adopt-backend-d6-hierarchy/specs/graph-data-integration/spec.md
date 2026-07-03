@@ -62,11 +62,12 @@
 - **WHEN** 上游 storageclass 的 `parameters` 未通過 `isStringRecord`(非 `Record<string,string>`)
 - **THEN** normalize 省略 `parameters` 欄,其餘欄位正常正規化
 
-### Requirement: pod `application` / `containers` 透傳與 controller 聚合
+### Requirement: pod / service / pvc `application`、pod `containers` 透傳與 controller 聚合
 
-`normalizeGraph` SHALL 於 anti-corruption boundary 承載 backend 在 pod 節點輸出的兩個欄位——**`application?: string`**(ArgoCD application name)與 **`containers?: Array<{ name: string; image: string }>`**(container 與其 image)——並為 backend **直接輸出**的 `controller` 群組節點自子 pod 聚合兩者。controller 不再由 panel 合成,改為 **enrich**(豐富化)後端送來的 `type: "controller"` 群組節點。兩欄位經 `src/shared/types/cytoscape.d.ts` declaration merging 宣告於 `NodeDataDefinition`,供 node-detail 面板顯示與 URL 查詢使用。URL 查詢本身**非** normalize 職責——它是 UI 端的非同步動作,經 Grafana runtime 發出(見 panel-rendering「Node Detail Application 與 Containers 區塊」)。規則:
+`normalizeGraph` SHALL 於 anti-corruption boundary 承載 backend 在 pod 節點輸出的兩個欄位——**`application?: string`**(ArgoCD application name)與 **`containers?: Array<{ name: string; image: string }>`**(container 與其 image)——並為 backend **直接輸出**的 `controller` 群組節點自子 pod 聚合兩者。自 backend D6 起,**service 與 pvc leaf 亦可帶 `application`**(backend 自其 annotation tracking-id 解析,並將該 leaf nest 於對應 application 群組);`normalizeGraph` MUST 以與 pod 相同規則透傳該欄。controller 不再由 panel 合成,改為 **enrich**(豐富化)後端送來的 `type: "controller"` 群組節點。兩欄位經 `src/shared/types/cytoscape.d.ts` declaration merging 宣告於 `NodeDataDefinition`,供 node-detail 面板顯示與 URL 查詢使用。URL 查詢本身**非** normalize 職責——它是 UI 端的非同步動作,經 Grafana runtime 發出(見 panel-rendering「Node Detail Application 與 Containers 區塊」)。規則:
 
 - **pod `application`**:backend 值為非空字串時原樣透傳;缺失或空字串時 MUST 省略該欄(`exactOptionalPropertyTypes`:不寫 `undefined` 值)。
+- **service / pvc `application`**(backend D6):service 與 pvc leaf 帶 backend 解析的 ArgoCD `application` 時,MUST 以**與 pod `application` 完全相同**的規則透傳(非空字串保留、缺失或空字串省略)。`containers` 與 typed `owner` 仍**僅限 pod**——service / pvc 即使 backend 誤送這兩欄,normalize MUST NOT 帶上。
 - **pod `containers`**:逐項驗證——`name` 與 `image` 皆為非空字串的項目保留,形狀不符的項目 MUST 丟棄(anti-corruption);驗證後為空陣列或欄位缺失時 MUST 省略該欄。
 - **controller `kind`**:後端 `controller` 群組之 `type` 為字面值 `controller`、不帶 `kind`;normalize MUST 自其**任一子 pod**(`pod.parent === controllerId`)的 `owner.kind` **小寫化**推導出 controller 的 `kind`(如 `StatefulSet` → `statefulset`),並標 `isController: true`,使 controller 成為 Workloads kind 並保留 detail 面板。
 - **controller `application`**(enrich,backend 不送):MUST 自其**子 pod**(`pod.parent === controllerId`)的 `application` 聚合——取任一帶值的子 pod(以穩定排序確定性選取**首個**);無任何子 pod 帶值時 MUST 省略該欄。
@@ -79,6 +80,16 @@
 
 - **WHEN** backend 某 pod 節點 `data.application` 為 `"checkout"`
 - **THEN** 正規化後該 pod element 之 `data.application` 為 `"checkout"`
+
+#### Scenario: service / pvc application 原樣透傳(backend D6)
+
+- **WHEN** backend 某 service 或 pvc 節點 `data.application` 為 `"mongodb"`
+- **THEN** 正規化後該 element 之 `data.application` 為 `"mongodb"`;且該 leaf MUST NOT 因此帶 `data.containers` 或 `data.owner`(僅限 pod)
+
+#### Scenario: 欄位缺失或空值時省略
+
+- **WHEN** backend 某 pod 節點無 `application`(或為空字串)且無 `containers`(或驗證後為空)
+- **THEN** 該 pod element MUST NOT 帶 `data.application` 與 `data.containers`
 
 #### Scenario: pod containers 原樣透傳
 
@@ -159,23 +170,23 @@
 
 ### Requirement: Backend 群組節點識別(namespace / application / controller)與著色
 
-`normalizeGraph` SHALL 辨識 backend 直接輸出的三種 compound 群組節點(`data.type` 為 `namespace` / `application` / `controller`),比照既有 `cluster` flag-group 正規化為**裝飾性 compound parent**——除 `controller` 外**不**賦予 `kind`(故對 kind filter 與 icon legend 不可見,並由 `computeVisibility` 略過:無 kind ⇒ 恆可見,僅受 orphan cascade 影響)。其 `data.parent` 一律**原樣穿透**(panel 結構無關,僅指派 accent 顏色)。**可選取性**:`namespace` / `application` 為純裝飾、不開啟 detail 面板,故 `selectable: false`(同 `cluster`);**`controller` MUST 維持可選取**(不設 `selectable: false`),因其為 detail-eligible 節點(`resolveSelectedNode` 為其開啟面板、顯示 Dashboard 按鈕與 Application/Containers/alerts——見 panel-rendering / node-dashboard-url)——若設 `selectable: false`,canvas 的 tap / cxttap 守門(`single.selectable()`)會丟棄所有 controller 點擊,detail 面板永不開啟。映射:
+`normalizeGraph` SHALL 辨識 backend 直接輸出的三種 compound 群組節點(`data.type` 為 `namespace` / `application` / `controller`),比照既有 `cluster` flag-group 正規化為**裝飾性 compound parent**——除 `controller` 外**不**賦予 `kind`(故對 kind filter 與 icon legend 不可見,並由 `computeVisibility` 略過:無 kind ⇒ 恆可見,僅受 orphan cascade 影響)。其 `data.parent` 一律**原樣穿透**(panel 結構無關,僅指派 accent 顏色)。**可選取性由 panel-rendering「互動與選取狀態」規範**:`namespace` / `application` 群組與 `controller` 皆維持可選取(selection-driven 摺疊 cue 賴此浮現;`namespace` 選取不開啟 detail 面板、`application` 為 detail-eligible 例外),僅 `cluster` 群組為 `selectable: false`——normalize MUST NOT 對 `namespace` / `application` / `controller` 設 `selectable: false`,否則 canvas 的 tap 守門(`single.selectable()`)會丟棄其點擊,摺疊 cue 永不浮現、controller / application 的 detail 面板永不開啟。映射:
 
-- `namespace` → `{ isNamespace, namespace: <label>, namespaceColor: colorForNamespace(<label>) }`——**重用**既有 `isNamespace` 旗標、palette、stylesheet selector 與 `NamespaceLegend`。
-- `application` → `{ isApplication, application: <label>, applicationColor: colorForApplication(<label>) }`——**新增** `isApplication` 旗標、`applicationPalette.ts`、stylesheet selector 與 `ApplicationLegend`。
-- `controller` → `{ isController: true, kind: <子 pod owner.kind 小寫> }`(見「pod `application` / `containers` 透傳與 controller 聚合」):controller 攜帶 real `kind` 以保留 detail 面板,既是 compound parent 又有 glyph(收合時畫該 kind icon)。
+- `namespace` → `{ isNamespace, namespace: <label>, namespaceColor }`——**重用**既有 `isNamespace` 旗標、stylesheet selector 與 `NamespaceLegend`;accent 色為 per-kind 固定色(見 panel-rendering「裝飾性 compound 群組使用 per-kind 固定色彩與 kind 前綴標籤」)。
+- `application` → `{ isApplication, application: <label>, applicationColor }`——**新增** `isApplication` 旗標、`applicationPalette.ts`、stylesheet selector 與 `ApplicationLegend`;accent 色同為 per-kind 固定色。
+- `controller` → `{ isController: true, kind: <子 pod owner.kind 小寫> }`(見「pod / service / pvc `application`、pod `containers` 透傳與 controller 聚合」):controller 攜帶 real `kind` 以保留 detail 面板,既是 compound parent 又有 glyph(收合時畫該 kind icon)。
 
 `namespace` / `application` 群組 `labels:{}`、無 status、無邊,純為 `data.parent` 目標。
 
 #### Scenario: namespace 群組正規化並著色
 
 - **WHEN** 上游節點 `data.type === 'namespace'`、`name === 'shop'`、`parent` 指向其 cluster 容器
-- **THEN** normalize 產出 `isNamespace: true`、`namespace: 'shop'`、`namespaceColor: colorForNamespace('shop')`、`selectable: false`,**不**帶 `kind`,且 `parent` 原樣穿透
+- **THEN** normalize 產出 `isNamespace: true`、`namespace: 'shop'`、`namespaceColor` 為 per-kind 固定 accent 色,**不**帶 `kind`、**不**設 `selectable: false`(維持可選取,cue-driven——見 panel-rendering「互動與選取狀態」),且 `parent` 原樣穿透
 
 #### Scenario: application 群組正規化並著色
 
 - **WHEN** 上游節點 `data.type === 'application'`、`name === 'checkout'`、`parent` 指向其 namespace 群組
-- **THEN** normalize 產出 `isApplication: true`、`application: 'checkout'`、`applicationColor: colorForApplication('checkout')`、`selectable: false`,**不**帶 `kind`,且 `parent` 原樣穿透
+- **THEN** normalize 產出 `isApplication: true`、`application: 'checkout'`、`applicationColor` 為 per-kind 固定 accent 色,**不**帶 `kind`、**不**設 `selectable: false`(維持可選取;application 為 detail-eligible——見 panel-rendering),且 `parent` 原樣穿透
 
 #### Scenario: controller 群組標 isController 並由子 pod 取得 kind(維持可選取)
 

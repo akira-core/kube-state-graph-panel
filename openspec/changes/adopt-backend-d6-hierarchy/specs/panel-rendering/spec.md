@@ -68,47 +68,55 @@ legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→
 
 ### Requirement: Hover Tooltip 顯示元素 metadata
 
-Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 元件;tooltip MUST 浮動定位於被 hover 元素附近(`position: absolute`,node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移),並夾擠 / 翻轉於 cytoscape canvas wrapper 邊界內(偏移後超出右 / 下緣時翻轉至元素左側並夾於 wrapper 內,不超出可視範圍),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動,且樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。`storageclass` leaf 節點 MUST 走**一般 node-tooltip 路徑**——它於後端 D6 階層自帶 `kind`(`storageclass`)、`labels.cluster` 與 `provisioner`,故 tooltip 直接顯示這些自帶欄位;舊有「自子節點合成 context」路徑(`gatherStorageClassContext`、`HoveredElement.storageClass` 欄、`HoverTooltip` 的 `isStorageClass` 分支)MUST 移除,tooltip MAY 額外顯示 `provisioner`。
+Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
 
-#### Scenario: Hover 節點顯示節點 metadata
+- **(1) Hover 浮動模式(預設,無 detail 節點被選取時)**:使用者 hover 於任一 node 或 edge 時,tooltip MUST 浮動定位於被 hover 元素附近(`position: absolute`,node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移),並夾擠 / 翻轉於 cytoscape canvas wrapper 邊界內(偏移後超出右 / 下緣時翻轉至元素左側並夾於 wrapper 內,不超出可視範圍),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動。**此模式行為與既往完全一致。**
+- **(2) Pinned 釘選模式(當一個 detail-eligible 節點被左鍵選取時)**:tooltip 改**釘選於 canvas 右上角**(`top: 8` / `right: 8` / `left: auto`、`maxHeight: calc(50% - 16px)`、`overflowY: auto`、`pointer-events: auto` 使其內容可捲動、`zIndex: 1000` 以蓋過 cytoscape expand-collapse 的透明輸入層 `z-index: 999`),顯示**被選取節點**的完整 tooltip 內容(title + promoted attrs + 原始 labels),其內容**與 hover 模式同源同樣**(同一 `buildNodeAttributes` 與 `toLabelRows`,promoted 的 `kind` row 一併顯示)。釘選時 **hover 浮動 tooltip 全面抑制**(node 與 edge 皆不再浮動)。
 
-- **WHEN** 使用者滑鼠 hover 於任一節點
-- **THEN** `HoverTooltip` 顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+被選取節點的資料源為已 gated 的 `resolveSelectedNode`(可見 + 未被收合祖先隱藏 + detail-eligible),故裝飾性 **`cluster` / `namespace`** 群組(`resolveSelectedNode` 回 `null`)**不**釘選、其 hover 行為不變;**`application` 群組現為 detail-eligible**,選取時**亦釘選**(顯示合成 `kind: application` + 其名稱)。釘選卡片**無關閉鈕**:取消選取(點背景 / 邊、切換節點、kind / edge 過濾、收合祖先、資料刷新移除)即自動清除釘選並恢復 hover 模式。樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
 
-#### Scenario: Hover storageclass leaf 顯示自帶 metadata
+`storageclass` leaf 節點 MUST 走**一般 node-tooltip 路徑**——它於後端 D6 階層自帶 `kind`(`storageclass`)、`labels.cluster`、`provisioner` 與 `parameters`,tooltip(hover 浮動或釘選)直接顯示這些自帶欄位;舊有「自子 PVC 節點合成 context」路徑(`gatherStorageClassContext`、`HoveredElement.storageClass` 欄、`HoverTooltip` 的 `isStorageClass` 分支)MUST 移除。kind-less 的 backend 群組(`isNamespace` / `isApplication`)MUST 由旗標推導一個**合成 `kind` row**(`isApplication` → `application`、`isNamespace` → `namespace`)——純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見);`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用。
 
-- **WHEN** 使用者 hover 於一個 storageclass leaf 節點(自帶 `kind: storageclass`、`labels.cluster`、`provisioner`)
-- **THEN** `HoverTooltip` 以一般 node 路徑顯示其 `name` 與 `kind`(`storageclass`),並 MAY 顯示 `provisioner`;MUST NOT 以子 PVC 節點合成 `PVCs (N)` 清單(該合成路徑已隨 storageclass 改為 leaf 而移除)
+#### Scenario: Hover 節點顯示節點 metadata（無選取時）
+
+- **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一節點
+- **THEN** `HoverTooltip` 浮動顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時)、`application`(ArgoCD application;凡 leaf 帶 `data.application`——pod / service / pvc 與聚合後的 controller——即顯示,惟裝飾性 `application` 群組節點 MUST NOT 顯示此 row 以免與其合成 `kind`/`name` 重複),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+
+#### Scenario: Hover storageclass leaf 顯示自帶 metadata（未選取）
+
+- **WHEN** 無選取時,滑鼠移至一個 storageclass leaf(巢狀於某 cluster,自帶 `kind: storageclass`、`labels.cluster`、`provisioner`、`parameters`)
+- **THEN** tooltip 浮動顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、`provisioner: <name>`,以及每個 backing-storage 參數一列(如 `pool: kube`、`selector: tier=fast`;key 排序、值換行)
+- **AND** MUST NOT 以子 PVC 節點合成 `PVCs (N)` 清單(該合成路徑已隨 storageclass 改為 leaf 而移除;PVC 以 `pvc-to-storageclass` 邊相連而非巢狀)
 
 #### Scenario: Hover kind-less 群組(namespace / application)顯示合成 kind
 
 - **WHEN** 使用者 hover 於一個 backend `namespace` 或 `application` 群組節點(kind-less:無 `data.kind`,僅帶 `isNamespace` / `isApplication` 旗標)
 - **THEN** `HoverTooltip` MUST 由該旗標推導出一個合成 `kind` row(`isApplication` → `application`、`isNamespace` → `namespace`)並顯示,使 hover 不致只剩裸 name;此 row 為純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見)。`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用
 
-#### Scenario: Hover 邊顯示邊 metadata
+#### Scenario: Hover 邊顯示邊 metadata（無選取時）
 
-- **WHEN** 使用者滑鼠 hover 於任一邊
-- **THEN** `HoverTooltip` 顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
+- **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一邊
+- **THEN** `HoverTooltip` 浮動顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
 
-#### Scenario: Tooltip 定位於 hovered 元素附近
+#### Scenario: Tooltip 定位於 hovered 元素附近（hover 模式）
 
-- **WHEN** 使用者 hover 於某節點
+- **WHEN** 無 detail 節點被選取,使用者 hover 於某節點
 - **THEN** tooltip 以該節點 rendered 位置加固定偏移定位(動態 `left` / `top`),而非固定於角落
 - **AND** 當偏移後 tooltip 會超出 canvas 右 / 下緣時,翻轉至節點左側並夾擠於 wrapper 邊界內
 
-#### Scenario: Tooltip 不阻擋圖形互動
+#### Scenario: Tooltip 不阻擋圖形互動（hover 模式）
 
-- **WHEN** Tooltip 顯示中,使用者點擊 tooltip DOM 覆蓋區域底下的節點
-- **THEN** 該節點被選取(觸發既有 `:selected` 樣式與 `onSelect` callback),tooltip 不攔截 click 事件(`pointer-events: none` 生效)
+- **WHEN** Hover 浮動 tooltip 顯示中,使用者點擊 tooltip DOM 覆蓋區域底下的節點
+- **THEN** 該節點被選取(觸發既有 `:selected` 樣式與 `onSelect` callback),hover tooltip 不攔截 click 事件(`pointer-events: none` 生效)
 
-#### Scenario: 取消 hover 後 tooltip 淡出並從 DOM 移除
+#### Scenario: 取消 hover 後浮動 tooltip 淡出並從 DOM 移除
 
-- **WHEN** 使用者滑鼠移出原 hovered 元素且未進入其他元素
+- **WHEN** 無選取時,使用者滑鼠移出原 hovered 元素且未進入其他元素
 - **THEN** `HoverTooltip` 以 opacity transition(≥ 100ms ≤ 200ms)淡出,動畫結束後 tooltip 不渲染任何 DOM(避免空 box 佔位)
 
-#### Scenario: Hovered 元素被移除時清空 tooltip
+#### Scenario: Hovered 元素被移除時清空浮動 tooltip
 
-- **WHEN** 一個元素 hover 中,該元素因 data refresh 從 cytoscape instance 中被 remove
+- **WHEN** 一個元素 hover 中(無選取),該元素因 data refresh 從 cytoscape instance 中被 remove
 - **THEN** `useHoverElement` 收到 `remove` 事件後清空 store,`HoverTooltip` 立即消失,不渲染參照已不存在元素的內容
 
 #### Scenario: Hover 不觸發 GraphCanvas 重渲染
@@ -116,80 +124,31 @@ Panel SHALL 在使用者 hover 於任一 node 或 edge 時顯示 `HoverTooltip` 
 - **WHEN** 連續 hover 多個元素
 - **THEN** 透過 `useSyncExternalStore` 訂閱的 `HoverTooltip` 元件重新渲染,但 `GraphCanvas` 與 cytoscape instance reference 不變(React DevTools profiler 驗證 `GraphCanvas` render count 不增加)
 
-### Requirement: Node Detail 面板
+#### Scenario: 左鍵選取 detail 節點將 tooltip 釘選於右上角
 
-Panel SHALL 在點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,顯示節點 name、kind、status 三項;並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。cluster 容器不可點選。header 除節點 name / kind / status 外,當該節點(**leaf / k8s-node / controller**;**cluster / namespace 除外**——這些 compound 本就不開啟 detail 面板;`storageclass` 於後端 D6 階層改為可選取的 leaf,**已不再排除**)的 `/dashboard` 查詢回傳可用 URL 時,MUST 於 name 旁顯示一顆 **Dashboard 按鈕**,且 `alerts` 與 `detail` **兩 view 皆顯示**(header 為兩 view 共用,單一放置即滿足);按鈕的查詢時機、參數組裝、200-gated 可用性與新分頁開啟行為見 `node-dashboard-url` capability。面板內容依觸發方式分流(`NodeDetailPanel` 的 `view` prop):**左鍵** → `alerts` view,渲染**告警表格**(`@grafana/ui` `InteractiveTable`,欄位 Pod / Service / Alert / Severity / **Count** / **Last occurred**),不渲染 Application / Containers;**右鍵** → `detail` view,只渲染 Application / Containers 區塊(見 application-detail-panel change),不渲染告警表格。面板高度 MUST 隨內容增長,僅在超過上限(`min(50% of canvas, 380px)`)時才於內文區捲動(header 釘住);內容短於上限時 MUST NOT 出現捲動。
+- **WHEN** 使用者左鍵選取一個 detail-eligible 節點(leaf 含 storageclass / k8s-node / controller)
+- **THEN** `HoverTooltip` 進入 pinned 模式:於 canvas 右上角(`top:8` / `right:8`、`pointer-events:auto`、`zIndex:1000`、`maxHeight: calc(50% - 16px)` 可捲動)釘選顯示**該節點**的 title + promoted attrs(含 `kind` row)+ 原始 labels(`toLabelRows` 過濾掉已 promote 的 `namespace`)
+- **AND** 釘選內容與 hover 該節點時的內容完全一致(同源)
 
-對 `kind === 'storageclass'` 的 leaf 節點,Panel SHALL 使其**可選取**並開啟 detail 面板(`isStorageClass` 的排除已隨旗標退役),且 MUST 渲染一個 **Storage Class 區塊**:一個固定高度的 key/value 區塊,gated on `node.kind === 'storageclass'`,含一列 `provisioner` 與 `parameters` map(逐列以**通用方式**渲染 key/value——key 由 provisioner 決定,MUST NOT 硬編碼);`provisioner` / `parameters` 缺值時對應列 MUST NOT 渲染。此 Storage Class 區塊 MUST **僅**在 `node.kind === 'storageclass'` 時出現,其餘 kind MUST NOT 顯示;`provisioner` / `parameters` 為結構欄位、MUST 併入 `assembleDashboardParams` 的 DENYLIST(非 query 參數)。
+#### Scenario: 釘選時抑制 hover 浮動
 
-告警資料來自上游 graph JSON 節點的選用欄位 `alerts: NodeAlert[]`(`normalizeGraph` 攜帶至 `data.alerts`,缺值或空陣列→無列)。每筆 `NodeAlert` 以 `timeRecords: number[]`(Unix 秒,升序,同一 alert 的所有發生時間)表示重複發生;後端已把同一 alert 分組為**單筆**(panel **不**再去重),故告警表格**一列代表一個 alert**。**Count** 欄 MUST 顯示 `timeRecords.length`(發生次數),並 MUST 透過 `@grafana/ui` `Tooltip` 列出全部發生時間(依 `timeZone` 格式化)——即完整的「occur time」清單。**Last occurred** 欄 MUST 顯示最後發生時間 `max(timeRecords)`(格式化),且 MUST 為可點擊元素:點擊時以 `t = max(timeRecords)`(Unix 秒)為中心、固定 ±5 分鐘(300 秒),呼叫 `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })`(毫秒)倒帶 dashboard 時間範圍。`severity` 為自由字串:`info` / `warning` / `critical` 取單一資料源 `SEVERITY_COLOR` 對應色,其餘自訂標籤 MUST 原樣保留並以 `FALLBACK_SEVERITY_COLOR`(critical 色)著色,不報錯。節點無告警時 MUST 顯示「No alerts」訊息而非空表格。
+- **WHEN** 一個 detail 節點已被選取(tooltip 釘選中),使用者 hover 於其他 node 或 edge
+- **THEN** 浮動 hover tooltip MUST NOT 顯示(pinned 模式抑制 hover);右上角僅持續顯示被選取節點的釘選卡片
 
-#### Scenario: 點節點開啟面板
+#### Scenario: 釘選 tooltip 即使游標不在任何元素上仍顯示
 
-- **WHEN** 使用者點擊任一節點
-- **THEN** 底部浮層顯示該節點 label、kind badge、status badge,覆蓋於 graph 之上且不改變 graph 尺寸
-- **AND** 該節點的選取高亮與開啟的面板同步
+- **WHEN** 一個 detail 節點被選取,且游標未 hover 於任何元素(`useHoverElement` 回 `null`)
+- **THEN** 釘選卡片仍 MUST 顯示(pinned 模式不依賴 hovered 元素;渲染早於 hover 的 `hovered === null` 早退)
 
-#### Scenario: 點外面或關閉鈕關閉
+#### Scenario: 取消選取清除釘選並恢復 hover
 
-- **WHEN** 使用者點擊 graph 背景或邊,或按下關閉鈕
-- **THEN** detail 面板關閉,且選取高亮清除
+- **WHEN** 釘選中,使用者取消選取(點背景 / 邊、切換到另一節點、kind/edge 過濾掉該節點、收合其祖先、或資料刷新移除該節點)
+- **THEN** `resolveSelectedNode` 回 `null` → 釘選卡片消失,tooltip 恢復 hover 浮動模式
 
-#### Scenario: 切換節點
+#### Scenario: 選取 storageclass 釘選 provisioner 與 parameters
 
-- **WHEN** 面板開啟時使用者點擊另一個節點
-- **THEN** 面板切換為新點擊的節點
-
-#### Scenario: Dashboard 按鈕顯示於名稱旁(both views)
-
-- **WHEN** 開啟某 leaf / k8s-node / controller 節點的 detail 面板,且其 `/dashboard` 查詢回傳 200 + 非空 url
-- **THEN** header 於節點名稱旁顯示 Dashboard 按鈕,`alerts`(左鍵)與 `detail`(右鍵)兩 view 皆然
-- **AND** cluster / namespace 節點不開啟面板,故不顯示此按鈕(storageclass 已改為可開啟 detail 的 leaf)
-
-#### Scenario: storageclass leaf 可選取並開啟 detail 面板
-
-- **WHEN** 使用者點擊一個 `kind === 'storageclass'` 的 leaf 節點
-- **THEN** detail 面板開啟並顯示其 name / kind(storageclass 不再被排除於可選取 / detail-eligible 之外)
-
-#### Scenario: Storage Class 區塊顯示 provisioner 與 parameters
-
-- **WHEN** 選取的 storageclass leaf 帶有 `provisioner` 與 `parameters`(如 `{pool, fs, cluster_id, selector}`)
-- **THEN** detail 面板渲染 Storage Class 區塊,含 `provisioner` 列與逐列的 `parameters` key/value(key 通用、不硬編碼);某欄缺值時該列 MUST NOT 渲染
-
-#### Scenario: 非 storageclass kind 不顯示 Storage Class 區塊
-
-- **WHEN** 選取的節點 `kind` 非 `storageclass`(如 `pod` / `node` / `service`)
-- **THEN** detail 面板 MUST NOT 渲染 Storage Class 區塊
-
-#### Scenario: 顯示告警表格(分組,一列一個 alert)
-
-- **WHEN** 選取的節點帶有 `data.alerts`(一或多筆)
-- **THEN** detail 面板以 `InteractiveTable` 逐列顯示告警,**一列代表一個 alert**,欄位為 Pod / Service / Alert / Severity / Count / Last occurred
-- **AND** Pod 或 Service 缺值時該格顯示 `—`
-
-#### Scenario: Count 徽章與發生時間 Tooltip
-
-- **WHEN** 某 alert 的 `timeRecords` 含 N 個發生時間
-- **THEN** 該列 Count 欄顯示 `N`(= `timeRecords.length`)
-- **AND** hover Count 時以 `@grafana/ui` `Tooltip` 列出全部 N 個發生時間(依 `timeZone` 格式化)
-
-#### Scenario: Severity 著色(自由字串 + SEVERITY_COLOR)
-
-- **WHEN** 告警 `severity` 為 `info` / `warning` / `critical`
-- **THEN** 該列 Severity 以對應 `SEVERITY_COLOR` 著色徽章呈現
-- **WHEN** `severity` 不在 `SEVERITY_COLOR` 中(自訂標籤,如 `fatal`)
-- **THEN** 以 `FALLBACK_SEVERITY_COLOR`(critical 色)著色、且徽章原樣保留該標籤文字,不報錯
-
-#### Scenario: 點 Last occurred 倒帶時間範圍
-
-- **WHEN** 使用者點擊某列的 Last occurred 欄,該 alert `timeRecords` 的最大值為 `t`(Unix 秒)
-- **THEN** panel 呼叫 `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })`(±5 分鐘,毫秒)
-- **AND** dashboard 時間範圍倒帶至該窗(以最後發生時間為中心)
-
-#### Scenario: 無告警空狀態
-
-- **WHEN** 選取的節點無 `alerts` 欄位或為空陣列
-- **THEN** detail 面板顯示「No alerts」訊息,不渲染表格
+- **WHEN** 使用者左鍵選取一個 storageclass leaf
+- **THEN** tooltip 釘選顯示 `kind: storageclass` + `provisioner` + 每個 backing-storage parameter(key 排序、值換行);底部 detail 面板因無 change-report / alerts 區塊而僅渲染 header(見「Node Detail 面板」)
 
 ### Requirement: 容器圖例(NodeContainerLegend)隨 pod-parent 模式切換容器來源
 
@@ -266,4 +225,4 @@ icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(e
 
 ### Requirement: StorageClass compound 容器渲染與圖例(**完全比照 K8s node 容器**)
 
-**Reason:** `storageclass` 於後端 D6 階層改為 cluster 下的一般 `kind:'storageclass'` leaf(自帶 `provisioner` / `parameters`),不再是 boxing PVC 的 compound 容器;`isStorageClass` 旗標、`deriveStorageClassContainers`、`StorageClassLegend` 與 storageclass 專屬的 stylesheet / hover / 容器渲染行為一併退役。對等行為改見:`圖例 (Legend)`(storageclass 改以 NodeLegend glyph 列於 Storage 大類)、`Node Detail 面板`(Storage Class 區塊)、`Hover Tooltip 顯示元素 metadata`(自帶 metadata 的一般 node 路徑)。
+**Reason:** `storageclass` 於後端 D6 階層改為 cluster 下的一般 `kind:'storageclass'` leaf(自帶 `provisioner` / `parameters`),不再是 boxing PVC 的 compound 容器;`isStorageClass` 旗標、`deriveStorageClassContainers`、`StorageClassLegend` 與 storageclass 專屬的 stylesheet / hover / 容器渲染行為一併退役。對等行為改見:`圖例 (Legend)`(storageclass 改以 NodeLegend glyph 列於 Storage 大類)、`Hover Tooltip 顯示元素 metadata`(自帶 metadata 的一般 node 路徑;選取時 `provisioner` / `parameters` 釘選於右上角 tooltip)、`Node Detail 面板`(storageclass 為 detail-eligible leaf,無 body 內容時 header-only)。

@@ -4,7 +4,7 @@
 
 Panel SHALL 僅對 **node-detail 面板會開啟的節點**請求 `/dashboard` 並渲染 Dashboard 按鈕——即 **leaf 節點**(backend D6 起 **`storageclass`** 為攜帶 `provisioner` / `parameters` 的真實 leaf 節點而非 grouping compound,故併入 leaf 適用範圍)、**k8s-node**(`kind: node`)compound 容器、與 **controller** compound 容器(backend 提供、經 enrich 後攜帶真實 `kind` 的 controller;`resolveSelectedNode` ≠ `null` 的集合)。**cluster / namespace / application** compound MUST NOT 觸發任何 `/dashboard` 查詢、亦 MUST NOT 渲染 Dashboard 按鈕。適用範圍的守門以參數組裝在不適用節點回傳「無參數」(`undefined`)實作——使停用的節點不發查詢——並與 `resolveSelectedNode` 的排除集合(`isCluster` / `isNamespace` / `isApplication`)共用同一判定,不另立平行清單以免漂移。
 
-`storageclass` leaf 雖開啟 detail 面板並如其他 leaf 般進行 `/dashboard` 預取,但其 `kind` **不屬於 Workloads `DETAIL_URL` 集合**,故 `resolveSelectedNode` MUST NOT 為其指派 per-kind dashboard query target(`queryTarget`):其 detail 面板改呈現 **Storage Class** 資訊區段(`provisioner` + `parameters`),而非 Workloads-kind 的細項查詢目標。
+`storageclass` leaf 雖開啟 detail 面板並如其他 leaf 般進行 `/dashboard` 預取,但其 `kind` **不屬於 Workloads `DETAIL_URL` 集合**,故 `resolveSelectedNode` MUST NOT 為其指派 per-kind dashboard query target(`queryTarget`):其 `provisioner` / `parameters` 由右上角**釘選 tooltip** 呈現(見 panel-rendering「Hover Tooltip」pinned 模式),detail 面板本身為 header-only(無 Workloads-kind 的細項查詢目標)。
 
 #### Scenario: leaf(含 storageclass)/ k8s-node / controller 為適用節點
 
@@ -14,7 +14,7 @@ Panel SHALL 僅對 **node-detail 面板會開啟的節點**請求 `/dashboard` �
 #### Scenario: storageclass leaf 開啟 detail 但無 per-kind dashboard query target
 
 - **WHEN** 被選取的節點為 backend D6 的 `storageclass` leaf(攜帶 `provisioner` / `parameters`)
-- **THEN** detail 面板開啟並呈現 **Storage Class** 資訊區段;由於其 `kind` 不屬 Workloads `DETAIL_URL` 集合,`resolveSelectedNode` MUST NOT 為其指派 per-kind `queryTarget`(它仍如其他 leaf 般進行 `/dashboard` 預取、可用時渲染 Dashboard 按鈕)
+- **THEN** detail 面板以 header-only 開啟,其 `provisioner` / `parameters` 釘選於右上角 tooltip(見 panel-rendering「Hover Tooltip」pinned 模式);由於其 `kind` 不屬 Workloads `DETAIL_URL` 集合,`resolveSelectedNode` MUST NOT 為其指派 per-kind `queryTarget`(它仍如其他 leaf 般進行 `/dashboard` 預取、可用時渲染 Dashboard 按鈕)
 
 #### Scenario: cluster / namespace / application 不適用
 
@@ -25,7 +25,7 @@ Panel SHALL 僅對 **node-detail 面板會開啟的節點**請求 `/dashboard` �
 
 `/dashboard` 查詢的 query 參數 MUST 由被開啟節點的 `data` 屬性(及 dashboard `timeRange`)以純函式組裝(可單測),參數值型別為 `string | string[]`(`string[]` 即重複參數,如 `ipaddress`),規則如下:
 
-- **排除集合**:`labels` 與所有 panel 內部 rendering-only / 結構欄位 MUST NOT 送出——accent 顏色(`clusterColor` / `namespaceColor`)、`parent`、`worstStatus`、`is*` compound 旗標(`isCluster` / `isController` / `isNamespace`;`isStorageClass` 已隨 D6 storageclass leaf 化而從旗標模型移除,不再列於排除集合)、`storageclass` leaf 的**結構欄位** `provisioner` 與 `parameters`(供 detail 面板的 Storage Class 區段呈現之用,屬節點資訊而非 query 參數),以及結構性的 `id`(後端 D6 起 controller 的 `id` 為後端 path 值如 `<c>/namespace/<ns>/application/<app>/controller/<Kind>/<name>`,屬結構識別而非可查詢屬性;節點身分以 kind + name 表示)。
+- **排除集合**:`labels` 與所有 panel 內部 rendering-only / 結構欄位 MUST NOT 送出——accent 顏色(`clusterColor` / `namespaceColor`)、`parent`、`worstStatus`、`is*` compound 旗標(`isCluster` / `isController` / `isNamespace`;`isStorageClass` 已隨 D6 storageclass leaf 化而從旗標模型移除,不再列於排除集合)、`storageclass` leaf 的**結構欄位** `provisioner` 與 `parameters`(供右上角釘選 tooltip 呈現之用,屬節點資訊而非 query 參數),以及結構性的 `id`(後端 D6 起 controller 的 `id` 為後端 path 值如 `<c>/namespace/<ns>/application/<app>/controller/<Kind>/<name>`,屬結構識別而非可查詢屬性;節點身分以 kind + name 表示)。
 - **僅送 scalar(`ipaddress` 例外)**:非 scalar 值(陣列 / 物件,如 `alerts` / `containers` / `owner` / `parameters`)MUST NOT 作為 query 參數送出。**例外**:`ipAddress`(`string[]`,pod 節點上)SHALL 以重複 `ipaddress=` 參數送出(陣列原樣交予 `getBackendSrv().get` 的 `params`,序列化為重複 query 參數);陣列為空時 MUST 省略。
 - **欄名對應**:節點顯示名存於 `data.label`(normalize 自上游 `name` 對應而來、未保留 `name`),組裝時 MUST 以 `name` 為參數名送出該值;`kind` 原樣送出。
 - **Leaf 節點**:送出其(經上述排除後的)scalar 屬性。

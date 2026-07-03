@@ -12,7 +12,7 @@
 
 ### Requirement: Namespace 高對比顏色編碼
 
-**Reason:** `colorForNamespace` / `NAMESPACE_PALETTE` 與 `node[?isNamespace]` 著色保留,但 `namespaceColor` 不再由 `applyNamespaceGrouping` 合成時寫入,而改由 normalize 辨識後端 `namespace` group 時套用(design D4);此著色行為遷移至 graph-data-integration 規格。
+**Reason:** namespace accent 著色(`namespaceColor`)與 `node[?isNamespace]` stylesheet selector 保留(現為 per-kind 固定色,見 panel-rendering「裝飾性 compound 群組使用 per-kind 固定色彩與 kind 前綴標籤」),但 `namespaceColor` 不再由 `applyNamespaceGrouping` 合成時寫入,而改由 normalize 辨識後端 `namespace` group 時套用(design D4);此著色行為遷移至 graph-data-integration 規格。
 
 ### Requirement: Namespace collapse 與 legend(controller 模式)
 
