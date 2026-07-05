@@ -23,14 +23,28 @@ export interface KsgPanelOptions {
   // consuming ${pod_list:lucene}. Empty (default) disables the export. The
   // panel can only set values; it cannot create the variable or its options.
   podListVariable: string;
-  // Name of an EXISTING dashboard variable to write the LEFT-clicked pod's name
-  // into, but ONLY when that pod's status is non-normal (warning/critical), so a
-  // sibling panel can query that one pod via $selected_pod. Cleared ($__empty) on
-  // deselect / a normal pod / a non-pod. Empty (default) disables
-  // it. Use a TEXTBOX (or custom + allowCustomValue) variable — a query/options
-  // variable would drop the externally-written value — and do NOT reference it in
-  // this panel's own query (self-filter loop). Independent of podListVariable.
+  // Name of an EXISTING dashboard variable to write the LEFT-clicked node's pod
+  // name(s) into: a single-element write for a pod click, or the FULL list of
+  // direct child pod names (multi-value) for a controller compound click. Status
+  // (normal/warning/critical/missing) does NOT gate the export — any pod/
+  // controller click exports. Cleared ($__empty) on deselect or a click on any
+  // other node kind. Empty (default) disables it. A pod click writes a single
+  // value (TEXTBOX, or custom + allowCustomValue, works); a controller click can
+  // write MANY values, so the target variable MUST be type Custom with
+  // Multi-value AND "Allow custom values" enabled (a plain textbox only holds one
+  // value, and query/options variables would drop values outside their option
+  // set). Do NOT reference it in this panel's own query (self-filter loop).
+  // Independent of podListVariable and of clusterVariable.
   selectedPodVariable: string;
+  // Name of an EXISTING dashboard variable to write the cluster name of the
+  // LEFT-clicked pod/controller into (single value), resolved via the nearest
+  // cluster-group ancestor (fallback: the node's own `cluster` label). Cleared
+  // ($__empty) on deselect, a click on any other node kind, or when cluster
+  // resolution fails. Empty (default) disables it. Gated independently of
+  // selectedPodVariable — either can be set without the other. Use a TEXTBOX (or
+  // custom + allowCustomValue) variable, and do NOT reference it in this panel's
+  // own query (self-filter loop).
+  clusterVariable: string;
 }
 
 // The filterable-kind universe, derived from the element-filter's single
@@ -50,4 +64,5 @@ export const defaultOptions: KsgPanelOptions = {
   detailEndpoint: '',
   podListVariable: '',
   selectedPodVariable: '',
+  clusterVariable: '',
 };

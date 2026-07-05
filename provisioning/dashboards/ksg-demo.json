@@ -25,7 +25,8 @@
         "layout": "fcose",
         "showLegend": true,
         "podListVariable": "pod_list",
-        "selectedPodVariable": "selected_pod"
+        "selectedPodVariable": "selected_pod",
+        "clusterVariable": "cluster_sel"
       },
       "targets": [
         {
@@ -45,7 +46,7 @@
     {
       "id": 99,
       "type": "text",
-      "title": "Selected pod (consumer)",
+      "title": "Selected pod / cluster (consumer)",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -54,7 +55,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "### Selected pod\n\n`${selected_pod}`"
+        "content": "### Selected pod / cluster\n\nClick any pod or controller node in the graph above: a pod exports its own name, a controller exports all of its child pod names — both cases also export the resolved cluster name. A sibling log panel (e.g. Loki/ClickHouse) can filter on `${selected_pod}` and `${cluster_sel}`.\n\nselected_pod: `${selected_pod}`\n\ncluster_sel: `${cluster_sel}`"
       },
       "transparent": false
     }
@@ -203,24 +204,51 @@
       },
       {
         "name": "selected_pod",
-        "type": "textbox",
         "label": "Selected pod",
-        "query": "",
+        "description": "Written by the KSG panel on left-click of a pod (single name) or controller (all child pod names), regardless of status. custom + multi + allowCustomValue so it can hold pod-name value(s) outside any fixed option list — a plain textbox variable cannot carry the multi-value writes a controller click produces. Consume from a sibling log panel, e.g. ${selected_pod:lucene}. $__empty means nothing selected yet.",
+        "type": "custom",
+        "query": "$__empty",
+        "multi": true,
+        "allowCustomValue": true,
+        "includeAll": false,
         "current": {
           "selected": false,
-          "text": "",
-          "value": ""
+          "text": "$__empty",
+          "value": "$__empty"
         },
         "options": [
           {
-            "selected": true,
-            "text": "",
-            "value": ""
+            "text": "$__empty",
+            "value": "$__empty",
+            "selected": true
           }
         ],
         "hide": 0,
-        "skipUrlSync": false,
-        "description": "Written by the KSG panel on left-click of a non-normal pod"
+        "skipUrlSync": false
+      },
+      {
+        "name": "cluster_sel",
+        "label": "Selected cluster",
+        "description": "Written by the KSG panel alongside selected_pod on pod/controller click — the resolved cluster name. custom + multi + allowCustomValue (multi is normally unused since a click resolves to a single cluster; kept for shape consistency with selected_pod). Consume from a sibling log panel, e.g. ${cluster_sel:lucene}. $__empty means unresolved/nothing selected.",
+        "type": "custom",
+        "query": "$__empty",
+        "multi": true,
+        "allowCustomValue": true,
+        "includeAll": false,
+        "current": {
+          "selected": false,
+          "text": "$__empty",
+          "value": "$__empty"
+        },
+        "options": [
+          {
+            "text": "$__empty",
+            "value": "$__empty",
+            "selected": true
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
       }
     ]
   },

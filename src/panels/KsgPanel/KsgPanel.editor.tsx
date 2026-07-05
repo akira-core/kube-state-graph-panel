@@ -92,11 +92,26 @@ export function buildKsgPanelOptions(
       path: 'selectedPodVariable',
       name: 'Selected pod variable',
       description:
-        'Name of an existing dashboard variable to write the LEFT-clicked pod name into, but only ' +
-        'when that pod is non-normal (warning/critical) — so a sibling panel can query that one pod ' +
-        'via $selected_pod. Cleared ($__empty) on deselect, a normal pod, or a non-pod. ' +
-        'Use a Textbox (or Custom + allow custom values) variable — a Query variable would drop the ' +
-        "written value — and do not reference it in this panel's own query. Leave empty to disable.",
+        'Name of an existing dashboard variable to write the LEFT-clicked pod name(s) into — any ' +
+        'pod or controller click exports (status no longer gates this). Clicking a pod writes its ' +
+        'single name; clicking a controller writes ALL of its direct child pod names as a ' +
+        'MULTI-value write. Cleared ($__empty) on deselect or a click on any other node kind. ' +
+        'Because a controller click can write multiple values, the target variable MUST be type ' +
+        'Custom with Multi-value AND "Allow custom values" both enabled — a plain textbox variable ' +
+        "only holds one value, and a Query/options variable would drop values outside its option " +
+        "set. Do not reference it in this panel's own query. Leave empty to disable.",
       defaultValue: defaultOptions.selectedPodVariable,
+    })
+    .addTextInput({
+      path: 'clusterVariable',
+      name: 'Selected cluster variable',
+      description:
+        "Name of an existing dashboard variable to write the LEFT-clicked pod/controller's cluster " +
+        'name into (single value), resolved from the nearest cluster group ancestor (fallback: the ' +
+        "node's own cluster label). Cleared ($__empty) on deselect, a click on any other node kind, " +
+        'or when cluster resolution fails. Independent of Selected pod variable — either can be set ' +
+        "alone. Use a Textbox (or Custom + allow custom values) variable and do not reference it in " +
+        "this panel's own query. Leave empty to disable.",
+      defaultValue: defaultOptions.clusterVariable,
     });
 }

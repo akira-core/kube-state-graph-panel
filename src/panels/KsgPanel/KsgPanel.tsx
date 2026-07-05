@@ -33,7 +33,7 @@ import {
 } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
-import { useSelectedPodExport, useVariableExport } from '../../features/variable-export';
+import { useNodeClickExport, useVariableExport } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
@@ -371,11 +371,15 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
 
-  // Export the LEFT-clicked, non-normal pod's name into the configured variable for a
-  // sibling panel (cleared on deselect / normal / non-pod). Left-click is the sole
+  // Export the LEFT-clicked node's pod name(s) + cluster name into the two configured
+  // dashboard variables for a sibling panel (e.g. a log panel filter). A pod click writes
+  // its single name; a controller click writes all of its direct child pod names
+  // (multi-value). Cleared on deselect or any other node kind. Left-click is the sole
   // selection path now (the unified panel), so the export is always active on selection.
+  // Each variable is gated independently inside the hook.
   const selectedPodVariable = options.selectedPodVariable ?? defaultOptions.selectedPodVariable;
-  useSelectedPodExport(selectedNode, true, selectedPodVariable, selectedPodVariable.trim() !== '');
+  const clusterVariable = options.clusterVariable ?? defaultOptions.clusterVariable;
+  useNodeClickExport(elements, selectedNodeId, selectedPodVariable, clusterVariable);
 
   // Cluster swatches from the backend cluster containers (single source: data.clusterColor
   // assigned in normalize) so legend colours match the on-canvas backplates. Deduped by name.

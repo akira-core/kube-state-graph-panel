@@ -1230,18 +1230,21 @@ describe('KsgPanel', () => {
     });
   });
 
-  describe('selected-pod variable export (left-click, non-normal)', () => {
+  describe('node-click variable export (pod / controller / cluster)', () => {
+    const controllerId = 'demo/controller/StatefulSet/mongo';
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          // Backend D6 controller group — child pods nest under it (controller mode default).
+          { data: { id: controllerId, type: 'controller', name: 'mongo', parent: 'cluster:demo' } },
           {
             data: {
               id: 'demo/p1',
               type: 'pod',
               name: 'mongo-0',
-              status: 'critical',
-              parent: 'cluster:demo',
+              status: 'normal',
+              parent: controllerId,
               labels: { cluster: 'demo', namespace: 'shop' },
             },
           },
@@ -1249,9 +1252,9 @@ describe('KsgPanel', () => {
             data: {
               id: 'demo/p2',
               type: 'pod',
-              name: 'web-0',
-              status: 'normal',
-              parent: 'cluster:demo',
+              name: 'mongo-1',
+              status: 'critical',
+              parent: controllerId,
               labels: { cluster: 'demo', namespace: 'shop' },
             },
           },
@@ -1268,45 +1271,83 @@ describe('KsgPanel', () => {
       length: 1,
       fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
     };
-    type Handlers = { onSelect?: (id: string | null) => void;};
+    type Handlers = { onSelect?: (id: string | null) => void };
     const lastProps = (): Handlers => (graphCanvasSpy.mock.calls as Array<[Handlers]>).at(-1)![0];
     const selectedPodCalls = (): Array<Record<string, unknown>> =>
       (locationPartialMock.mock.calls as Array<[Record<string, unknown>]>)
         .map((c) => c[0])
         .filter((q) => 'var-selected_pod' in q);
-    function renderWith(selectedPodVariable: string): void {
+    const clusterCalls = (): Array<Record<string, unknown>> =>
+      (locationPartialMock.mock.calls as Array<[Record<string, unknown>]>)
+        .map((c) => c[0])
+        .filter((q) => 'var-cluster_sel' in q);
+    function renderWith(selectedPodVariable: string, clusterVariable = ''): void {
       render(
         <KsgPanel
           {...buildProps({
             data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
-            options: { ...defaultOptions, selectedPodVariable },
+            options: { ...defaultOptions, selectedPodVariable, clusterVariable },
           })}
         />
       );
     }
 
-    it('left-click a critical pod writes its name to the variable', () => {
-      renderWith('selected_pod');
+    it('left-click a normal pod exports its name and cluster (status no longer gates)', () => {
+      renderWith('selected_pod', 'cluster_sel');
       act(() => {
         lastProps().onSelect?.('demo/p1');
       });
       expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['mongo-0'] });
+      expect(clusterCalls().at(-1)).toEqual({ 'var-cluster_sel': ['demo'] });
     });
 
-    it('left-click a normal pod clears the variable ($__empty)', () => {
-      renderWith('selected_pod');
+    it('left-click a controller exports all child pod names as a multi-value write, plus cluster', () => {
+      renderWith('selected_pod', 'cluster_sel');
       act(() => {
-        lastProps().onSelect?.('demo/p2');
+        lastProps().onSelect?.(controllerId);
+      });
+      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['mongo-0', 'mongo-1'] });
+      expect(clusterCalls().at(-1)).toEqual({ 'var-cluster_sel': ['demo'] });
+    });
+
+    it('left-click a non-pod/non-controller node clears both variables', () => {
+      renderWith('selected_pod', 'cluster_sel');
+      act(() => {
+        lastProps().onSelect?.('demo/svc');
       });
       expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['$__empty'] });
+      expect(clusterCalls().at(-1)).toEqual({ 'var-cluster_sel': ['$__empty'] });
     });
 
-    it('does not touch the variable when the option is empty', () => {
+    it('clicking the background (deselect) clears both variables', () => {
+      renderWith('selected_pod', 'cluster_sel');
+      act(() => {
+        lastProps().onSelect?.('demo/p1');
+      });
+      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['mongo-0'] });
+      act(() => {
+        lastProps().onSelect?.(null);
+      });
+      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['$__empty'] });
+      expect(clusterCalls().at(-1)).toEqual({ 'var-cluster_sel': ['$__empty'] });
+    });
+
+    it('does not touch either variable when both options are empty', () => {
       renderWith('');
       act(() => {
         lastProps().onSelect?.('demo/p1');
       });
       expect(selectedPodCalls()).toHaveLength(0);
+      expect(clusterCalls()).toHaveLength(0);
+    });
+
+    it('independent gating: only selectedPodVariable set exports pod names, cluster path stays silent', () => {
+      renderWith('selected_pod');
+      act(() => {
+        lastProps().onSelect?.('demo/p1');
+      });
+      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['mongo-0'] });
+      expect(clusterCalls()).toHaveLength(0);
     });
   });
 });
