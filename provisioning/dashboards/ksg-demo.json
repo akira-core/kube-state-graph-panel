@@ -24,7 +24,8 @@
       "options": {
         "layout": "fcose",
         "showLegend": true,
-        "podListVariable": "pod_list",
+        "alertPodListVariable": "alert_pod_list",
+        "alertNameListVariable": "alert_names",
         "selectedPodVariable": "selected_pod",
         "clusterVariable": "cluster_sel"
       },
@@ -46,16 +47,16 @@
     {
       "id": 99,
       "type": "text",
-      "title": "Selected pod / cluster (consumer)",
+      "title": "Selected pod / cluster / alert exports (consumer)",
       "gridPos": {
         "x": 0,
         "y": 18,
         "w": 24,
-        "h": 4
+        "h": 7
       },
       "options": {
         "mode": "markdown",
-        "content": "### Selected pod / cluster\n\nClick any pod or controller node in the graph above: a pod exports its own name, a controller exports all of its child pod names — both cases also export the resolved cluster name. A sibling log panel (e.g. Loki/ClickHouse) can filter on `${selected_pod}` and `${cluster_sel}`.\n\nselected_pod: `${selected_pod}`\n\ncluster_sel: `${cluster_sel}`"
+        "content": "### Selected pod / cluster\n\nClick any pod or controller node in the graph above: a pod exports its own name, a controller exports all of its child pod names — both cases also export the resolved cluster name. A sibling log panel (e.g. Loki/ClickHouse) can filter on `${selected_pod}` and `${cluster_sel}`.\n\nselected_pod: `${selected_pod}`\n\ncluster_sel: `${cluster_sel}`\n\n### Alert pod list / alert names (exported)\n\nThis backend demo's seed fixture (`dev/victoriametrics/topology.prom`) has no alert data contract, so `alert_pod_list` and `alert_names` always resolve to `$__empty` here — this is a documented seed-data limitation, not a panel fault. See the **KSG Showcase** dashboard (`ksg-switch-demo`, inline fixture) for a working example with real alert-carrying nodes (`mongo-2`, `mesh-gateway-0`, `worker-1`, `data-mongo-2`).\n\nalert_pod_list: `${alert_pod_list}`\n\nalert_names: `${alert_names}`"
       },
       "transparent": false
     }
@@ -185,22 +186,52 @@
         "hide": 0
       },
       {
-        "name": "pod_list",
-        "label": "Pod list (exported)",
-        "description": "Written by the KSG panel after each graph load \u2014 all pod names currently in the graph; $__empty means a loaded graph with zero pods (and is the pre-first-write placeholder, so consumers never match a literal placeholder name). Consume it from other panels, e.g. an ES logs query via ${pod_list:lucene}. Deliberately NOT referenced by the KSG panel's own query (no self-filtering feedback loop).",
+        "name": "alert_pod_list",
+        "label": "Alert pod list (exported)",
+        "description": "Written by the KSG panel after each graph load \u2014 pod names that currently have at least one alert (any severity); $__empty means a loaded graph with zero alerting pods. custom + multi + allowCustomValue so it can carry the multi-value writes this produces \u2014 a plain textbox variable cannot hold multiple values. This backend demo's seed fixture (dev/victoriametrics/topology.prom) has no alert data contract, so this variable is always $__empty here \u2014 see the ksg-switch-demo dashboard (inline fixture) for a working example with real alert data (mesh-gateway-0, mongo-2).",
         "type": "custom",
         "query": "$__empty",
         "multi": true,
+        "allowCustomValue": true,
         "includeAll": false,
-        "current": {},
+        "current": {
+          "selected": false,
+          "text": "$__empty",
+          "value": "$__empty"
+        },
         "options": [
           {
             "text": "$__empty",
             "value": "$__empty",
-            "selected": false
+            "selected": true
           }
         ],
-        "hide": 0
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "name": "alert_names",
+        "label": "Alert names (exported)",
+        "description": "Written by the KSG panel after each graph load \u2014 distinct alert names found across all node kinds (pod/node/pvc/service/controller), any severity; $__empty means zero alerts in the loaded graph. custom + multi + allowCustomValue for the same reason as alert_pod_list. This backend demo's seed fixture (dev/victoriametrics/topology.prom) has no alert data contract, so this variable is always $__empty here \u2014 see the ksg-switch-demo dashboard (inline fixture) for a working example with real alert data (~12 distinct alert names).",
+        "type": "custom",
+        "query": "$__empty",
+        "multi": true,
+        "allowCustomValue": true,
+        "includeAll": false,
+        "current": {
+          "selected": false,
+          "text": "$__empty",
+          "value": "$__empty"
+        },
+        "options": [
+          {
+            "text": "$__empty",
+            "value": "$__empty",
+            "selected": true
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
       },
       {
         "name": "selected_pod",

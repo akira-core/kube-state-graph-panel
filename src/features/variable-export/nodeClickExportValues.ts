@@ -51,7 +51,8 @@ function resolveCluster(
 }
 
 // Direct child pods of a controller: `data.parent === controllerId && kind === 'pod'`,
-// labels deduped and sorted lexicographically for a stable multi-value fingerprint
+// labels deduped and sorted lexicographically (plain code-unit sort, locale-independent —
+// same convention as the extractAlert* collectors) for a stable multi-value fingerprint
 // (design D2/D3 — collected from the current view elements, not an owner reverse-lookup).
 function collectChildPodLabels(elements: readonly cytoscape.ElementDefinition[], controllerId: string): string[] {
   const labels = new Set<string>();
@@ -64,7 +65,7 @@ function collectChildPodLabels(elements: readonly cytoscape.ElementDefinition[],
       labels.add(d.label);
     }
   }
-  return Array.from(labels).sort((a, b) => a.localeCompare(b));
+  return Array.from(labels).sort();
 }
 
 /**

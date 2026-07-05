@@ -18,11 +18,21 @@ export interface KsgPanelOptions {
   // disabled: the Application/Containers URL buttons stay inert and no query is
   // ever issued.
   detailEndpoint: string;
-  // Name of an EXISTING dashboard variable to export the graph's pod names
-  // into (multi-value, via var-<name> URL sync) — e.g. for an ES logs panel
-  // consuming ${pod_list:lucene}. Empty (default) disables the export. The
-  // panel can only set values; it cannot create the variable or its options.
-  podListVariable: string;
+  // Name of an EXISTING dashboard variable to export the names of pods that
+  // CURRENTLY carry at least one alert (any severity — status does not gate
+  // this) into, via var-<name> URL sync (multi-value) — e.g. for an ES logs
+  // panel consuming ${alert_pod_list:lucene}. Empty (default) disables the
+  // export. The panel can only set values; it cannot create the variable or
+  // its options. BREAKING rename from the old `podListVariable` key (which
+  // exported ALL pods regardless of alerts) — the old key is no longer read.
+  alertPodListVariable: string;
+  // Name of an EXISTING dashboard variable to export every distinct alert
+  // name present anywhere in the graph into (multi-value, via var-<name> URL
+  // sync) — collected across ALL node kinds (pods, nodes, PVCs, services,
+  // controllers), for a consumer querying VictoriaMetrics by alertname. Empty
+  // (default) disables the export. Independent of alertPodListVariable —
+  // either can be set alone.
+  alertNameListVariable: string;
   // Name of an EXISTING dashboard variable to write the LEFT-clicked node's pod
   // name(s) into: a single-element write for a pod click, or the FULL list of
   // direct child pod names (multi-value) for a controller compound click. Status
@@ -34,7 +44,8 @@ export interface KsgPanelOptions {
   // Multi-value AND "Allow custom values" enabled (a plain textbox only holds one
   // value, and query/options variables would drop values outside their option
   // set). Do NOT reference it in this panel's own query (self-filter loop).
-  // Independent of podListVariable and of clusterVariable.
+  // Independent of the alert list variables (alertPodListVariable /
+  // alertNameListVariable) and of clusterVariable.
   selectedPodVariable: string;
   // Name of an EXISTING dashboard variable to write the cluster name of the
   // LEFT-clicked pod/controller into (single value), resolved via the nearest
@@ -62,7 +73,8 @@ export const defaultOptions: KsgPanelOptions = {
   visibleKinds: ALL_KINDS,
   visibleEdgeTypes: ALL_EDGE_TYPES,
   detailEndpoint: '',
-  podListVariable: '',
+  alertPodListVariable: '',
+  alertNameListVariable: '',
   selectedPodVariable: '',
   clusterVariable: '',
 };

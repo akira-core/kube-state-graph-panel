@@ -33,7 +33,12 @@ import {
 } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
-import { useNodeClickExport, useVariableExport } from '../../features/variable-export';
+import {
+  extractAlertNames,
+  extractAlertPodNames,
+  useListVariableExport,
+  useNodeClickExport,
+} from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
@@ -257,13 +262,20 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // gate and the fatal early return so the two can't drift.
   const isFatalNormalizeError = normalizeError !== undefined && baseElements.length === 0;
 
-  // Export every pod name into the dashboard variable. Reads baseElements (pre-view-
-  // transform data-layer truth). Gated off in every non-successful load state (no
-  // payload — also first load, query error, fatal normalize) so it can't write "no
-  // pods"; only a loaded graph with zero pods clears the variable — pod-list-variable-export spec.
-  const podListVariable = options.podListVariable ?? defaultOptions.podListVariable;
+  // Export alert-carrying pod names + all distinct alert names into their configured
+  // dashboard variables. Both read baseElements (pre-view-transform data-layer truth) so
+  // collapse / filter / pod-parent mode never affect the exported list. Gated off in every
+  // non-successful load state (no payload — also first load, query error, fatal normalize)
+  // so it can't write "no alerts"; only a loaded graph with zero matches clears each
+  // variable — pod-list-variable-export spec. Each variable is independently name-gated
+  // inside the hook.
+  const alertPodListVariable = options.alertPodListVariable ?? defaultOptions.alertPodListVariable;
+  const alertNameListVariable = options.alertNameListVariable ?? defaultOptions.alertNameListVariable;
   const variableExportEnabled = hasPayload && seriesError === undefined && !isFatalNormalizeError;
-  useVariableExport(baseElements, podListVariable, variableExportEnabled);
+  const alertPodNames = useMemo(() => extractAlertPodNames(baseElements), [baseElements]);
+  const alertNames = useMemo(() => extractAlertNames(baseElements), [baseElements]);
+  useListVariableExport(alertPodNames, alertPodListVariable, variableExportEnabled);
+  useListVariableExport(alertNames, alertNameListVariable, variableExportEnabled);
 
   // Pod-parent view mode — ephemeral per-session view state, NOT persisted (unlike
   // visibleKinds toggles): a mode flip is a transient view, not a dashboard-authoring

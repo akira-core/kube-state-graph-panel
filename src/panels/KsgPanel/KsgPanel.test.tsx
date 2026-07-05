@@ -30,7 +30,7 @@ jest.mock('../../features/graph-canvas', () => {
 
 // Backend transport stub for the left-click detail-URL flow (useNodeDetailUrls)
 // plus the datasource registry stub for endpoint derivation (resolveDetailEndpoint)
-// plus the locationService stub for the pod-list variable export (useVariableExport).
+// plus the locationService stub for the alert-list variable exports (useListVariableExport).
 // Dereferenced lazily inside the service getters, so hoisting order is safe.
 const detailGetMock = jest.fn();
 const getInstanceSettingsMock = jest.fn();
@@ -146,13 +146,21 @@ describe('KsgPanel', () => {
     expect(locationPartialMock).not.toHaveBeenCalled();
   });
 
-  it('exports the pod names into the configured dashboard variable', () => {
+  it('exports only alert-carrying pod names into the configured dashboard variable', () => {
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
           { data: { id: 'demo/p2', type: 'pod', name: 'web-1', parent: 'cluster:demo' } },
-          { data: { id: 'demo/p1', type: 'pod', name: 'web-0', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'web-0',
+              parent: 'cluster:demo',
+              alerts: [{ name: 'KubePodCrashLooping', severity: 'critical', time_records: [1717500000] }],
+            },
+          },
           { data: { id: 'demo/svc', type: 'service', name: 'web-svc', parent: 'cluster:demo' } },
         ],
         edges: [],
@@ -167,24 +175,175 @@ describe('KsgPanel', () => {
       <KsgPanel
         {...buildProps({
           data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
-          options: { ...defaultOptions, podListVariable: 'pod_list' },
+          options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list' },
         })}
       />
     );
-    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-pod_list': ['web-0', 'web-1'] }, true);
+    // web-1 has no alerts and is excluded; only the alert-carrying pod is exported.
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-alert_pod_list': ['web-0'] }, true);
+  });
+
+  it('excludes a pod from the alert pod list once it loses its only alert', () => {
+    const withAlert = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'web-0',
+              alerts: [{ name: 'KubePodCrashLooping', severity: 'critical', time_records: [1717500000] }],
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frameWithAlert: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(withAlert)] }],
+    };
+    const props = buildProps({
+      data: { state: LoadingState.Done, series: [frameWithAlert], timeRange: stubTimeRange },
+      options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list' },
+    });
+    const { rerender } = render(<KsgPanel {...props} />);
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-alert_pod_list': ['web-0'] }, true);
+
+    locationPartialMock.mockClear();
+    const withoutAlert = {
+      elements: { nodes: [{ data: { id: 'demo/p1', type: 'pod', name: 'web-0' } }], edges: [] },
+    };
+    const frameWithoutAlert: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(withoutAlert)] }],
+    };
+    rerender(
+      <KsgPanel {...props} data={{ state: LoadingState.Done, series: [frameWithoutAlert], timeRange: stubTimeRange }} />
+    );
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-alert_pod_list': ['$__empty'] }, true);
+  });
+
+  it('exports every distinct alert name across node kinds, including a non-pod node', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-2',
+              alerts: [{ name: 'KubePodCrashLooping', severity: 'critical', time_records: [1717500000] }],
+            },
+          },
+          {
+            data: {
+              id: 'cluster-alpha/worker-1',
+              type: 'node',
+              name: 'worker-1',
+              alerts: [{ name: 'KubeNodeMemoryPressure', severity: 'warning', time_records: [1717500000] }],
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, alertNameListVariable: 'alert_names' },
+        })}
+      />
+    );
+    expect(locationPartialMock).toHaveBeenCalledWith(
+      { 'var-alert_names': ['KubeNodeMemoryPressure', 'KubePodCrashLooping'] },
+      true
+    );
+  });
+
+  it('ignores the old podListVariable option key entirely (hard rename, no fallback)', () => {
+    const payload = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'web-0',
+              alerts: [{ name: 'KubePodCrashLooping', severity: 'critical', time_records: [1717500000] }],
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          // Old key — no longer read. alertPodListVariable/alertNameListVariable stay
+          // at their empty-string default, so the export must stay fully disabled.
+          options: {
+            ...defaultOptions,
+            // @ts-expect-error -- podListVariable was removed from KsgPanelOptions (hard
+            // rename, no fallback); keeping this cast-free surfaces a typecheck failure
+            // if the field is ever reintroduced instead of silently passing.
+            podListVariable: 'pod_list',
+          },
+        })}
+      />
+    );
+    expect(locationPartialMock).not.toHaveBeenCalled();
   });
 
   it('does not export while the query is in an error state', () => {
+    // The error frame RETAINS a last-good payload in series (Grafana keeps stale
+    // frames on refresh errors): hasPayload is true here, so this pins the
+    // `seriesError === undefined` term of variableExportEnabled specifically —
+    // an errored refresh must not overwrite the variables with stale-graph values.
+    const lastGood = {
+      elements: {
+        nodes: [
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'web-0',
+              alerts: [{ name: 'KubePodCrashLooping', severity: 'critical', time_records: [1717500000] }],
+            },
+          },
+        ],
+        edges: [],
+      },
+    };
+    const staleFrame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(lastGood)] }],
+    };
     render(
       <KsgPanel
         {...buildProps({
           data: {
             state: LoadingState.Error,
-            series: [],
+            series: [staleFrame],
             errors: [{ message: 'boom', refId: 'A' }],
             timeRange: stubTimeRange,
           },
-          options: { ...defaultOptions, podListVariable: 'pod_list' },
+          options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list', alertNameListVariable: 'alert_names' },
         })}
       />
     );
@@ -196,7 +355,7 @@ describe('KsgPanel', () => {
       <KsgPanel
         {...buildProps({
           data: { state: LoadingState.Loading, series: [], timeRange: stubTimeRange },
-          options: { ...defaultOptions, podListVariable: 'pod_list' },
+          options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list', alertNameListVariable: 'alert_names' },
         })}
       />
     );
@@ -205,12 +364,12 @@ describe('KsgPanel', () => {
 
   it('does not export when a Done frame carries no recognizable payload', () => {
     // A hidden/not-yet-run query or a transform stripping every frame must not be
-    // written out as "no pods" — only a loaded graph may clear the variable.
+    // written out as "no alerts" — only a loaded graph may clear the variables.
     render(
       <KsgPanel
         {...buildProps({
           data: { state: LoadingState.Done, series: [], timeRange: stubTimeRange },
-          options: { ...defaultOptions, podListVariable: 'pod_list' },
+          options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list', alertNameListVariable: 'alert_names' },
         })}
       />
     );
@@ -227,16 +386,22 @@ describe('KsgPanel', () => {
       <KsgPanel
         {...buildProps({
           data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
-          options: { ...defaultOptions, podListVariable: 'pod_list' },
+          options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list', alertNameListVariable: 'alert_names' },
         })}
       />
     );
     expect(locationPartialMock).not.toHaveBeenCalled();
   });
 
-  it('clears the variable with the $__empty sentinel for a loaded graph with zero pods', () => {
+  it('clears both variables with the $__empty sentinel for a loaded graph with zero alerts', () => {
     const payload = {
-      elements: { nodes: [{ data: { id: 'demo/svc', type: 'service', name: 'web-svc' } }], edges: [] },
+      elements: {
+        nodes: [
+          { data: { id: 'demo/svc', type: 'service', name: 'web-svc' } },
+          { data: { id: 'demo/p1', type: 'pod', name: 'web-0' } },
+        ],
+        edges: [],
+      },
     };
     const frame: DataFrame = {
       name: 'graph',
@@ -247,11 +412,12 @@ describe('KsgPanel', () => {
       <KsgPanel
         {...buildProps({
           data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
-          options: { ...defaultOptions, podListVariable: 'pod_list' },
+          options: { ...defaultOptions, alertPodListVariable: 'alert_pod_list', alertNameListVariable: 'alert_names' },
         })}
       />
     );
-    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-pod_list': ['$__empty'] }, true);
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-alert_pod_list': ['$__empty'] }, true);
+    expect(locationPartialMock).toHaveBeenCalledWith({ 'var-alert_names': ['$__empty'] }, true);
   });
 
   it('renders cluster swatches derived from backend cluster container nodes', () => {

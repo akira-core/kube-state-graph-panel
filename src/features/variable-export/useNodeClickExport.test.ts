@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import type cytoscape from 'cytoscape';
 
-// Mock the feature's write boundary (mirrors useVariableExport.test): the hook's job is
+// Mock the feature's write boundary (mirrors useListVariableExport.test.ts): the hook's job is
 // WHEN/WHAT to write per variable, not the var- URL wire format (writeDashboardVariable.test.ts
 // pins that). Dereferenced lazily inside the factory, so hoisting order is safe.
 const writeVariableMock = jest.fn();
@@ -13,8 +13,8 @@ jest.mock('./writeDashboardVariable', () => ({
 
 import { useNodeClickExport } from './useNodeClickExport';
 
-// nodeClickExportValues is exercised for real (not mocked) — same approach as
-// useVariableExport.test.ts using extractPodNames for real — so these fixtures pin
+// nodeClickExportValues is exercised for real (not mocked) — same approach as the
+// KsgPanel tests exercising extractAlertPodNames for real — so these fixtures pin
 // the hook's wiring, not the pure function's decision table (nodeClickExportValues.test
 // owns that).
 const podElements: cytoscape.ElementDefinition[] = [

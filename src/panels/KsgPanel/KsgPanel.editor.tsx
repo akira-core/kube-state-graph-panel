@@ -77,16 +77,38 @@ export function buildKsgPanelOptions(
       defaultValue: defaultOptions.detailEndpoint,
     })
     .addTextInput({
-      path: 'podListVariable',
-      name: 'Pod list variable',
+      path: 'alertPodListVariable',
+      name: 'Alert pod list variable',
       description:
-        'Name of an existing dashboard variable to export the pod names of the graph into ' +
-        '(multi-value), e.g. for an Elasticsearch logs panel querying ${pod_list:lucene}. ' +
-        'A successfully loaded graph with zero pods writes the $__empty sentinel (consumers ' +
-        'match no pod) — query errors and payload-less refreshes leave the variable untouched. ' +
-        'The variable must already exist on the dashboard and must not feed back into ' +
-        "this panel's own query. Leave empty to disable.",
-      defaultValue: defaultOptions.podListVariable,
+        'Name of an existing dashboard variable to export the names of pods that CURRENTLY ' +
+        'carry at least one alert into (multi-value) — any severity counts, e.g. for an ' +
+        'Elasticsearch logs panel querying ${alert_pod_list:lucene}. A successfully loaded ' +
+        'graph with zero alerting pods writes the $__empty sentinel — query errors and ' +
+        "payload-less refreshes leave the variable untouched. BREAKING: replaces the old " +
+        "'podListVariable' key, which exported ALL pods regardless of alerts — that key is " +
+        'no longer read; existing dashboards must refill this option. Because the export can ' +
+        'write many values at once, the target variable MUST be type Custom with Multi-value ' +
+        'AND "Allow custom values" enabled (a plain textbox only holds one value). The ' +
+        "variable must already exist on the dashboard and must not feed back into this panel's " +
+        'own query. Leave empty to disable.',
+      defaultValue: defaultOptions.alertPodListVariable,
+    })
+    .addTextInput({
+      path: 'alertNameListVariable',
+      name: 'Alert name list variable',
+      description:
+        'Name of an existing dashboard variable to export every distinct alert name present ' +
+        'anywhere in the graph into (multi-value) — collected across ALL node kinds (pods, ' +
+        'nodes, PVCs, services, controllers), for querying VictoriaMetrics by alertname. A ' +
+        'successfully loaded graph with zero alerts writes the $__empty sentinel — query errors ' +
+        'and payload-less refreshes leave the variable untouched. Independent of the alert pod ' +
+        'list variable — either can be set alone, but each export option needs its OWN variable ' +
+        '(two options writing the same name overwrite each other). Because the export can write ' +
+        'many values at once, the target variable MUST be type Custom with Multi-value AND ' +
+        '"Allow custom values" enabled (a plain textbox only holds one value). The variable ' +
+        "must already exist on the dashboard and must not feed back into this panel's own " +
+        'query. Leave empty to disable.',
+      defaultValue: defaultOptions.alertNameListVariable,
     })
     .addTextInput({
       path: 'selectedPodVariable',
