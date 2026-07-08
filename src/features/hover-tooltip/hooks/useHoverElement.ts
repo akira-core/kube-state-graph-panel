@@ -47,10 +47,6 @@ export function useHoverElement({ cyRef, ready }: UseHoverElementProps): Hovered
       if (typeof target.id !== 'function') {
         return;
       }
-      // Compound cluster containers are decorative — never show a tooltip for them.
-      if (target.isNode() && target.data('isCluster') === true) {
-        return;
-      }
       const isNode = target.isNode();
       // target.data() returns cytoscape's LIVE internal object — the diff-patch
       // (removeData/data writes) and expand-collapse's edge.move() rewires mutate

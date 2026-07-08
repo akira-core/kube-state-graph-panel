@@ -18,6 +18,10 @@ describe('buildNodeAttributes', () => {
     expect(buildNodeAttributes(data({ isNamespace: true }))).toEqual([{ key: 'kind', value: 'namespace' }]);
   });
 
+  it('synthesizes kind "cluster" for a kind-less cluster group', () => {
+    expect(buildNodeAttributes(data({ isCluster: true, cluster: 'prod' }))).toEqual([{ key: 'kind', value: 'cluster' }]);
+  });
+
   it('promotes namespace, application and ipAddress (array joined)', () => {
     const attrs = buildNodeAttributes(
       data({ kind: 'pod', namespace: 'prod', application: 'mongodb', ipAddress: ['10.0.0.1', '10.0.0.2'] })

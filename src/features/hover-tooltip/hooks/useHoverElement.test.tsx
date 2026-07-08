@@ -87,15 +87,19 @@ describe('useHoverElement', () => {
     cy.destroy();
   });
 
-  it('never surfaces a tooltip for a cluster container node', () => {
-    const cy = headlessCy([{ group: 'nodes', data: { id: 'cluster:demo', label: 'demo', isCluster: true } }]);
+  it('surfaces a cluster container node on hover (selectable:false does not block mouseover)', () => {
+    const cy = headlessCy([
+      { group: 'nodes', data: { id: 'cluster:demo', label: 'demo', isCluster: true, cluster: 'demo' } },
+    ]);
     const cyRef = { current: cy };
     const { result } = renderHook(() => useHoverElement({ cyRef, ready: true }));
 
     act(() => {
       cy.getElementById('cluster:demo').emit('mouseover');
     });
-    expect(result.current).toBeNull();
+    expect(result.current?.id).toBe('cluster:demo');
+    expect(result.current?.data.isCluster).toBe(true);
+    expect(result.current?.data.cluster).toBe('demo');
     cy.destroy();
   });
 });

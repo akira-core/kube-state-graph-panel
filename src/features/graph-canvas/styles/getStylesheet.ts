@@ -183,8 +183,8 @@ export function getStylesheet({
     },
     {
       // Cluster container nodes (see normalize.ts), accent in data(clusterColor).
-      // selectable:false in normalize + skipped by useHoverElement → decorative
-      // (no selection ring/tooltip) but still draggable by margin/label. Declared
+      // selectable:false in normalize → decorative (no selection ring / detail panel)
+      // but still hoverable (tooltip) and draggable by margin/label. Declared
       // after node:parent so its accent wins.
       selector: 'node[?isCluster]',
       style: {

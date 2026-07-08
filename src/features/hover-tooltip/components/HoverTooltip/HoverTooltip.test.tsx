@@ -158,6 +158,18 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('namespace')).toBeInTheDocument();
   });
 
+  it('shows a synthetic kind for a kind-less cluster group', () => {
+    useHoverElement.mockReturnValue({
+      id: 'cluster/prod',
+      group: 'nodes',
+      data: { id: 'cluster/prod', label: 'prod', isCluster: true, cluster: 'prod', clusterColor: '#14b8a6', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('prod')).toBeInTheDocument(); // title (name)
+    expect(screen.getByText('kind:')).toBeInTheDocument();
+    expect(screen.getByText('cluster')).toBeInTheDocument();
+  });
+
   it('joins multiple ip addresses with a comma', () => {
     useHoverElement.mockReturnValue({
       id: 'node-1',

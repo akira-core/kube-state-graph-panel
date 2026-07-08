@@ -13,9 +13,9 @@ export interface NodeAttribute {
 // tooltip and the pinned selection tooltip so the two never drift. Only emits rows that
 // HAVE a value (no empty rows). Backend D6 namespace / application groups are kind-LESS
 // in data (invisible to the kind filter + icon legend), so a synthetic kind is surfaced;
-// a real data.kind (leaf / k8s node / enriched controller) wins. Accepts the raw node
-// `data` bag (cytoscape `NodeDataDefinition` or the hover layer's `Record<string,
-// unknown>`); every read is guarded so untyped values narrow safely.
+// cluster groups likewise. A real data.kind (leaf / k8s node / enriched controller) wins.
+// Accepts the raw node `data` bag (cytoscape `NodeDataDefinition` or the hover layer's
+// `Record<string, unknown>`); every read is guarded so untyped values narrow safely.
 export function buildNodeAttributes(data: Readonly<Record<string, unknown>>): NodeAttribute[] {
   const attrs: NodeAttribute[] = [];
 
@@ -26,7 +26,9 @@ export function buildNodeAttributes(data: Readonly<Record<string, unknown>>): No
         ? 'application'
         : data.isNamespace === true
           ? 'namespace'
-          : undefined;
+          : data.isCluster === true
+            ? 'cluster'
+            : undefined;
   if (kindValue !== undefined) {
     attrs.push({ key: 'kind', value: kindValue });
   }
