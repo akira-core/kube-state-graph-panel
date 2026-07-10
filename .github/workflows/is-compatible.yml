@@ -1,4 +1,4 @@
-name: Latest Grafana API compatibility check
+name: Grafana 11.4 API compatibility check
 on: [pull_request]
 
 jobs:
@@ -38,5 +38,11 @@ jobs:
         uses: grafana/plugin-actions/is-compatible@is-compatible/v1.0.2
         with:
           module: ${{ steps.find-module-ts.outputs.modulets }}
+          # Check against the MINIMUM supported Grafana (grafanaDependency ">=11.4.0")
+          # rather than the action's default @latest. Levitate compares the installed
+          # @grafana/* (12.4.x) against these targets, so pinning to 11.4.0 surfaces any
+          # API we use that does NOT exist in 11.4 and would break on the min version.
+          # Only the packages src/ actually imports (data / ui / runtime).
+          targets: '@grafana/data@11.4.0,@grafana/ui@11.4.0,@grafana/runtime@11.4.0'
           comment-pr: 'yes'
           fail-if-incompatible: 'no'
