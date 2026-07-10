@@ -31,6 +31,22 @@ function titleCaseWords(text: string): string {
   return text.replace(/\S+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
 }
 
+// Render-only kind prefixes for decorative compound boxes. `data.label` stays the bare
+// name (tooltip / identity); only the canvas stylesheet paints `${PREFIX}: ${name}`.
+const GROUP_LABEL_PREFIX = {
+  cluster: 'Cluster',
+  namespace: 'Namespace',
+  application: 'Release Unit',
+} as const;
+
+// Render-only label mapper: prefixes a node's bare `data.label` with a kind word
+// (`${prefix}: ${name}`) on the canvas only. `data.label` is never rewritten, so tooltip
+// titles, detail-panel headers and the dashboard `name=` query keep the bare identity.
+function prefixedLabel(prefix: string): string {
+  return ((ele: cytoscape.NodeSingular): string =>
+    `${prefix}: ${String(ele.data('label') ?? '')}`) as unknown as string;
+}
+
 // Parent cluster's accent for a compound container's box tint + label, so node and
 // cluster read as one family. A COLLAPSED node loses :parent (children removed) and
 // reverts to base node styling — the intended "white label once collapsed" behaviour.
@@ -196,7 +212,8 @@ export function getStylesheet({
         'border-color': 'data(clusterColor)',
         'border-width': 1.5,
         'border-opacity': 0.5,
-        label: 'data(label)',
+        // Render-only kind prefix — data.label stays bare for tooltip / identity.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.cluster),
         color: 'data(clusterColor)',
         'font-size': 18,
         'font-weight': 600,
@@ -220,7 +237,8 @@ export function getStylesheet({
         'border-color': 'data(namespaceColor)',
         'border-width': 1.5,
         'border-opacity': 0.7,
-        label: 'data(label)',
+        // Render-only kind prefix — data.label stays bare for tooltip / identity.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.namespace),
         color: 'data(namespaceColor)',
         'font-size': 17,
         'font-weight': 600,
@@ -244,7 +262,8 @@ export function getStylesheet({
         'border-color': 'data(applicationColor)',
         'border-width': 1.5,
         'border-opacity': 0.7,
-        label: 'data(label)',
+        // Render-only kind prefix ("Release Unit") — data.label stays bare.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.application),
         color: 'data(applicationColor)',
         'font-size': 17,
         'font-weight': 600,
@@ -287,8 +306,7 @@ export function getStylesheet({
     ).map((selector) => ({
       selector,
       style: {
-        label: ((ele: cytoscape.NodeSingular): string =>
-          `Node: ${String(ele.data('label') ?? '')}`) as unknown as string,
+        label: prefixedLabel('Node'),
         'font-size': 18,
         'font-weight': 600,
       },
@@ -365,12 +383,12 @@ export function getStylesheet({
     {
       // Boundary edge re-pointed to a collapsed container by expand-collapse. The
       // extension preserves the original `data.edgeType`, so colour/arrow/line-style
-      // cascade from the base `edge` rule. This rule only bumps width + forces a direct
-      // bezier (taxi routing makes no sense pointing at a collapsed box). Exempt from
-      // edge-type filtering — see useElementFilter.
+      // cascade from the base `edge` rule. This rule only bumps width + forces a
+      // straight line (taxi/bezier both look noisy between collapsed boxes). Exempt
+      // from edge-type filtering — see useElementFilter.
       selector: 'edge.cy-expand-collapse-meta-edge',
       style: {
-        'curve-style': 'bezier',
+        'curve-style': 'straight',
         width: 2.5,
       },
     },

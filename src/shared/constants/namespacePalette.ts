@@ -5,8 +5,9 @@
 //   * the legend's NamespaceLegend — the swatch must match the on-canvas backplate.
 //
 // One colour per KIND, not per instance: every namespace renders the SAME muted plum
-// so the graph reads by nesting + the `Namespace: ` label prefix, not by a rainbow of
-// per-name hues. Constraints (mechanically enforced by namespacePalette.test.ts):
+// so the graph reads by nesting + the canvas `Namespace: ` label prefix (render-only in
+// the stylesheet; data.label stays bare), not by a rainbow of per-name hues. Constraints
+// (mechanically enforced by namespacePalette.test.ts):
 //   (1) MUST NOT equal any STATUS colour (green/yellow/red) — never read as node health.
 //   (2) MUST NOT equal any edge colour (EDGE_STYLE_BY_TYPE) — a low-saturation,
 //       translucent backplate keeps the vivid edges legible where they cross it.

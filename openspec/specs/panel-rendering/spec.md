@@ -238,6 +238,8 @@ Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
 
 `storageclass` leaf 節點 MUST 走**一般 node-tooltip 路徑**——它於後端 D6 階層自帶 `kind`(`storageclass`)、`labels.cluster`、`provisioner` 與 `parameters`,tooltip(hover 浮動或釘選)直接顯示這些自帶欄位;舊有「自子 PVC 節點合成 context」路徑(`gatherStorageClassContext`、`HoveredElement.storageClass` 欄、`HoverTooltip` 的 `isStorageClass` 分支)MUST 移除。kind-less 的 backend 群組(`isNamespace` / `isApplication`)MUST 由旗標推導一個**合成 `kind` row**(`isApplication` → `application`、`isNamespace` → `namespace`)——純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見);`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用。
 
+**Tooltip 的 name title MUST 使用裸 `data.label`(或缺則 `data.id`),MUST NOT 含畫布 compound 的 kind 前綴**(`Cluster:` / `Namespace:` / `Release Unit:` / `Node:`)。那些前綴僅由 stylesheet 於畫布標籤渲染(見「裝飾性 compound 群組…」與「physical-network 與 k8s node compound header…」);normalize 對裝飾性群組寫入的 `data.label` 為裸名稱,故 hover / pinned 路徑讀 `data.label` 即得裸名,無需額外 strip。
+
 #### Scenario: Hover 節點顯示節點 metadata（無選取時）
 
 - **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一節點
@@ -253,6 +255,17 @@ Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
 
 - **WHEN** 使用者 hover 於一個 backend `namespace` 或 `application` 群組節點(kind-less:無 `data.kind`,僅帶 `isNamespace` / `isApplication` 旗標)
 - **THEN** `HoverTooltip` MUST 由該旗標推導出一個合成 `kind` row(`isApplication` → `application`、`isNamespace` → `namespace`)並顯示,使 hover 不致只剩裸 name;此 row 為純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見)。`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用
+
+#### Scenario: Hover 裝飾性群組 title 為裸名稱(不含 kind 前綴)
+
+- **WHEN** 使用者 hover 於一個 `data.label` 為 `shop` 的 `namespace` 群組,或 `data.label` 為 `mongo` 的 `application` 群組(畫布上分別渲染為 `Namespace: shop` / `Release Unit: mongo`)
+- **THEN** tooltip title MUST 分別為 `shop` / `mongo`,MUST NOT 含 `Namespace:` / `Release Unit:` 前綴
+- **AND** 合成 `kind` row 仍分別顯示 `namespace` / `application`
+
+#### Scenario: 釘選 application 群組 title 為裸名稱
+
+- **WHEN** 使用者左鍵選取一個 `data.label` 為 `mongo` 的 `application` 群組(detail-eligible,釘選 tooltip)
+- **THEN** 釘選卡片 title MUST 為 `mongo`,MUST NOT 為 `Release Unit: mongo`
 
 #### Scenario: Hover 邊顯示邊 metadata（無選取時）
 
@@ -874,7 +887,9 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 
 裝飾性 `cluster` / `namespace` / `application` 群組的 accent 色(`clusterColor` / `namespaceColor` / `applicationColor`)MUST 為**依群組種類(kind)固定的單一色彩**——同種類的所有群組節點(不論其名稱)共用同一色彩,不再依名稱雜湊(hash)產生每一實例各異的色彩。三種 kind 的色彩 MUST 彼此不同,且 MUST 與既有邊色彩表(`EDGE_STYLE_BY_TYPE`)及 status 色彩(normal 綠、warning 黃、critical 紅)有足夠對比,確保邊線經過任一 compound 背板時仍清晰可辨。
 
-裝飾性 `cluster` / `namespace` / `application` 群組的 `data.label` MUST 以**首字大寫 kind 前綴詞 + `: `**(冒號後接一空格)為前綴,格式為 `${PREFIX}: ${name}`(例如名稱 `prod` 的 `cluster` 群組標籤為 `Cluster: prod`,名稱 `checkout` 的 `namespace` 群組標籤為 `Namespace: checkout`,名稱 `mongo` 的 `application` 群組標籤為 `Release Unit: mongo`)。**`application` 群組的顯示前綴詞重新命名為「Release Unit」**——此僅為顯示文字變更,內部 `type`/`kind` 字串、`isApplication` flag、`applicationColor`、CSS selector(`node[?isApplication]`)皆維持 `application` 不變。此前綴由 `normalizeGraph` 產生,非 stylesheet 渲染時串接,故 legend、tooltip 等所有讀取 `data.label` 的消費端皆自動取得前綴後的名稱。此要求僅適用於三種裝飾性 compound 群組,不影響任何 leaf 節點(pod / service / pvc / node / storageclass)或 `controller` compound 的標籤格式。整段標籤(前綴 + 名稱)沿用既有 `font-weight: 600` 樣式(getStylesheet.ts)——cytoscape 單一 label 不支援同節點內混合字重的局部粗體,故前綴與名稱共用同一字重。
+裝飾性 `cluster` / `namespace` / `application` 群組的**畫布標籤**MUST 以**首字大寫 kind 前綴詞 + `: `**(冒號後接一空格)為前綴,格式為 `${PREFIX}: ${name}`(例如名稱 `prod` 的 `cluster` 群組畫布標籤為 `Cluster: prod`,名稱 `checkout` 的 `namespace` 為 `Namespace: checkout`,名稱 `mongo` 的 `application` 為 `Release Unit: mongo`)。**`application` 群組的顯示前綴詞為「Release Unit」**——此僅為顯示文字,內部 `type`/`kind` 字串、`isApplication` flag、`applicationColor`、CSS selector(`node[?isApplication]`)皆維持 `application` 不變。
+
+此前綴 MUST 以 **stylesheet 的 render-only function `label` mapper** 實作(選擇器 `node[?isCluster]` / `node[?isNamespace]` / `node[?isApplication]`),**MUST NOT** 由 `normalizeGraph` 寫入 `data.label`——`data.label` MUST 維持上游裸名稱(與 `data.cluster` / `data.namespace` / `data.application` 一致)。如此 hover / pinned tooltip 的 name title、以及其他讀取 `data.label` 作為 identity / 顯示名的路徑,皆取得裸名稱;前綴**僅**出現在畫布 compound naming。此要求僅適用於三種裝飾性 compound 群組,不影響任何 leaf 節點(pod / service / pvc / node / storageclass)或 `controller` compound 的標籤格式。整段畫布標籤(前綴 + 名稱)沿用既有 `font-weight: 600` 樣式——cytoscape 單一 label 不支援同節點內混合字重的局部粗體,故前綴與名稱共用同一字重。
 
 #### Scenario: 同 kind 的多個 cluster 群組共用同一色彩
 
@@ -886,10 +901,11 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 - **WHEN** Panel 渲染 `cluster` / `namespace` / `application` 群組
 - **THEN** 三者的固定色彩彼此互異,且皆非 `EDGE_STYLE_BY_TYPE` 中任一邊色彩或 status 色彩(綠 `#73BF69` / 黃 `#F2CC0C` / 紅 `#E02F44`)的完全相同色值
 
-#### Scenario: 裝飾性群組標籤以 kind 為前綴
+#### Scenario: 裝飾性群組畫布標籤以 kind 為前綴,data.label 為裸名
 
-- **WHEN** 一個名稱為 `prod` 的 `cluster` 群組、名稱為 `checkout` 的 `namespace` 群組、名稱為 `mongo` 的 `application` 群組被正規化
-- **THEN** 三者的 `data.label` 依序為 `Cluster: prod`、`Namespace: checkout`、`Release Unit: mongo`
+- **WHEN** 一個名稱為 `prod` 的 `cluster` 群組、名稱為 `checkout` 的 `namespace` 群組、名稱為 `mongo` 的 `application` 群組被正規化並渲染
+- **THEN** 三者的 `data.label` 依序為 `prod`、`checkout`、`mongo`(裸名)
+- **AND** 畫布上 stylesheet 渲染的標籤依序為 `Cluster: prod`、`Namespace: checkout`、`Release Unit: mongo`
 
 #### Scenario: 非裝飾性節點標籤不受影響
 
@@ -902,7 +918,7 @@ physical-network fabric box(`kind: network`,包住 switches 的 compound)與 k8s
 
 k8s node 的此對齊 MUST **僅在該 node 為 compound 時**套用:選擇器為 `node[kind='node']:parent`(node-layout 下包住 pod)加上 `node[kind='node'].cy-expand-collapse-collapsed-node`(收合後子節點移除、失去 `:parent`,以 class 維持 header 穩定)。**controller-layout 下 k8s node 為葉節點**(pod 掛在合成 controller 下,非掛在 node),不符任一選擇器,MUST 回退為 base `node` 一般標題(裸 `data.label`、base 字級、標籤置底)。葉節點永不為 compound,故永不帶 collapsed class,sibling 選擇器不會外洩至葉節點。
 
-此對齊 MUST 以 **stylesheet 的 render-only function `label` mapper** 實作,**MUST NOT** 改寫 `data.label`——因 k8s `node` 的 `data.label` 為其 identity 值:`/dashboard` 查詢的 `name=` 參數(`paramsFromData` 將 `label` 改名為 `name`)與 detail 面板標題(`NodeDetailPanel` 渲染 `node.label`)皆直接讀取之,若把前綴烤進 `data.label` 會送出錯誤的 `name=Node: worker-0` 並讓標題與 kind badge 重複。故此為刻意與裝飾性群組(前綴烤進 `data.label`)不對稱的設計:群組非 dashboard-eligible 且 `resolveSelectedNode` 對其回 null / 改用 `data.application`,烤入前綴不會外流至查詢或葉節點標題;node/network box 為 identity-bearing,其前綴必須僅止於呈現層。switch 葉節點不在此範圍。
+此對齊 MUST 以 **stylesheet 的 render-only function `label` mapper** 實作,**MUST NOT** 改寫 `data.label`——因 k8s `node` 的 `data.label` 為其 identity 值:`/dashboard` 查詢的 `name=` 參數(`paramsFromData` 將 `label` 改名為 `name`)與 detail 面板標題(`NodeDetailPanel` 渲染 `node.label`)皆直接讀取之,若把前綴烤進 `data.label` 會送出錯誤的 `name=Node: worker-0` 並讓標題與 kind badge 重複。裝飾性群組的 kind 前綴同樣為 render-only(見「裝飾性 compound 群組使用 per-kind 固定色彩與 kind 前綴標籤」),三者契約一致:前綴只服務畫布 compound naming。switch 葉節點不在此範圍。
 
 #### Scenario: physical-network fabric box header title-case 且字級放大
 
@@ -921,4 +937,19 @@ k8s node 的此對齊 MUST **僅在該 node 為 compound 時**套用:選擇器�
 
 - **WHEN** Panel 於 controller-layout 渲染一個葉 k8s node(`kind: node`、非 `:parent`、`data.label` 為 `worker-9`)
 - **THEN** 其標籤回退為 base `node` 一般標題:裸 `worker-9`、base 字級(11)、標籤置底,不加 `Node: ` 前綴、不放大
+
+### Requirement: Compound 收合後的 meta-edge 以直線繪製
+
+當 `cytoscape-expand-collapse` 收合 compound parent 時,跨邊界的邊會被重指到收合容器並加上 `cy-expand-collapse-meta-edge` class。stylesheet MUST 對 `edge.cy-expand-collapse-meta-edge` 使用 `curve-style: 'straight'`(直線),並維持既有加寬 cue(`width: 2.5`)。Meta-edge MUST NOT 強制覆寫 `line-color` / 箭頭色——色彩與線型仍 cascade 自 base `edge` rule(依原始 `data.edgeType`)。此規則僅影響收合後合成的 meta-edge;一般邊的 routing(fabric `taxi`、其餘 `bezier`)不變。
+
+#### Scenario: 收合後 meta-edge 為直線且加寬
+
+- **WHEN** 一個 compound parent 被收合,且至少一條跨邊界邊被 expand-collapse 重指為 `cy-expand-collapse-meta-edge`
+- **THEN** 該 meta-edge 的 `curve-style` 為 `straight`、`width` 為 `2.5`
+- **AND** 其 `line-color` / 箭頭色仍依原始 `edgeType` 自 base `edge` rule cascade(meta-edge 規則本身不釘死色彩)
+
+#### Scenario: 非 meta 邊 routing 不受影響
+
+- **WHEN** 圖中同時存在未收合的一般邊(含 fabric `taxi` 與非 fabric `bezier`)與收合產生的 meta-edge
+- **THEN** 一般邊維持其既有 routing;`taxi` / `bezier` 選擇器行為不變
 

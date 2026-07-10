@@ -110,7 +110,8 @@ describe('HoverTooltip', () => {
       data: { id: 'prod/app/mongodb', label: 'mongodb', isApplication: true, applicationColor: '#0ea5e9', labels: {} },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
-    expect(screen.getByText('mongodb')).toBeInTheDocument(); // title (name)
+    expect(screen.getByText('mongodb')).toBeInTheDocument(); // title (name) — bare, no canvas prefix
+    expect(screen.queryByText(/Release Unit:/)).not.toBeInTheDocument();
     expect(screen.getByText('kind:')).toBeInTheDocument();
     expect(screen.getByText('application')).toBeInTheDocument();
   });
@@ -155,7 +156,22 @@ describe('HoverTooltip', () => {
       data: { id: 'prod/ns/shop', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', labels: {} },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('shop')).toBeInTheDocument(); // title — bare, no canvas `Namespace: ` prefix
+    expect(screen.queryByText(/Namespace:/)).not.toBeInTheDocument();
     expect(screen.getByText('namespace')).toBeInTheDocument();
+  });
+
+  it('pins an application group with a bare title (no Release Unit: prefix)', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip
+        cyRef={cyRefStub}
+        pinned={{ label: 'mongo', attributes: [{ key: 'kind', value: 'application' }] }}
+      />
+    );
+    expect(screen.getByText('mongo')).toBeInTheDocument();
+    expect(screen.queryByText(/Release Unit:/)).not.toBeInTheDocument();
+    expect(screen.getByText('application')).toBeInTheDocument();
   });
 
   it('shows a synthetic kind for a kind-less cluster group', () => {

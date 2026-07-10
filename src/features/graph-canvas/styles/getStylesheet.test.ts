@@ -131,10 +131,11 @@ describe('getStylesheet', () => {
     expect(selectors).toContain('edge.cy-expand-collapse-meta-edge');
     const metaEdge = sheet.find((s) => s.selector === 'edge.cy-expand-collapse-meta-edge');
     // The meta-edge keeps its real edge-type colour (cascades from the base `edge`
-    // rule), so this rule must NOT pin a colour — it only bumps the width as the
-    // collapsed-boundary cue.
+    // rule), so this rule must NOT pin a colour — it only bumps the width + forces
+    // a straight line as the collapsed-boundary cue.
     expect(metaEdge?.style?.['line-color']).toBeUndefined();
     expect(metaEdge?.style?.width).toBe(2.5);
+    expect(metaEdge?.style?.['curve-style']).toBe('straight');
   });
 
   it('borders ANY node carrying a status (kind-agnostic node[status] selectors, not a kind whitelist)', () => {
@@ -414,6 +415,50 @@ describe('getStylesheet', () => {
     expect(app['background-image']).toBe('none');
     expect(appIdx).toBeGreaterThan(selectors.indexOf('node[?isNamespace]'));
     expect(appIdx).toBeLessThan(selectors.indexOf('node:selected'));
+  });
+
+  it('paints decorative-group kind prefixes as render-only label mappers (data.label stays bare)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const cases: Array<{ selector: string; bare: string; painted: string }> = [
+      { selector: 'node[?isCluster]', bare: 'prod', painted: 'Cluster: prod' },
+      { selector: 'node[?isNamespace]', bare: 'shop', painted: 'Namespace: shop' },
+      { selector: 'node[?isApplication]', bare: 'mongo', painted: 'Release Unit: mongo' },
+    ];
+    for (const { selector, bare, painted } of cases) {
+      const rule = sheet.find((s) => s.selector === selector);
+      const labelFn = rule?.style?.label as NodeFn;
+      expect(typeof labelFn).toBe('function');
+      expect(labelFn(fakeEle({ label: bare }))).toBe(painted);
+    }
+  });
+
+  it('renders decorative-group canvas labels with kind prefixes while data.label stays bare', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cl', label: 'prod', isCluster: true, clusterColor: '#5b6b7a' } },
+        {
+          group: 'nodes',
+          data: { id: 'ns', label: 'shop', isNamespace: true, namespaceColor: '#7d6a99', parent: 'cl' },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'app', label: 'mongo', isApplication: true, applicationColor: '#8a6a53', parent: 'ns' },
+        },
+      ],
+    });
+    expect(cy.getElementById('cl').style('label')).toBe('Cluster: prod');
+    expect(cy.getElementById('ns').style('label')).toBe('Namespace: shop');
+    expect(cy.getElementById('app').style('label')).toBe('Release Unit: mongo');
+    expect(cy.getElementById('cl').data('label')).toBe('prod');
+    expect(cy.getElementById('ns').data('label')).toBe('shop');
+    expect(cy.getElementById('app').data('label')).toBe('mongo');
+    cy.destroy();
   });
 
   it('aligns the physical-network fabric box header: title-cased render-only label + enlarged semibold font', () => {

@@ -5,8 +5,9 @@
 //   * the legend's ClusterLegend — the swatch must match the on-canvas backplate.
 //
 // One colour per KIND, not per instance: every cluster renders the SAME muted slate
-// so the graph reads by nesting + the `Cluster: ` label prefix, not by a rainbow of
-// per-name hues. Constraints (mechanically enforced by clusterPalette.test.ts):
+// so the graph reads by nesting + the canvas `Cluster: ` label prefix (render-only in
+// the stylesheet; data.label stays bare), not by a rainbow of per-name hues. Constraints
+// (mechanically enforced by clusterPalette.test.ts):
 //   (1) MUST NOT equal any STATUS colour (green/yellow/red) — never read as node health.
 //   (2) MUST NOT equal any edge colour (EDGE_STYLE_BY_TYPE) — a low-saturation,
 //       translucent backplate keeps the vivid edges legible where they cross it.

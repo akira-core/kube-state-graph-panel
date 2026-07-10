@@ -328,15 +328,22 @@ v1 範圍內每個 panel 例項 MUST 綁定單一 datasource 實例;Panel 不負
 
 `namespace` / `application` 群組 `labels:{}`、無 status、無邊,純為 `data.parent` 目標。
 
+對裝飾性群組(`cluster` / `namespace` / `application`),`normalizeGraph` MUST 將 `data.label` 設為上游裸名稱(`data.name`,或缺則 id),**MUST NOT** 寫入 kind 前綴(`Cluster:` / `Namespace:` / `Release Unit:`)。畫布上的前綴標籤由 stylesheet render-only mapper 負責(見 panel-rendering);裸 `data.label` 供 tooltip title 與其他 identity 消費端使用。
+
 #### Scenario: namespace 群組正規化並著色
 
 - **WHEN** 上游節點 `data.type === 'namespace'`、`name === 'shop'`、`parent` 指向其 cluster 容器
-- **THEN** normalize 產出 `isNamespace: true`、`namespace: 'shop'`、`namespaceColor` 為 per-kind 固定 accent 色,**不**帶 `kind`、**不**設 `selectable: false`(維持可選取,cue-driven——見 panel-rendering「互動與選取狀態」),且 `parent` 原樣穿透
+- **THEN** normalize 產出 `isNamespace: true`、`namespace: 'shop'`、`label: 'shop'`(裸名,無 `Namespace:` 前綴)、`namespaceColor` 為 per-kind 固定 accent 色,**不**帶 `kind`、**不**設 `selectable: false`(維持可選取,cue-driven——見 panel-rendering「互動與選取狀態」),且 `parent` 原樣穿透
 
 #### Scenario: application 群組正規化並著色
 
 - **WHEN** 上游節點 `data.type === 'application'`、`name === 'checkout'`、`parent` 指向其 namespace 群組
-- **THEN** normalize 產出 `isApplication: true`、`application: 'checkout'`、`applicationColor` 為 per-kind 固定 accent 色,**不**帶 `kind`、**不**設 `selectable: false`(維持可選取;application 為 detail-eligible——見 panel-rendering),且 `parent` 原樣穿透
+- **THEN** normalize 產出 `isApplication: true`、`application: 'checkout'`、`label: 'checkout'`(裸名,無 `Release Unit:` 前綴)、`applicationColor` 為 per-kind 固定 accent 色,**不**帶 `kind`、**不**設 `selectable: false`(維持可選取;application 為 detail-eligible——見 panel-rendering),且 `parent` 原樣穿透
+
+#### Scenario: cluster 群組正規化為裸 label
+
+- **WHEN** 上游節點 `data.type === 'cluster'`、`name === 'prod'`
+- **THEN** normalize 產出 `isCluster: true`、`cluster: 'prod'`、`label: 'prod'`(裸名,無 `Cluster:` 前綴)、`clusterColor` 為 per-kind 固定 accent 色,且 `selectable: false`
 
 #### Scenario: controller 群組標 isController 並由子 pod 取得 kind(維持可選取)
 
