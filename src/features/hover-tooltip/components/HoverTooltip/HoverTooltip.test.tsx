@@ -61,20 +61,129 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('1.2.3')).toBeInTheDocument();
   });
 
-  it('shows synthesized context for a storageclass group (kind + cluster + grouped PVCs)', () => {
+  it('shows a storageclass leaf via the normal node path (own kind + provisioner, no synthesized PVC list)', () => {
     useHoverElement.mockReturnValue({
       id: 'prod/storageclass/fast-ssd',
       group: 'nodes',
-      data: { id: 'prod/storageclass/fast-ssd', label: 'fast-ssd', isStorageClass: true, labels: {} },
-      storageClass: { cluster: 'prod', pvcLabels: ['data-mongo-0', 'data-mongo-1', 'data-mongo-2'] },
+      data: {
+        id: 'prod/storageclass/fast-ssd',
+        label: 'fast-ssd',
+        kind: 'storageclass',
+        provisioner: 'rook-ceph.rbd.csi.ceph.com',
+        labels: { cluster: 'prod' },
+      },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByText('fast-ssd')).toBeInTheDocument(); // title (name)
-    expect(screen.getByText('storageclass')).toBeInTheDocument(); // synthesized kind value
-    expect(screen.getByText('cluster:')).toBeInTheDocument();
-    expect(screen.getByText('prod')).toBeInTheDocument();
-    expect(screen.getByText('PVCs (3):')).toBeInTheDocument();
-    expect(screen.getByText('data-mongo-0, data-mongo-1, data-mongo-2')).toBeInTheDocument();
+    expect(screen.getByText('storageclass')).toBeInTheDocument(); // its own kind
+    expect(screen.getByText('provisioner:')).toBeInTheDocument(); // MAY surface provisioner
+    expect(screen.getByText('rook-ceph.rbd.csi.ceph.com')).toBeInTheDocument();
+    // No synthesized "PVCs (N)" list (that path was removed when storageclass became a leaf).
+    expect(screen.queryByText(/^PVCs/)).toBeNull();
+  });
+
+  it('promotes a storageclass leaf backing-storage parameters (D6) as rows', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/storageclass/fast-ssd',
+      group: 'nodes',
+      data: {
+        id: 'prod/storageclass/fast-ssd',
+        label: 'fast-ssd',
+        kind: 'storageclass',
+        provisioner: 'rook-ceph.rbd.csi.ceph.com',
+        parameters: { pool: 'kube', selector: 'tier=fast' },
+        labels: { cluster: 'prod' },
+      },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('provisioner:')).toBeInTheDocument();
+    expect(screen.getByText('pool:')).toBeInTheDocument();
+    expect(screen.getByText('kube')).toBeInTheDocument();
+    expect(screen.getByText('selector:')).toBeInTheDocument();
+    expect(screen.getByText('tier=fast')).toBeInTheDocument();
+  });
+
+  it('shows a synthetic kind for a kind-less application group (so hover is not just the bare name)', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/app/mongodb',
+      group: 'nodes',
+      data: { id: 'prod/app/mongodb', label: 'mongodb', isApplication: true, applicationColor: '#0ea5e9', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('mongodb')).toBeInTheDocument(); // title (name) — bare, no canvas prefix
+    expect(screen.queryByText(/Release Unit:/)).not.toBeInTheDocument();
+    expect(screen.getByText('kind:')).toBeInTheDocument();
+    expect(screen.getByText('application')).toBeInTheDocument();
+  });
+
+  it('promotes the ArgoCD application of a hovered service leaf (backend D6)', () => {
+    useHoverElement.mockReturnValue({
+      id: 'service/mongo-svc',
+      group: 'nodes',
+      data: { id: 'service/mongo-svc', label: 'mongo-svc', kind: 'service', application: 'mongodb', labels: { namespace: 'prod' } },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('application:')).toBeInTheDocument();
+    expect(screen.getByText('mongodb')).toBeInTheDocument();
+  });
+
+  it('promotes the ArgoCD application of a hovered pod too', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod/mongo-0',
+      group: 'nodes',
+      data: { id: 'pod/mongo-0', label: 'mongo-0', kind: 'pod', application: 'mongodb' },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('application:')).toBeInTheDocument();
+  });
+
+  it('does NOT add a redundant application row for the decorative application group node', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/app/mongodb',
+      group: 'nodes',
+      data: { id: 'prod/app/mongodb', label: 'mongodb', isApplication: true, application: 'mongodb', applicationColor: '#0ea5e9', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    // kind: application (synthetic) shows, but no separate "application:" key row.
+    expect(screen.getByText('application')).toBeInTheDocument();
+    expect(screen.queryByText('application:')).not.toBeInTheDocument();
+  });
+
+  it('shows a synthetic kind for a kind-less namespace group', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/ns/shop',
+      group: 'nodes',
+      data: { id: 'prod/ns/shop', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('shop')).toBeInTheDocument(); // title — bare, no canvas `Namespace: ` prefix
+    expect(screen.queryByText(/Namespace:/)).not.toBeInTheDocument();
+    expect(screen.getByText('namespace')).toBeInTheDocument();
+  });
+
+  it('pins an application group with a bare title (no Release Unit: prefix)', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip
+        cyRef={cyRefStub}
+        pinned={{ label: 'mongo', attributes: [{ key: 'kind', value: 'application' }] }}
+      />
+    );
+    expect(screen.getByText('mongo')).toBeInTheDocument();
+    expect(screen.queryByText(/Release Unit:/)).not.toBeInTheDocument();
+    expect(screen.getByText('application')).toBeInTheDocument();
+  });
+
+  it('shows a synthetic kind for a kind-less cluster group', () => {
+    useHoverElement.mockReturnValue({
+      id: 'cluster/prod',
+      group: 'nodes',
+      data: { id: 'cluster/prod', label: 'prod', isCluster: true, cluster: 'prod', clusterColor: '#14b8a6', labels: {} },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('prod')).toBeInTheDocument(); // title (name)
+    expect(screen.getByText('kind:')).toBeInTheDocument();
+    expect(screen.getByText('cluster')).toBeInTheDocument();
   });
 
   it('joins multiple ip addresses with a comma', () => {
@@ -265,5 +374,83 @@ describe('HoverTooltip', () => {
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByTestId('hover-tooltip')).toHaveStyle({ left: '4px', top: '4px' });
+  });
+});
+
+describe('HoverTooltip pinned mode (left-click selection)', () => {
+  beforeEach(() => {
+    useHoverElement.mockReset();
+  });
+
+  it('docks a persistent, scrollable card at the canvas top-right', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'web', attributes: [{ key: 'kind', value: 'pod' }] }} />
+    );
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).toHaveAttribute('data-pinned', 'true');
+    // top-right, not anchored: left auto + right/top 8, pointer-events auto so it scrolls,
+    // and z-index 1000 to clear cytoscape's expand-collapse input canvas (z999).
+    expect(tip).toHaveStyle({ left: 'auto', right: '8px', top: '8px', pointerEvents: 'auto', zIndex: 1000 });
+  });
+
+  it('renders even when nothing is hovered (useHoverElement returns null)', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'mongo-0', attributes: [{ key: 'kind', value: 'pod' }] }} />
+    );
+    expect(screen.getByText('mongo-0')).toBeInTheDocument();
+    expect(screen.getByText('pod')).toBeInTheDocument();
+  });
+
+  it('shows the selected node title + promoted attrs (incl kind) + filtered labels', () => {
+    useHoverElement.mockReturnValue(null);
+    render(
+      <HoverTooltip
+        cyRef={cyRefStub}
+        pinned={{
+          label: 'gateway',
+          attributes: [
+            { key: 'kind', value: 'pod' },
+            { key: 'namespace', value: 'apps' },
+          ],
+          labels: { cluster: 'prod', namespace: 'apps', node: 'prod/prod-1' },
+        }}
+      />
+    );
+    expect(screen.getByText('gateway')).toBeInTheDocument(); // title
+    expect(screen.getByText('kind:')).toBeInTheDocument(); // pinned shows kind (unlike the old Properties section)
+    expect(screen.getByText('pod')).toBeInTheDocument();
+    expect(screen.getByText('cluster:')).toBeInTheDocument();
+    expect(screen.getByText('node:')).toBeInTheDocument();
+    // namespace is a promoted attr → appears exactly once (filtered out of the labels block).
+    expect(screen.getAllByText('namespace:')).toHaveLength(1);
+  });
+
+  it('suppresses the floating hover tooltip while pinned', () => {
+    useHoverElement.mockReturnValue({
+      id: 'other',
+      group: 'nodes',
+      data: { id: 'other', label: 'HoveredNode', kind: 'service' },
+    });
+    render(
+      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'PinnedNode', attributes: [{ key: 'kind', value: 'pod' }] }} />
+    );
+    // only the pinned node shows; the hovered element's content is absent.
+    expect(screen.getByText('PinnedNode')).toBeInTheDocument();
+    expect(screen.queryByText('HoveredNode')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hover-tooltip')).toHaveAttribute('data-pinned', 'true');
+  });
+
+  it('falls back to floating hover when pinned is null', () => {
+    useHoverElement.mockReturnValue({
+      id: 'pod-1',
+      group: 'nodes',
+      data: { id: 'pod-1', label: 'web', kind: 'pod' },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} pinned={null} />);
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).not.toHaveAttribute('data-pinned');
+    expect(screen.getByText('web')).toBeInTheDocument();
   });
 });

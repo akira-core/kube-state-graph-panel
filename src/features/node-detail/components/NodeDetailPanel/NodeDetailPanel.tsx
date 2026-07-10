@@ -40,7 +40,7 @@ function getStyles(theme: GrafanaTheme2): {
       left: 8,
       right: 8,
       bottom: 8,
-      maxHeight: 'min(50%, 380px)',
+      maxHeight: '50%',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
@@ -63,8 +63,13 @@ function getStyles(theme: GrafanaTheme2): {
       borderBottom: `2px solid ${colors.border.strong}`,
       flexShrink: 0,
     }),
-    // Non-scrolling flex column under the pinned header (flex:1 + minHeight:0 so its
-    // filling child takes over the scroll). The section divider lives HERE as a
+    // THE single scroll authority under the pinned header. flex:1 + minHeight:0 give it a
+    // definite height capped by root's 50%; overflowY:auto then scrolls the WHOLE
+    // section stack once content exceeds the cap (≤cap → no scrollbar). overflowX is hidden
+    // so a wide table never slides the panel sideways. The unified panel stacks several
+    // content-height sections (Application + Containers + Alerts); a per-section
+    // internal scroll would create competing scroll regions that overlap and clip — one body
+    // scroller is the only model that composes. The section divider lives HERE as a
     // parent-scoped `& > div + div` rule, NOT on the section class as `& + &`:
     // `cx(styles.section, …)` merges the emotion classes, so the `section` class the
     // `&` selector targets is gone after composition and the rule never matches.
@@ -74,7 +79,8 @@ function getStyles(theme: GrafanaTheme2): {
       minHeight: 0,
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden',
+      overflowX: 'hidden',
+      overflowY: 'auto',
       '& > div + div': {
         marginTop: 12,
         paddingTop: 10,
@@ -112,11 +118,12 @@ function getStyles(theme: GrafanaTheme2): {
     section: css({ display: 'flex', flexDirection: 'column' }),
     // Application: pinned at content height (always a single row — at most one ArgoCD app).
     sectionFixed: css({ flex: '0 0 auto' }),
-    // Containers / Alerts: fill remaining height and scroll inside their table area.
-    // flex-basis auto (NOT 0) is deliberate — basis 0 collapses to nothing under the
-    // panel's indefinite maxHeight and the table vanishes; auto sizes to content then
-    // shrinks-and-scrolls only once the panel hits its cap.
-    sectionFill: css({ flex: '1 1 auto', minHeight: 0 }),
+    // Containers / Alerts: content-height blocks, like every other section. They MUST NOT
+    // fill/own-scroll — the body (overflowY:auto) is the single scroll authority, so two
+    // tall sections simply stack and the body scrolls their sum. (Pre-unification this was
+    // `flex:1 1 auto` + an inner slot scroll, safe only because the old view split rendered
+    // at most one fill section; two such siblings overlapped and neither scrolled.)
+    sectionFill: css({ flex: '0 0 auto' }),
     sectionTitle: css({
       flexShrink: 0,
       fontSize: 13,
@@ -125,18 +132,15 @@ function getStyles(theme: GrafanaTheme2): {
       color: colors.text.secondary,
       paddingBottom: 6,
     }),
-    // Scrolling table area (Containers / Alerts) — only the tbody rows scroll. Sticky
-    // thead pins the column header here. InteractiveTable wraps its <table> in a div
-    // with `overflowX: auto` that would trap the sticky header; we reset that inner
-    // overflow to visible so the header resolves to this area. ContainerTable nests one
-    // level deeper than AlertTable, hence both `& > div` and `& > div > div`.
+    // Table area (Containers / Alerts) — a plain content-height wrapper now. The body is the
+    // single scroll authority, so this neither fills nor owns a scroll. No sticky thead (per-
+    // table sticky cannot compose under one shared scroller — every thead would resolve to the
+    // body and pin at top:0, overlapping). InteractiveTable keeps its own `overflowX:auto`
+    // wrapper, so a wide table scrolls horizontally inside its own row (body overflowX:hidden
+    // stops the whole panel sliding).
     slot: css({
-      flex: '1 1 auto',
       minHeight: 24,
-      overflowY: 'auto',
       fontSize: theme.typography.bodySmall.fontSize,
-      '& > div, & > div > div': { overflowX: 'visible' },
-      '& thead th': { position: 'sticky', top: 0, zIndex: 1, background: colors.background.secondary },
     }),
     staticBody: css({ minHeight: 24, fontSize: theme.typography.bodySmall.fontSize }),
   };
@@ -149,21 +153,28 @@ export function NodeDetailPanel({
   timeZone,
   lookups,
   dashboard,
-  view = 'alerts',
 }: Readonly<NodeDetailPanelProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
   if (node === null) {
     return null;
   }
-  // Disjoint views: 'alerts' (left-click) shows Alerts only; 'detail' (right-click)
-  // shows Application/Containers, each gated on kind ∈ DETAIL_URL_KINDS AND the field
-  // being present. lookups defaults to idle/disabled (every Change Report target shows
-  // the muted "Not found" hint, no prefetch).
+  // Single unified panel (no view split): every section is data-gated. lookups defaults
+  // to idle/disabled (every Change Report target shows the muted "Not found" hint, no
+  // prefetch). Change-report Application/Containers stay gated on workload kind + data.
   const lookupsState = lookups ?? IDLE_NODE_DETAIL_LOOKUPS;
   const isDetailUrlKind = node.kind !== undefined && DETAIL_URL_KINDS.has(node.kind);
-  const showApplication = view === 'detail' && isDetailUrlKind && node.application !== undefined;
-  const showContainers =
-    view === 'detail' && isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
+  // Application change-report shows for ANY node carrying an ArgoCD application — including
+  // service / pvc leaves that belong to an app (their config_changes / Deployment Changes).
+  // Containers stay workload-only (a service / pvc has no containers).
+  const showApplication = node.application !== undefined;
+  const showContainers = isDetailUrlKind && node.containers !== undefined && node.containers.length > 0;
+  // Alerts: data-gated. Empty / absent → the section is not rendered at all (no "No alerts").
+  const alerts = node.alerts ?? [];
+  const showAlerts = alerts.length > 0;
+  // The panel ALWAYS renders for a selected (detail-eligible) node: the header — node name,
+  // kind / status badges, and the Dashboard button when the backend returns a URL — is the
+  // minimum. Body sections (Application / Containers / Alerts) are data-gated; the node's
+  // promoted attributes live in the pinned top-right tooltip, not here.
   return (
     <div className={styles.root} data-testid="node-detail-panel">
       <div className={styles.header}>
@@ -212,12 +223,12 @@ export function NodeDetailPanel({
             </div>
           </div>
         )}
-        {view === 'alerts' && (
+        {showAlerts && (
           <div className={cx(styles.section, styles.sectionFill)} data-testid="node-detail-section-alerts">
             <div className={styles.sectionTitle}>Alerts</div>
             <div className={styles.slot}>
               <AlertTable
-                alerts={node.alerts ?? []}
+                alerts={alerts}
                 onAlertTimeClick={onAlertTimeClick}
                 {...(timeZone !== undefined ? { timeZone } : {})}
               />

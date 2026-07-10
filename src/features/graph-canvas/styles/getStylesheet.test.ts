@@ -3,7 +3,7 @@ import cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
-import { FALLBACK_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
+import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
 import { getStylesheet } from './getStylesheet';
@@ -131,10 +131,11 @@ describe('getStylesheet', () => {
     expect(selectors).toContain('edge.cy-expand-collapse-meta-edge');
     const metaEdge = sheet.find((s) => s.selector === 'edge.cy-expand-collapse-meta-edge');
     // The meta-edge keeps its real edge-type colour (cascades from the base `edge`
-    // rule), so this rule must NOT pin a colour — it only bumps the width as the
-    // collapsed-boundary cue.
+    // rule), so this rule must NOT pin a colour — it only bumps the width + forces
+    // a straight line as the collapsed-boundary cue.
     expect(metaEdge?.style?.['line-color']).toBeUndefined();
     expect(metaEdge?.style?.width).toBe(2.5);
+    expect(metaEdge?.style?.['curve-style']).toBe('straight');
   });
 
   it('borders ANY node carrying a status (kind-agnostic node[status] selectors, not a kind whitelist)', () => {
@@ -264,45 +265,34 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
-  it('renders a storageclass group like a node container: icon-less when expanded, kind icon when collapsed/leaf', () => {
+  it('renders a backend D6 storageclass leaf with its disk glyph (always — never a compound box)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
       style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
       elements: [
         { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        // D6: storageclass is a LEAF under the cluster (no children), carrying provisioner/parameters.
         {
           group: 'nodes',
           data: {
             id: 'prod/storageclass/fast-ssd',
             label: 'fast-ssd',
             kind: 'storageclass',
-            isStorageClass: true,
             parent: 'cluster/prod',
+            provisioner: 'rook-ceph.rbd.csi.ceph.com',
           },
         },
-        {
-          group: 'nodes',
-          data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' },
-        },
-        // A childless storageclass models the collapsed/leaf state (it drops out of
-        // node:parent → base node styling resolves its kind icon).
-        { group: 'nodes', data: { id: 'sc-leaf', label: 'gp2', kind: 'storageclass', isStorageClass: true } },
+        // A PVC nests under its namespace now (not the storageclass).
+        { group: 'nodes', data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'cluster/prod' } },
       ],
     });
     const sc = cy.getElementById('prod/storageclass/fast-ssd');
-    // EXPANDED (a :parent) → labelled container box, NO icon (node:parent), and tinted
-    // with its parent cluster's accent — exactly like a K8s `node` container.
-    expect(sc.style('background-image')).toBe('none');
+    // A leaf (no children → never :parent) ALWAYS shows its storageclass disk glyph, with
+    // no expanded-vs-collapsed compound behaviour.
+    expect(sc.style('background-image')).toBe(tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor));
     expect(sc.style('shape')).toBe('round-rectangle');
-    expect(sc.style('background-color')).toBe(cy.getElementById('cluster/prod').style('background-color'));
-    expect(Number(sc.style('background-opacity'))).toBeCloseTo(0.1);
-    // COLLAPSED / leaf (childless) → shows its storageclass kind icon (the disk stack),
-    // just like a collapsed K8s node container shows its icon.
-    expect(cy.getElementById('sc-leaf').style('background-image')).toBe(
-      tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor)
-    );
-    // The PVC nested inside still carries its own kind icon.
+    // The PVC carries its own kind icon.
     expect(cy.getElementById('pvc/data-0').style('background-image')).toMatch(/^data:image\/svg\+xml,/);
     cy.destroy();
   });
@@ -411,7 +401,146 @@ describe('getStylesheet', () => {
     expect(nsIdx).toBeLessThan(selectors.indexOf('node:selected'));
   });
 
-  it('keeps a namespace box namespaceColor in both states; a split storageclass sub-box inherits the cluster tint', () => {
+  it('declares an application-box selector (data(applicationColor)) after node[?isNamespace], before node:selected', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const appIdx = selectors.indexOf('node[?isApplication]');
+    expect(appIdx).toBeGreaterThan(-1);
+    const app = sheet[appIdx]?.style ?? {};
+    expect(app['background-color']).toBe('data(applicationColor)');
+    expect(app['border-color']).toBe('data(applicationColor)');
+    expect(app['background-image']).toBe('none');
+    expect(appIdx).toBeGreaterThan(selectors.indexOf('node[?isNamespace]'));
+    expect(appIdx).toBeLessThan(selectors.indexOf('node:selected'));
+  });
+
+  it('paints decorative-group kind prefixes as render-only label mappers (data.label stays bare)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const cases: Array<{ selector: string; bare: string; painted: string }> = [
+      { selector: 'node[?isCluster]', bare: 'prod', painted: 'Cluster: prod' },
+      { selector: 'node[?isNamespace]', bare: 'shop', painted: 'Namespace: shop' },
+      { selector: 'node[?isApplication]', bare: 'mongo', painted: 'Release Unit: mongo' },
+    ];
+    for (const { selector, bare, painted } of cases) {
+      const rule = sheet.find((s) => s.selector === selector);
+      const labelFn = rule?.style?.label as NodeFn;
+      expect(typeof labelFn).toBe('function');
+      expect(labelFn(fakeEle({ label: bare }))).toBe(painted);
+    }
+  });
+
+  it('renders decorative-group canvas labels with kind prefixes while data.label stays bare', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cl', label: 'prod', isCluster: true, clusterColor: '#5b6b7a' } },
+        {
+          group: 'nodes',
+          data: { id: 'ns', label: 'shop', isNamespace: true, namespaceColor: '#7d6a99', parent: 'cl' },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'app', label: 'mongo', isApplication: true, applicationColor: '#8a6a53', parent: 'ns' },
+        },
+      ],
+    });
+    expect(cy.getElementById('cl').style('label')).toBe('Cluster: prod');
+    expect(cy.getElementById('ns').style('label')).toBe('Namespace: shop');
+    expect(cy.getElementById('app').style('label')).toBe('Release Unit: mongo');
+    expect(cy.getElementById('cl').data('label')).toBe('prod');
+    expect(cy.getElementById('ns').data('label')).toBe('shop');
+    expect(cy.getElementById('app').data('label')).toBe('mongo');
+    cy.destroy();
+  });
+
+  it('aligns the physical-network fabric box header: title-cased render-only label + enlarged semibold font', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const idx = selectors.indexOf("node[kind='network']");
+    expect(idx).toBeGreaterThan(-1);
+    // Declared after node:parent (so it wins the wrapper's label/size) and before the
+    // selection ring.
+    expect(idx).toBeGreaterThan(selectors.indexOf('node:parent'));
+    expect(idx).toBeLessThan(selectors.indexOf('node:selected'));
+    const style = sheet[idx]?.style ?? {};
+    expect(style['font-size']).toBe(17);
+    expect(style['font-weight']).toBe(600);
+    // Render-only label mapper title-cases each word; it NEVER rewrites data.label.
+    const labelFn = style.label as NodeFn;
+    expect(labelFn(fakeEle({ label: 'physical network' }))).toBe('Physical Network');
+    expect(labelFn(fakeEle({ label: 'core-fabric' }))).toBe('Core-fabric');
+  });
+
+  it('aligns the k8s node box header ONLY when compound: "Node: " render-only prefix + enlarged semibold font, gated on :parent (+ collapsed sibling)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const selectors = sheet.map((s) => s.selector);
+    const parentIdx = selectors.indexOf("node[kind='node']:parent");
+    const collapsedIdx = selectors.indexOf("node[kind='node'].cy-expand-collapse-collapsed-node");
+    // A bare `node[kind='node']` selector MUST NOT exist — a leaf k8s node keeps the
+    // normal title; only a compound (or a folded compound) is styled.
+    expect(selectors).not.toContain("node[kind='node']");
+    expect(parentIdx).toBeGreaterThan(-1);
+    expect(collapsedIdx).toBeGreaterThan(-1);
+    // After node:parent (wins the compound header in node-layout), before selection ring.
+    expect(parentIdx).toBeGreaterThan(selectors.indexOf('node:parent'));
+    expect(parentIdx).toBeLessThan(selectors.indexOf('node:selected'));
+    for (const idx of [parentIdx, collapsedIdx]) {
+      const style = sheet[idx]?.style ?? {};
+      expect(style['font-size']).toBe(18);
+      expect(style['font-weight']).toBe(600);
+      // Render-only "Node: " prefix — data.label stays the bare name the dashboard `name=`
+      // query and detail-panel title depend on.
+      const labelFn = style.label as NodeFn;
+      expect(labelFn(fakeEle({ label: 'worker-0' }))).toBe('Node: worker-0');
+    }
+  });
+
+  it('renders "Node: <name>" enlarged for a COMPOUND k8s node but the bare normal title for a LEAF k8s node', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        // Compound k8s node (node-layout): wraps a pod → is a :parent.
+        { group: 'nodes', data: { id: 'node/worker-0', label: 'worker-0', kind: 'node' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'node/worker-0' } },
+        // Leaf k8s node (controller-layout): no children.
+        { group: 'nodes', data: { id: 'node/worker-9', label: 'worker-9', kind: 'node' } },
+      ],
+    });
+    const compound = cy.getElementById('node/worker-0');
+    const leaf = cy.getElementById('node/worker-9');
+    // Compound → aligned header.
+    expect(compound.style('label')).toBe('Node: worker-0');
+    expect(compound.style('font-size')).toBe('18px');
+    // Leaf → normal node title (bare label, base 11px font), identity value intact both ways.
+    expect(leaf.style('label')).toBe('worker-9');
+    expect(leaf.style('font-size')).toBe('11px');
+    expect(compound.data('label')).toBe('worker-0');
+    expect(leaf.data('label')).toBe('worker-9');
+    // Fold the compound → children removed, no longer :parent, but the .collapsed sibling
+    // keeps the aligned header (it was a compound).
+    compound.addClass('cy-expand-collapse-collapsed-node');
+    expect(compound.style('label')).toBe('Node: worker-0');
+    expect(compound.style('font-size')).toBe('18px');
+    cy.destroy();
+  });
+
+  it('keeps namespace / application accents in both expanded and collapsed states (no :parent dependency)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
@@ -431,22 +560,62 @@ describe('getStylesheet', () => {
         },
         {
           group: 'nodes',
-          data: { id: 'scsub', label: 'gp2', kind: 'storageclass', isStorageClass: true, parent: 'nsbox' },
+          data: {
+            id: 'appbox',
+            label: 'checkout',
+            isApplication: true,
+            application: 'checkout',
+            applicationColor: '#0ea5e9',
+            parent: 'nsbox',
+          },
         },
-        { group: 'nodes', data: { id: 'pvc', label: 'data-0', kind: 'pvc', parent: 'scsub' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'appbox' } },
       ],
     });
     const nsbox = cy.getElementById('nsbox');
-    // Expanded namespace box → border is its namespaceColor (direct node[?isNamespace] hit).
+    const appbox = cy.getElementById('appbox');
+    // Expanded → each box borders by its own accent (direct flag-selector hit, no icon).
     const nsBorderExpanded = nsbox.style('border-color') as string;
+    const appBorderExpanded = appbox.style('border-color') as string;
+    expect(appbox.style('background-image')).toBe('none');
+    expect(nsBorderExpanded).not.toBe(appBorderExpanded); // distinct accents
     nsbox.addClass('cy-expand-collapse-collapsed-node');
-    // Collapsed → STILL the namespaceColor (the selector does not depend on :parent).
+    appbox.addClass('cy-expand-collapse-collapsed-node');
+    // Collapsed → STILL their own accents (the selectors do not depend on :parent).
     expect(nsbox.style('border-color')).toBe(nsBorderExpanded);
-    // The split storageclass sub-box (parent = namespace box) inherits the CLUSTER tint
-    // via the ancestor walk — same backplate colour as the cluster box (one family).
-    expect(cy.getElementById('scsub').style('background-color')).toBe(
-      cy.getElementById('cluster/prod').style('background-color')
-    );
+    expect(appbox.style('border-color')).toBe(appBorderExpanded);
+    cy.destroy();
+  });
+
+  it('paints a folder icon on a COLLAPSED decorative group (tinted by accent); expanded shows none; kind-ful compounds keep their kind icon', () => {
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: [
+        { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
+        { group: 'nodes', data: { id: 'nsbox', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', parent: 'cluster/prod' } },
+        { group: 'nodes', data: { id: 'appbox', label: 'checkout', isApplication: true, applicationColor: '#0ea5e9', parent: 'nsbox' } },
+        { group: 'nodes', data: { id: 'ctrl', label: 'mongo', kind: 'statefulset', isController: true, parent: 'appbox' } },
+        { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'ctrl' } },
+      ],
+    });
+    const cluster = cy.getElementById('cluster/prod');
+    const nsbox = cy.getElementById('nsbox');
+    const appbox = cy.getElementById('appbox');
+    const ctrl = cy.getElementById('ctrl');
+    // Expanded decorative groups carry no centre icon.
+    expect(nsbox.style('background-image')).toBe('none');
+    expect(appbox.style('background-image')).toBe('none');
+    // Collapse them → folder glyph tinted by each group's accent.
+    [cluster, nsbox, appbox, ctrl].forEach((n) => n.addClass('cy-expand-collapse-collapsed-node'));
+    expect(cluster.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
+    expect(nsbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#e8833a'));
+    expect(appbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#0ea5e9'));
+    // Gap-fill: the folder rule targets isCluster/isNamespace/isApplication ONLY, so it
+    // never leaks onto a kind-ful compound (controller / node / storageclass) — those
+    // revert to their kind icon on real collapse (children removed → loses :parent).
+    expect(ctrl.style('background-image')).not.toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
     cy.destroy();
   });
 });

@@ -3,7 +3,7 @@ import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
-import { iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
+import { FOLDER_ICON_SVG, iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 import { themeColors } from '../../../shared/theme/themeColors';
@@ -24,13 +24,36 @@ function resolveIconUri(kind: string | undefined, iconColor: string): string {
   return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
 }
 
+// Title-case each whitespace-separated word ("physical network" → "Physical Network").
+// Used ONLY as a render-time label mapper for the physical-network fabric box — it
+// never rewrites `data.label`, so the node's identity/query value is untouched.
+function titleCaseWords(text: string): string {
+  return text.replace(/\S+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
+}
+
+// Render-only kind prefixes for decorative compound boxes. `data.label` stays the bare
+// name (tooltip / identity); only the canvas stylesheet paints `${PREFIX}: ${name}`.
+const GROUP_LABEL_PREFIX = {
+  cluster: 'Cluster',
+  namespace: 'Namespace',
+  application: 'Release Unit',
+} as const;
+
+// Render-only label mapper: prefixes a node's bare `data.label` with a kind word
+// (`${prefix}: ${name}`) on the canvas only. `data.label` is never rewritten, so tooltip
+// titles, detail-panel headers and the dashboard `name=` query keep the bare identity.
+function prefixedLabel(prefix: string): string {
+  return ((ele: cytoscape.NodeSingular): string =>
+    `${prefix}: ${String(ele.data('label') ?? '')}`) as unknown as string;
+}
+
 // Parent cluster's accent for a compound container's box tint + label, so node and
 // cluster read as one family. A COLLAPSED node loses :parent (children removed) and
 // reverts to base node styling — the intended "white label once collapsed" behaviour.
 function resolveParentClusterColor(ele: cytoscape.NodeSingular, fallback: string): string {
-  // Walk the parent chain to the first ancestor with a clusterColor: a storageclass
-  // sub-box (controller mode) sits two levels under the cluster, so don't stop at the
-  // immediate parent.
+  // Walk the parent chain to the first ancestor with a clusterColor: a controller box
+  // sits several levels under the cluster (cluster > namespace > application > controller),
+  // so don't stop at the immediate parent.
   let cur: cytoscape.NodeCollection = ele.parent();
   for (let guard = 0; cur.nonempty() && guard < 64; guard++) {
     const c = cur.data('clusterColor') as unknown;
@@ -92,6 +115,31 @@ export function getStylesheet({
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
+  // Collapsed decorative groups (cluster / namespace / application) have no kind icon to
+  // fall back to (unlike kind-ful compounds, which revert to their kind glyph when folded),
+  // so a folded one would be a blank coloured box. Paint a folder glyph tinted by the
+  // group's accent. These 2-condition selectors out-specify the 1-condition
+  // node[?isCluster|isNamespace|isApplication] `background-image: 'none'` rules, so the
+  // folder shows ONLY when collapsed. See compound-parent-collapse-cue.
+  const folderIcon = (color: unknown): string =>
+    tintSvgToDataUri(FOLDER_ICON_SVG, typeof color === 'string' ? color : iconColor);
+  const collapsedDecorativeFolderSelectors: CyStylesheet[] = (
+    [
+      ['node[?isCluster].cy-expand-collapse-collapsed-node', 'clusterColor'],
+      ['node[?isNamespace].cy-expand-collapse-collapsed-node', 'namespaceColor'],
+      ['node[?isApplication].cy-expand-collapse-collapsed-node', 'applicationColor'],
+    ] as const
+  ).map(([selector, colorKey]) => ({
+    selector,
+    style: {
+      'background-image': ((ele: cytoscape.NodeSingular): string =>
+        folderIcon(ele.data(colorKey))) as unknown as string,
+      'background-fit': 'contain',
+      'background-clip': 'none',
+      'background-image-opacity': 1,
+    },
+  }));
+
   const stylesheet: CyStylesheet[] = [
     {
       // Leaf nodes: neutral shape + centered theme-tinted kind icon. The on-canvas
@@ -151,8 +199,8 @@ export function getStylesheet({
     },
     {
       // Cluster container nodes (see normalize.ts), accent in data(clusterColor).
-      // selectable:false in normalize + skipped by useHoverElement → decorative
-      // (no selection ring/tooltip) but still draggable by margin/label. Declared
+      // selectable:false in normalize → decorative (no selection ring / detail panel)
+      // but still hoverable (tooltip) and draggable by margin/label. Declared
       // after node:parent so its accent wins.
       selector: 'node[?isCluster]',
       style: {
@@ -164,9 +212,10 @@ export function getStylesheet({
         'border-color': 'data(clusterColor)',
         'border-width': 1.5,
         'border-opacity': 0.5,
-        label: 'data(label)',
+        // Render-only kind prefix — data.label stays bare for tooltip / identity.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.cluster),
         color: 'data(clusterColor)',
-        'font-size': 14,
+        'font-size': 18,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
@@ -175,10 +224,10 @@ export function getStylesheet({
       },
     },
     {
-      // Panel-synthesized namespace compound (controller mode), accent in
-      // data.namespaceColor. Matches node[?isNamespace] DIRECTLY (not via :parent) so
-      // the colour holds in both expanded and collapsed states. Declared after
-      // node[?isCluster], before node:selected.
+      // Backend D6 namespace group, accent in data.namespaceColor. Matches
+      // node[?isNamespace] DIRECTLY (not via :parent) so the colour holds in both
+      // expanded and collapsed states. Declared after node[?isCluster], before
+      // node[?isApplication] / node:selected.
       selector: 'node[?isNamespace]',
       style: {
         shape: 'round-rectangle',
@@ -188,9 +237,10 @@ export function getStylesheet({
         'border-color': 'data(namespaceColor)',
         'border-width': 1.5,
         'border-opacity': 0.7,
-        label: 'data(label)',
+        // Render-only kind prefix — data.label stays bare for tooltip / identity.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.namespace),
         color: 'data(namespaceColor)',
-        'font-size': 13,
+        'font-size': 17,
         'font-weight': 600,
         'text-valign': 'top',
         'text-halign': 'center',
@@ -198,6 +248,69 @@ export function getStylesheet({
         padding: '12px',
       },
     },
+    {
+      // Backend D6 application group (ArgoCD app), accent in data.applicationColor. The
+      // innermost decorative box (cluster > namespace > application > controller > pod);
+      // clone of node[?isNamespace] keyed on the application accent. Matches directly so
+      // the colour holds expanded or collapsed. Declared after node[?isNamespace].
+      selector: 'node[?isApplication]',
+      style: {
+        shape: 'round-rectangle',
+        'background-image': 'none',
+        'background-color': 'data(applicationColor)',
+        'background-opacity': 0.1,
+        'border-color': 'data(applicationColor)',
+        'border-width': 1.5,
+        'border-opacity': 0.7,
+        // Render-only kind prefix ("Release Unit") — data.label stays bare.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.application),
+        color: 'data(applicationColor)',
+        'font-size': 17,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -3,
+        padding: '12px',
+      },
+    },
+    {
+      // Physical-network fabric box (the `network` compound wrapping the switches).
+      // Aligns its header with the decorative group boxes: title-cased words + the same
+      // enlarged, semibold label. The label is a RENDER-ONLY function mapper (title-case
+      // the raw name) — `data.label` itself is left as the backend name, so nothing that
+      // reads identity (dashboard `name=` query, detail-panel title) is affected.
+      // Declared after node:parent so it wins the label/size for the wrapper.
+      selector: "node[kind='network']",
+      style: {
+        label: ((ele: cytoscape.NodeSingular): string =>
+          titleCaseWords(String(ele.data('label') ?? ''))) as unknown as string,
+        'font-size': 17,
+        'font-weight': 600,
+      },
+    },
+    // K8s `node` box — aligned with the decorative group headers ONLY WHEN it is an
+    // actual compound: a "Node: " kind prefix (mirroring `Cluster: `/`Namespace: `/
+    // `Release Unit: `) + the same enlarged, semibold label. RENDER-ONLY function mapper —
+    // `data.label` stays the bare resource name the dashboard `name=` query and the
+    // detail-panel title depend on. In node-layout the node wraps its pods (`:parent`); in
+    // controller-layout it is a plain leaf and MUST fall through to the base `node` title
+    // (bare label, base font). Gated on `:parent` for that reason; the `.collapsed`
+    // sibling keeps the treatment when a node-layout box is folded (children removed →
+    // no longer `:parent`) — a controller-layout leaf is never a compound, so it never
+    // carries the collapsed class and is unaffected. Both declared after node:parent.
+    ...(
+      [
+        "node[kind='node']:parent",
+        "node[kind='node'].cy-expand-collapse-collapsed-node",
+      ] as const
+    ).map((selector) => ({
+      selector,
+      style: {
+        label: prefixedLabel('Node'),
+        'font-size': 18,
+        'font-weight': 600,
+      },
+    })),
     {
       // Collapsed compound node. Heavier border signals it can be expanded; the +/-
       // cue is drawn by the expand-collapse extension independently.
@@ -207,6 +320,7 @@ export function getStylesheet({
         'border-opacity': 0.9,
       },
     },
+    ...collapsedDecorativeFolderSelectors,
     ...statusSelectors,
     ...collapsedContainerStatusSelectors,
     {
@@ -269,12 +383,12 @@ export function getStylesheet({
     {
       // Boundary edge re-pointed to a collapsed container by expand-collapse. The
       // extension preserves the original `data.edgeType`, so colour/arrow/line-style
-      // cascade from the base `edge` rule. This rule only bumps width + forces a direct
-      // bezier (taxi routing makes no sense pointing at a collapsed box). Exempt from
-      // edge-type filtering — see useElementFilter.
+      // cascade from the base `edge` rule. This rule only bumps width + forces a
+      // straight line (taxi/bezier both look noisy between collapsed boxes). Exempt
+      // from edge-type filtering — see useElementFilter.
       selector: 'edge.cy-expand-collapse-meta-edge',
       style: {
-        'curve-style': 'bezier',
+        'curve-style': 'straight',
         width: 2.5,
       },
     },

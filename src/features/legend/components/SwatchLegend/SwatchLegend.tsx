@@ -70,8 +70,8 @@ function getStyles(): {
 }
 
 // A titled list of colour swatches + names, FOLDED BY DEFAULT, with an optional
-// collapse-all toggle. Shared by ClusterLegend / NodeContainerLegend /
-// StorageClassLegend so the swatch row + accordion header live in one place. The
+// collapse-all toggle. Shared by ClusterLegend / NamespaceLegend / ApplicationLegend /
+// NodeContainerLegend so the swatch row + accordion header live in one place. The
 // header is a WAI-ARIA accordion: an <h4> wrapping a button that toggles the list
 // and always shows the entry count `Title (N)`. Colours are translucent fill +
 // solid border, matching each on-canvas translucent backplate. Renders nothing

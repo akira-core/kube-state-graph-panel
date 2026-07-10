@@ -1,32 +1,27 @@
-import { CLUSTER_PALETTE, colorForCluster } from './clusterPalette';
+import { APPLICATION_COLOR } from './applicationPalette';
+import { CLUSTER_COLOR } from './clusterPalette';
+import { EDGE_STYLE_BY_TYPE } from './colorByEdgeType';
 import { STATUS_COLOR } from './colorByStatus';
+import { NAMESPACE_COLOR } from './namespacePalette';
 
-describe('CLUSTER_PALETTE', () => {
-  it('shares no colour with the status palette (a cluster accent must never read as node health)', () => {
-    const statusColors = new Set(Object.values(STATUS_COLOR).map((c) => c.toLowerCase()));
-    for (const color of CLUSTER_PALETTE) {
-      expect(statusColors.has(color.toLowerCase())).toBe(false);
-    }
-  });
-});
+const edgeColors = new Set(Object.values(EDGE_STYLE_BY_TYPE).map((s) => s.color.toLowerCase()));
+const statusColors = new Set(Object.values(STATUS_COLOR).map((c) => c.toLowerCase()));
 
-describe('colorForCluster', () => {
-  it('is deterministic for a given name', () => {
-    expect(colorForCluster('demo')).toBe(colorForCluster('demo'));
+describe('CLUSTER_COLOR', () => {
+  it('is a single fixed hex constant (one colour for every cluster, no per-name hashing)', () => {
+    expect(CLUSTER_COLOR).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
 
-  it('stays stable when other clusters appear or disappear (hashed, not positional)', () => {
-    const beta = colorForCluster('beta');
-    // Asking about a different cluster must not change beta's colour — the bug a
-    // positional-index scheme would have: dropping 'alpha' reshuffles 'beta'.
-    void colorForCluster('alpha');
-    void colorForCluster('gamma');
-    expect(colorForCluster('beta')).toBe(beta);
+  it('never reuses a status colour (a cluster tint must never read as node health)', () => {
+    expect(statusColors.has(CLUSTER_COLOR.toLowerCase())).toBe(false);
   });
 
-  it('always returns a colour from the palette', () => {
-    for (const name of ['demo', 'edge', 'prod-eu-west-1', '', 'x']) {
-      expect(CLUSTER_PALETTE).toContain(colorForCluster(name));
-    }
+  it('never reuses an edge colour (edges must stay legible crossing the backplate)', () => {
+    expect(edgeColors.has(CLUSTER_COLOR.toLowerCase())).toBe(false);
+  });
+
+  it('differs from the namespace and application kind colours (nested boxes stay apart)', () => {
+    expect(CLUSTER_COLOR.toLowerCase()).not.toBe(NAMESPACE_COLOR.toLowerCase());
+    expect(CLUSTER_COLOR.toLowerCase()).not.toBe(APPLICATION_COLOR.toLowerCase());
   });
 });

@@ -12,10 +12,9 @@ export interface ContainerSet {
   containerIds: string[]; // every container id (not name-deduped) for the collapse toggle
 }
 
-// Shared core of the swatch-section derivations (Nodes/Controllers and Storage
-// Classes — deriveNodeContainers / deriveStorageClassContainers are thin wrappers
-// differing only in their container predicate): collect the compound containers
-// matching `isContainer`, skipping childless candidates (drawn leaves, not
+// Shared core of the Nodes/Controllers swatch-section derivation (deriveNodeContainers
+// is a thin wrapper differing only in its container predicate): collect the compound
+// containers matching `isContainer`, skipping childless candidates (drawn leaves, not
 // containers). Entries are name-deduped (first-seen colour wins on a shared name)
 // and tinted with the parent cluster's accent colour so each group reads as part
 // of that cluster's family. Pure + deterministic.
@@ -43,8 +42,8 @@ export function deriveContainersBy(
   // Walk the parent chain to the first ancestor carrying a cluster colour, mirroring
   // the canvas (getStylesheet resolveParentClusterColor) so the legend swatch can never
   // disagree with the on-canvas box tint. The immediate parent suffices for a container
-  // directly under its cluster; in controller mode a controller (or a split storageclass
-  // sub-box) sits under a synthesized namespace box — which carries namespaceColor, NOT
+  // directly under its cluster; in controller mode a controller sits under the backend
+  // namespace / application boxes — which carry namespaceColor / applicationColor, NOT
   // clusterColor — so keep climbing to inherit the enclosing cluster's accent instead of
   // falling back to neutral. Guarded against cycles.
   const clusterColorOfAncestor = (startParentId: string): string | undefined => {

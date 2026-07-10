@@ -10,18 +10,28 @@ describe('resolveSelectedNode', () => {
   const elements = [
     node('p1', 'pod'),
     node('cl', 'node', { isCluster: true }),
-    // StorageClass group: a grouping container that DOES carry a kind but is still
-    // excluded from the detail panel via the isStorageClass flag (mirrors normalize).
+    // StorageClass is a backend D6 leaf now — detail-eligible, carrying provisioner/parameters.
     {
       group: 'nodes',
-      data: { id: 'sc', label: 'fast-ssd', kind: 'storageclass', isStorageClass: true },
+      data: { id: 'sc', label: 'fast-ssd', kind: 'storageclass', provisioner: 'ebs.csi.aws.com', parameters: { type: 'gp3' } },
     } as unknown as El,
+    // Decorative cluster / namespace groups never open the detail panel.
+    node('ns', 'node', { isNamespace: true }),
+    // The application GROUP node is kind-less + carries its `application` name; it DOES open
+    // the panel (the app's config_changes), unlike cluster / namespace.
+    { group: 'nodes', data: { id: 'app', label: 'mongodb', isApplication: true, application: 'mongodb' } } as unknown as El,
   ];
 
   it('returns the node detail when the selected node is visible', () => {
     const result = resolveSelectedNode(elements, 'p1', new Set(['p1']));
     // An owner-less pod still resolves a queryTarget (itself) for the detail-URL flow.
-    expect(result).toEqual({ id: 'p1', label: 'p1', kind: 'pod', queryTarget: { kind: 'pod', name: 'p1' } });
+    expect(result).toEqual({
+      id: 'p1',
+      label: 'p1',
+      kind: 'pod',
+      attributes: [{ key: 'kind', value: 'pod' }],
+      queryTarget: { kind: 'pod', name: 'p1' },
+    });
   });
 
   it('returns null when nothing is selected', () => {
@@ -37,8 +47,45 @@ describe('resolveSelectedNode', () => {
     expect(resolveSelectedNode(elements, 'cl', new Set(['cl']))).toBeNull();
   });
 
-  it('returns null for a storageclass group container even if visible (pure grouping box, no detail)', () => {
-    expect(resolveSelectedNode(elements, 'sc', new Set(['sc']))).toBeNull();
+  it('resolves a storageclass leaf with provisioner/parameters (now detail-eligible, no queryTarget)', () => {
+    const result = resolveSelectedNode(elements, 'sc', new Set(['sc']));
+    // storageclass is not a Workloads DETAIL_URL kind, so no per-kind queryTarget.
+    expect(result).toEqual({
+      id: 'sc',
+      label: 'fast-ssd',
+      kind: 'storageclass',
+      attributes: [
+        { key: 'kind', value: 'storageclass' },
+        { key: 'provisioner', value: 'ebs.csi.aws.com' },
+        { key: 'type', value: 'gp3', wrap: true },
+      ],
+      provisioner: 'ebs.csi.aws.com',
+      parameters: { type: 'gp3' },
+    });
+  });
+
+  it('returns null for the decorative namespace group even if visible', () => {
+    expect(resolveSelectedNode(elements, 'ns', new Set(['ns']))).toBeNull();
+  });
+
+  it('resolves the application GROUP node itself (app-detail config_changes for the app), with a synth kind', () => {
+    const result = resolveSelectedNode(elements, 'app', new Set(['app']));
+    // kind-less group → synthetic 'application' kind badge; application + config_changes target.
+    expect(result?.kind).toBe('application');
+    expect(result?.application).toBe('mongodb');
+    expect(result?.queryTarget).toEqual({ kind: 'application', name: 'mongodb' });
+  });
+
+  it('passes raw labels through for the pinned tooltip', () => {
+    const els = [node('p1', 'pod', { labels: { cluster: 'prod', node: 'prod/prod-1' } })];
+    const result = resolveSelectedNode(els, 'p1', new Set(['p1']));
+    expect(result?.labels).toEqual({ cluster: 'prod', node: 'prod/prod-1' });
+  });
+
+  it('omits the labels key entirely when the node has no labels (exactOptionalPropertyTypes)', () => {
+    // The base p1 fixture carries no labels — assert the key is absent, not undefined.
+    const result = resolveSelectedNode(elements, 'p1', new Set(['p1']));
+    expect(result).not.toHaveProperty('labels');
   });
 
   describe('collapse awareness (the panel never describes an off-canvas node)', () => {
@@ -104,8 +151,16 @@ describe('resolveSelectedNode', () => {
       });
     });
 
-    it('omits queryTarget for kinds outside the detail-URL set (no query may ever fire)', () => {
-      const els = [node('s1', 'service', { application: 'stray' })];
+    it('gives a non-workload node WITH an application its own kind/name as queryTarget (config_changes)', () => {
+      // service / pvc that belongs to an ArgoCD app query their Application change-report
+      // (config_changes) with their own kind/name.
+      const els = [node('s1', 'service', { application: 'checkout' })];
+      const result = resolveSelectedNode(els, 's1', new Set(['s1']));
+      expect(result?.queryTarget).toEqual({ kind: 'service', name: 's1' });
+    });
+
+    it('omits queryTarget for a non-workload node WITHOUT an application (no query may fire)', () => {
+      const els = [node('s1', 'service')];
       const result = resolveSelectedNode(els, 's1', new Set(['s1']));
       expect(result?.queryTarget).toBeUndefined();
     });

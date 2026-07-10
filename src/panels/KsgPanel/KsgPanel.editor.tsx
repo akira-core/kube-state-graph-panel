@@ -77,26 +77,63 @@ export function buildKsgPanelOptions(
       defaultValue: defaultOptions.detailEndpoint,
     })
     .addTextInput({
-      path: 'podListVariable',
-      name: 'Pod list variable',
+      path: 'alertPodListVariable',
+      name: 'Alert pod list variable',
       description:
-        'Name of an existing dashboard variable to export the pod names of the graph into ' +
-        '(multi-value), e.g. for an Elasticsearch logs panel querying ${pod_list:lucene}. ' +
-        'A successfully loaded graph with zero pods writes the $__empty sentinel (consumers ' +
-        'match no pod) — query errors and payload-less refreshes leave the variable untouched. ' +
-        'The variable must already exist on the dashboard and must not feed back into ' +
-        "this panel's own query. Leave empty to disable.",
-      defaultValue: defaultOptions.podListVariable,
+        'Name of an existing dashboard variable to export the names of pods that CURRENTLY ' +
+        'carry at least one alert into (multi-value) — any severity counts, e.g. for an ' +
+        'Elasticsearch logs panel querying ${alert_pod_list:lucene}. A successfully loaded ' +
+        'graph with zero alerting pods writes the $__empty sentinel — query errors and ' +
+        "payload-less refreshes leave the variable untouched. BREAKING: replaces the old " +
+        "'podListVariable' key, which exported ALL pods regardless of alerts — that key is " +
+        'no longer read; existing dashboards must refill this option. Because the export can ' +
+        'write many values at once, the target variable MUST be type Custom with Multi-value ' +
+        'AND "Allow custom values" enabled (a plain textbox only holds one value). The ' +
+        "variable must already exist on the dashboard and must not feed back into this panel's " +
+        'own query. Leave empty to disable.',
+      defaultValue: defaultOptions.alertPodListVariable,
+    })
+    .addTextInput({
+      path: 'alertNameListVariable',
+      name: 'Alert name list variable',
+      description:
+        'Name of an existing dashboard variable to export every distinct alert name present ' +
+        'anywhere in the graph into (multi-value) — collected across ALL node kinds (pods, ' +
+        'nodes, PVCs, services, controllers), for querying VictoriaMetrics by alertname. A ' +
+        'successfully loaded graph with zero alerts writes the $__empty sentinel — query errors ' +
+        'and payload-less refreshes leave the variable untouched. Independent of the alert pod ' +
+        'list variable — either can be set alone, but each export option needs its OWN variable ' +
+        '(two options writing the same name overwrite each other). Because the export can write ' +
+        'many values at once, the target variable MUST be type Custom with Multi-value AND ' +
+        '"Allow custom values" enabled (a plain textbox only holds one value). The variable ' +
+        "must already exist on the dashboard and must not feed back into this panel's own " +
+        'query. Leave empty to disable.',
+      defaultValue: defaultOptions.alertNameListVariable,
     })
     .addTextInput({
       path: 'selectedPodVariable',
       name: 'Selected pod variable',
       description:
-        'Name of an existing dashboard variable to write the LEFT-clicked pod name into, but only ' +
-        'when that pod is non-normal (warning/critical) — so a sibling panel can query that one pod ' +
-        'via $selected_pod. Cleared ($__empty) on deselect, a normal pod, a non-pod, or a right-click. ' +
-        'Use a Textbox (or Custom + allow custom values) variable — a Query variable would drop the ' +
-        "written value — and do not reference it in this panel's own query. Leave empty to disable.",
+        'Name of an existing dashboard variable to write the LEFT-clicked pod name(s) into — any ' +
+        'pod or controller click exports (status no longer gates this). Clicking a pod writes its ' +
+        'single name; clicking a controller writes ALL of its direct child pod names as a ' +
+        'MULTI-value write. Cleared ($__empty) on deselect or a click on any other node kind. ' +
+        'Because a controller click can write multiple values, the target variable MUST be type ' +
+        'Custom with Multi-value AND "Allow custom values" both enabled — a plain textbox variable ' +
+        "only holds one value, and a Query/options variable would drop values outside its option " +
+        "set. Do not reference it in this panel's own query. Leave empty to disable.",
       defaultValue: defaultOptions.selectedPodVariable,
+    })
+    .addTextInput({
+      path: 'clusterVariable',
+      name: 'Selected cluster variable',
+      description:
+        "Name of an existing dashboard variable to write the LEFT-clicked pod/controller's cluster " +
+        'name into (single value), resolved from the nearest cluster group ancestor (fallback: the ' +
+        "node's own cluster label). Cleared ($__empty) on deselect, a click on any other node kind, " +
+        'or when cluster resolution fails. Independent of Selected pod variable — either can be set ' +
+        "alone. Use a Textbox (or Custom + allow custom values) variable and do not reference it in " +
+        "this panel's own query. Leave empty to disable.",
+      defaultValue: defaultOptions.clusterVariable,
     });
 }

@@ -20,19 +20,23 @@ function getStyles(): { list: string; row: string; glyph: string } {
 }
 
 // Short display labels for the edge-legend endpoints. Only `service` is
-// abbreviated; every other kind reads fine at full length. Accepts `'controller'`
-// as a display-only marker (passes through unchanged).
-function kindLabel(kind: NodeKind | 'controller'): string {
+// abbreviated; every other kind reads fine at full length.
+function kindLabel(kind: NodeKind): string {
   return kind === 'service' ? 'svc' : kind;
 }
 
-// A pod↔service relationship is conceptually still pod-to-pod: a pod calls a Service
-// which selects pods — an extra hop, not a distinct relationship. On canvas both its
-// edges (pod→service calls, service→pod selects) share the pod-calls-pod colour; in
-// the legend they are OMITTED entirely (the single `pod ↔ pod/service` row covers
-// them), so the legend doesn't present Service as its own relationship colour.
-// (Service edges are still drawn on canvas in both pod-parent modes.)
-const SVC_OMITTED_FROM_LEGEND: ReadonlySet<EdgeType> = new Set(['pod-calls-service', 'service-selects-pod']);
+// Edge types OMITTED from the legend because another row stands in for them (same
+// canvas colour, not a distinct relationship):
+//  - pod↔service (pod-calls-service / service-selects-pod): a pod calls a Service which
+//    selects pods — an extra hop, covered by the single `pod ↔ pod/service` row.
+//  - node-to-switch: a sibling fabric edge (same colour as switch-to-switch), folded
+//    into the merged `switch/node → switch` row.
+// (All are still drawn on canvas in both pod-parent modes.)
+const OMITTED_FROM_LEGEND: ReadonlySet<EdgeType> = new Set([
+  'pod-calls-service',
+  'service-selects-pod',
+  'node-to-switch',
+]);
 
 interface EdgeRow {
   key: string;
@@ -51,11 +55,14 @@ function buildRows(types: readonly EdgeType[]): EdgeRow[] {
     // (same colour on canvas), so it reads `pod ↔ pod/service` with a bidirectional
     // glyph rather than a one-way `pod → pod`.
     const merged = edgeType === 'pod-calls-pod';
+    // switch-to-switch stands in for the omitted node-to-switch too (same fabric colour),
+    // so it reads `switch/node → switch` rather than `switch → switch`.
+    const fabricMerged = edgeType === 'switch-to-switch';
     return {
       key: edgeType,
       color: style.color,
       lineStyle: style.lineStyle,
-      fromLabel: kindLabel(from),
+      fromLabel: fabricMerged ? 'switch/node' : kindLabel(from),
       toLabel: merged ? 'pod/service' : kindLabel(to),
       bidirectional: merged,
     };
@@ -73,10 +80,11 @@ export function EdgeLegend({ edgeTypes }: Readonly<EdgeLegendProps> = {}): React
   const styles = useStyles2(getStyles);
   // Only known edge types can be rendered (the endpoint/style maps key off them);
   // an unknown type present in the data is drawn on-canvas via the fallback style
-  // but omitted from the legend. The pod↔service pair is also omitted (it is the
-  // pod-to-pod relationship via a Service — covered by the `pod ↔ pod/service` row).
+  // but omitted from the legend. OMITTED_FROM_LEGEND types are also dropped — each is
+  // folded into another row (pod↔service → `pod ↔ pod/service`; node-to-switch →
+  // the merged `switch/node → switch` row).
   const types = (edgeTypes ?? drawnEdgeTypesForMode('node')).filter(
-    (t) => t in EDGE_STYLE_BY_TYPE && !SVC_OMITTED_FROM_LEGEND.has(t)
+    (t) => t in EDGE_STYLE_BY_TYPE && !OMITTED_FROM_LEGEND.has(t)
   );
   const rows = buildRows(types);
   // Mirror ClusterLegend: nothing to show → render nothing.

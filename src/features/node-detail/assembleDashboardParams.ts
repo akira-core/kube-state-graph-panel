@@ -14,18 +14,24 @@ const DENYLIST: ReadonlySet<string> = new Set([
   'worstStatus',
   'isCluster',
   'isController',
-  'isStorageClass',
   'isNamespace',
+  'isApplication',
   'clusterColor',
   'namespaceColor',
+  'applicationColor',
+  // storageclass leaf structural fields (D6) — node info for the detail panel's Storage
+  // Class section, NOT query params.
+  'provisioner',
+  'parameters',
   'labels',
   'status',
 ]);
 
-// Eligible = any node except the cluster / namespace / storageclass grouping compounds.
-// Shared with resolveSelectedNode (KsgPanel) so the two scopes cannot drift.
+// Eligible = any node except the cluster / namespace / application decorative groups (a
+// storageclass is a D6 leaf and IS eligible). Shared with resolveSelectedNode (KsgPanel)
+// so the two scopes cannot drift.
 export function isDashboardEligible(d: cytoscape.NodeDataDefinition): boolean {
-  return d.isCluster !== true && d.isStorageClass !== true && d.isNamespace !== true;
+  return d.isCluster !== true && d.isNamespace !== true && d.isApplication !== true;
 }
 
 // `cluster` param: nearest `isCluster` ancestor's `data.cluster` (walked via `data.parent` —

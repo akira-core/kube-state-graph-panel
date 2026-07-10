@@ -134,20 +134,15 @@ describe('computeVisibility', () => {
     });
 
     it('cascades a controller box away when the pod kind is filtered out (legend eye on pod, controller mode)', () => {
-      // The owns-edge dies with its pod endpoint, so a controller with no other
-      // visible edge or child follows its pods out (D11 interplay scenario).
+      // D6: the pod nests under its controller via parent (no owns-edge). Filtering the
+      // pod kind out leaves the controller with no visible child and no incident edge,
+      // so it follows its pods out via the orphan cascade (D11 interplay scenario).
       const elements = [
         cluster('cl'),
         node('ctrl', 'deployment', { parent: 'cl', isController: true }),
         node('p1', 'pod', { parent: 'ctrl' }),
-        edge('owns', 'ctrl', 'p1', 'controller-owns-pod'),
       ];
-      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(
-        elements,
-        ['deployment', 'node'],
-        ['controller-owns-pod']
-      );
-      expect(visibleEdgeIds.has('owns')).toBe(false);
+      const { visibleNodeIds } = computeVisibility(elements, ['deployment', 'node'], []);
       expect([...visibleNodeIds]).toEqual([]);
     });
 

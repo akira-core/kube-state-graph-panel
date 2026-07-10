@@ -4,12 +4,11 @@ import { type CellProps, type Column, InteractiveTable, Tooltip, useStyles2 } fr
 import React, { useMemo } from 'react';
 
 import { severityColor } from '../../../../shared/constants/colorBySeverity';
+import { MISSING_VALUE_PLACEHOLDER } from '../../../../shared/constants/missingValuePlaceholder';
 import type { NodeAlert } from '../../../../shared/constants/types';
 import { themeColors } from '../../../../shared/theme/themeColors';
 
 import type { AlertTableProps } from './AlertTable.types';
-
-const PLACEHOLDER = '—';
 
 function getStyles(theme: GrafanaTheme2): {
   empty: string;
@@ -100,13 +99,13 @@ export function AlertTable({ alerts, onAlertTimeClick, timeZone }: Readonly<Aler
         id: 'pod',
         header: 'Pod',
         disableGrow: true,
-        cell: ({ row }: CellProps<NodeAlert>) => row.original.pod ?? PLACEHOLDER,
+        cell: ({ row }: CellProps<NodeAlert>) => row.original.pod ?? MISSING_VALUE_PLACEHOLDER,
       },
       {
         id: 'service',
         header: 'Service',
         disableGrow: true,
-        cell: ({ row }: CellProps<NodeAlert>) => row.original.service ?? PLACEHOLDER,
+        cell: ({ row }: CellProps<NodeAlert>) => row.original.service ?? MISSING_VALUE_PLACEHOLDER,
       },
       { id: 'name', header: 'Alert', cell: ({ row }: CellProps<NodeAlert>) => row.original.name },
       {

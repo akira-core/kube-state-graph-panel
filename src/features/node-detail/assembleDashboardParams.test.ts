@@ -137,6 +137,14 @@ describe('assembleDashboardParams', () => {
       expect(params).toEqual({ kind: 'service', name: 'mongo-svc' });
       expect(params && 'controller' in params).toBe(false);
     });
+
+    it('carries a service/pvc leaf ArgoCD application through as a scope param (backend D6)', () => {
+      const elements: cytoscape.ElementDefinition[] = [
+        { group: 'nodes', data: { id: 'svc', kind: 'service', label: 'mongo-svc', application: 'mongodb' } },
+      ];
+      const params = assembleDashboardParams(elements, 'svc');
+      expect(params).toEqual({ kind: 'service', name: 'mongo-svc', application: 'mongodb' });
+    });
   });
 
   describe('from_time / to_time', () => {
@@ -243,11 +251,31 @@ describe('assembleDashboardParams', () => {
 
   it.each([
     ['cluster', { isCluster: true }],
-    ['storageclass', { isStorageClass: true, kind: 'storageclass' }],
     ['namespace', { isNamespace: true }],
-  ])('returns undefined for the ineligible %s compound', (_label, extra) => {
+    ['application', { isApplication: true }],
+  ])('returns undefined for the ineligible %s decorative group', (_label, extra) => {
     const elements: cytoscape.ElementDefinition[] = [{ group: 'nodes', data: { id: 'g1', label: 'g1', ...extra } }];
     expect(assembleDashboardParams(elements, 'g1')).toBeUndefined();
+  });
+
+  it('treats a storageclass leaf as eligible but never sends its structural provisioner / parameters', () => {
+    const elements: cytoscape.ElementDefinition[] = [
+      {
+        group: 'nodes',
+        data: {
+          id: 'sc',
+          kind: 'storageclass',
+          label: 'gp3',
+          provisioner: 'ebs.csi.aws.com',
+          parameters: { type: 'gp3' },
+          labels: { cluster: 'prod' },
+        },
+      },
+    ];
+    const params = assembleDashboardParams(elements, 'sc');
+    expect(params).toEqual({ kind: 'storageclass', name: 'gp3', cluster: 'prod' });
+    expect(params).not.toHaveProperty('provisioner');
+    expect(params).not.toHaveProperty('parameters');
   });
 
   describe('cluster resolution', () => {

@@ -2,8 +2,6 @@ import type cytoscape from 'cytoscape';
 
 import type { PodParentMode } from '../../shared/constants/types';
 
-const SYNTHETIC_EDGE_PREFIX = 'ppm:pod-runs-on-node:';
-
 // Fresh `data` per element: cytoscape ALIASES the `data` we hand `cy.add` (no
 // deep-copy) and expand-collapse mutates `data.source`/`target` in place when a
 // controller collapses — passing baseElements by reference would corrupt them.
@@ -13,111 +11,103 @@ function cloneElement(el: cytoscape.ElementDefinition): cytoscape.ElementDefinit
 }
 
 /**
- * Re-shape the normalized graph for the given pod-parent mode (pure, immutable —
- * every returned element is a fresh object, see cloneElement). `node` = infra
- * view (cluster > node > pod), drops synthesized controllers + `controller-owns-pod`.
- * `controller` = re-parent each owned pod under its lexicographically smallest
- * owner, synthesise `pod-runs-on-node` to the pod's ORIGINAL K8s `node` parent
- * (only when that parent is a present `node`-kind node), drop `controller-owns-pod`.
+ * Re-shape the backend D6 hierarchy for the given pod-parent mode (pure, immutable —
+ * every returned element is a fresh object, see cloneElement). The hierarchy is
+ * backend-owned, so:
+ *
+ *  - `controller` (default): identity clone of the payload — pods stay nested under
+ *    their backend `controller` group (cluster > namespace > application > controller >
+ *    pod) and `pod-to-node` stays a drawn edge. No re-parenting, no edge synthesis.
+ *  - `node` (infra view): re-parent each pod under its K8s node (`labels.node`, only
+ *    when that id is a present `node`-kind node; otherwise leave it under its cluster),
+ *    DROP the `namespace` / `application` / `controller` group tiers and re-parent their
+ *    non-pod members (`pvc` / `service` / `storageclass`) directly under the cluster, and
+ *    DROP every `pod-to-node` edge (the relationship is now nesting). Result =
+ *    `cluster > node > pod`. Service / pvc-to-storageclass edges are preserved.
+ *
  * Full rules in pod-parent-mode spec.
  */
 export function applyPodParentMode(
   elements: cytoscape.ElementDefinition[],
   mode: PodParentMode
 ): cytoscape.ElementDefinition[] {
-  if (mode === 'node') {
-    // Drop synthesized controllers + their owns edges (controller-view only).
-    return elements
-      .filter((el) => {
-        const data = el.data as Record<string, unknown>;
-        if (el.group === 'nodes' && data.isController === true) {
-          return false;
-        }
-        if (el.group === 'edges' && data.edgeType === 'controller-owns-pod') {
-          return false;
-        }
-        return true;
-      })
-      .map(cloneElement);
+  if (mode === 'controller') {
+    return elements.map(cloneElement);
   }
 
+  // node mode — index the graph for re-parenting + group teardown.
+  const dataById = new Map<string, Record<string, unknown>>();
   const nodeKindIds = new Set<string>();
-  const controllersByPod = new Map<string, string[]>();
-  for (const el of elements) {
-    if (el.group === 'nodes') {
-      const data = el.data as Record<string, unknown>;
-      if (typeof data.id === 'string' && data.kind === 'node') {
-        nodeKindIds.add(data.id);
-      }
-      continue;
-    }
-    const data = el.data as Record<string, unknown>;
-    if (data.edgeType !== 'controller-owns-pod') {
-      continue;
-    }
-    const controller = data.source;
-    const pod = data.target;
-    if (typeof controller !== 'string' || typeof pod !== 'string') {
-      continue;
-    }
-    const existing = controllersByPod.get(pod);
-    if (existing) {
-      existing.push(controller);
-    } else {
-      controllersByPod.set(pod, [controller]);
-    }
-  }
-
-  const chosenControllerByPod = new Map<string, string>();
-  const originalNodeByPod = new Map<string, string>();
+  const clusterIds = new Set<string>();
+  const droppedGroupIds = new Set<string>();
   for (const el of elements) {
     if (el.group !== 'nodes') {
       continue;
     }
-    const data = el.data as Record<string, unknown>;
-    const id = data.id;
-    if (typeof id !== 'string' || data.kind !== 'pod') {
+    const d = el.data as Record<string, unknown>;
+    if (typeof d.id !== 'string') {
       continue;
     }
-    const controllers = controllersByPod.get(id);
-    if (controllers === undefined || controllers.length === 0) {
-      continue;
+    dataById.set(d.id, d);
+    if (d.kind === 'node') {
+      nodeKindIds.add(d.id);
     }
-    const chosen = controllers.reduce((a, b) => (a < b ? a : b));
-    chosenControllerByPod.set(id, chosen);
-    if (typeof data.parent === 'string' && nodeKindIds.has(data.parent)) {
-      originalNodeByPod.set(id, data.parent);
+    if (d.isCluster === true) {
+      clusterIds.add(d.id);
+    }
+    if (d.isNamespace === true || d.isApplication === true || d.isController === true) {
+      droppedGroupIds.add(d.id);
     }
   }
+
+  // Nearest `isCluster` ancestor via the ORIGINAL parent chain (intact even though the
+  // workload group tiers are about to be dropped). undefined → no cluster (top-level).
+  const clusterAncestor = (startId: string): string | undefined => {
+    let parent = typeof dataById.get(startId)?.parent === 'string' ? (dataById.get(startId)?.parent as string) : undefined;
+    for (let guard = 0; parent !== undefined && guard <= dataById.size; guard++) {
+      if (clusterIds.has(parent)) {
+        return parent;
+      }
+      const pd = dataById.get(parent);
+      parent = typeof pd?.parent === 'string' ? pd.parent : undefined;
+    }
+    return undefined;
+  };
 
   const result: cytoscape.ElementDefinition[] = [];
   for (const el of elements) {
     if (el.group === 'edges') {
-      const data = el.data as Record<string, unknown>;
-      if (data.edgeType === 'controller-owns-pod') {
+      // pod-to-node is expressed as nesting in node mode — drop it; keep all other edges.
+      if ((el.data as Record<string, unknown>).edgeType === 'pod-to-node') {
         continue;
       }
       result.push(cloneElement(el));
       continue;
     }
-    const data = el.data as Record<string, unknown>;
-    const id = data.id;
-    const chosen = typeof id === 'string' ? chosenControllerByPod.get(id) : undefined;
-    // Fresh data; a pod with a chosen owner gets its parent re-pointed to it.
-    const nextData = chosen === undefined ? { ...data } : { ...data, parent: chosen };
-    result.push({ ...el, data: nextData });
-  }
+    const d = el.data as Record<string, unknown>;
+    const id = typeof d.id === 'string' ? d.id : undefined;
+    if (id !== undefined && droppedGroupIds.has(id)) {
+      continue; // drop namespace / application / controller group tiers
+    }
 
-  for (const [podId, nodeId] of originalNodeByPod) {
-    result.push({
-      group: 'edges',
-      data: {
-        id: `${SYNTHETIC_EDGE_PREFIX}${podId}`,
-        source: podId,
-        target: nodeId,
-        edgeType: 'pod-runs-on-node',
-      },
-    } as unknown as cytoscape.ElementDefinition);
+    let nextParent: string | undefined = typeof d.parent === 'string' ? d.parent : undefined;
+    if (d.kind === 'pod') {
+      const labels = d.labels as Record<string, unknown> | undefined;
+      const labelNode = labels !== undefined && typeof labels.node === 'string' ? labels.node : undefined;
+      // Re-parent to the K8s node only when it actually exists; else fall back to cluster.
+      nextParent = labelNode !== undefined && nodeKindIds.has(labelNode) ? labelNode : id !== undefined ? clusterAncestor(id) : undefined;
+    } else if (nextParent !== undefined && droppedGroupIds.has(nextParent) && id !== undefined) {
+      // pvc / service / storageclass orphaned by a dropped group → re-home under cluster.
+      nextParent = clusterAncestor(id);
+    }
+
+    const nextData: Record<string, unknown> = { ...d };
+    if (nextParent === undefined) {
+      delete nextData.parent;
+    } else {
+      nextData.parent = nextParent;
+    }
+    result.push({ ...el, data: nextData });
   }
 
   return result;

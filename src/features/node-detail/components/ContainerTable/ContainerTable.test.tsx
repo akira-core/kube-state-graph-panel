@@ -116,20 +116,20 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     expect(within(rows[0]!).getByTestId('container-previous').getAttribute('title')).toBe('2026-06-10T08:00:00Z');
     expect(within(rows[0]!).getByTestId('container-url-link').getAttribute('href')).toBe('https://x/app');
 
-    // sidecar row (unavailable) → muted "—" in both time columns.
-    expect(within(rows[1]!).getByTestId('container-current').textContent).toBe('—');
-    expect(within(rows[1]!).getByTestId('container-previous').textContent).toBe('—');
+    // sidecar row (unavailable) → muted "n/a" in both time columns.
+    expect(within(rows[1]!).getByTestId('container-current').textContent).toBe('n/a');
+    expect(within(rows[1]!).getByTestId('container-previous').textContent).toBe('n/a');
   });
 
-  it('shows muted "—" time cells on loading rows', () => {
+  it('shows muted "n/a" time cells on loading rows', () => {
     render(<ContainerTable containers={containers} lookups={{ phase: 'loading', byName: {} }} timeZone="utc" />);
     for (const row of dataRows()) {
-      expect(within(row).getByTestId('container-current').textContent).toBe('—');
-      expect(within(row).getByTestId('container-previous').textContent).toBe('—');
+      expect(within(row).getByTestId('container-current').textContent).toBe('n/a');
+      expect(within(row).getByTestId('container-previous').textContent).toBe('n/a');
     }
   });
 
-  it('renders the per-row Change Type off the ready lookup; absent rows show muted "—"', () => {
+  it('renders the per-row Change Type off the ready lookup; absent rows show muted "n/a"', () => {
     const byName: Record<string, DetailLookup> = {
       app: { status: 'ready', url: 'https://x/app', resultType: 'UPDATED' },
     };
@@ -141,8 +141,8 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     expect(within(rows[0]!).getByTestId('container-type').textContent).toBe('UPDATED');
     expect(within(rows[0]!).getByTestId('container-url-link').getAttribute('href')).toBe('https://x/app');
 
-    // sidecar row (absent from byName) → muted "—".
-    expect(within(rows[1]!).getByTestId('container-type').textContent).toBe('—');
+    // sidecar row (absent from byName) → muted "n/a".
+    expect(within(rows[1]!).getByTestId('container-type').textContent).toBe('n/a');
   });
 
   it('renders an unknown result_type verbatim through the table (visible-by-default, not silently dropped)', () => {
@@ -153,16 +153,16 @@ describe('ContainerTable (eager-prefetch Change Report)', () => {
     expect(within(dataRows()[0]!).getByTestId('container-type').textContent).toBe('MIGRATED');
   });
 
-  it('shows muted "—" Change Type on a ready row that carries no result_type', () => {
+  it('shows muted "n/a" Change Type on a ready row that carries no result_type', () => {
     const byName: Record<string, DetailLookup> = { app: { status: 'ready', url: 'https://x/app' } };
     render(<ContainerTable containers={containers} lookups={{ phase: 'settled', byName }} />);
-    expect(within(dataRows()[0]!).getByTestId('container-type').textContent).toBe('—');
+    expect(within(dataRows()[0]!).getByTestId('container-type').textContent).toBe('n/a');
   });
 
-  it('shows muted "—" Change Type cells on loading rows', () => {
+  it('shows muted "n/a" Change Type cells on loading rows', () => {
     render(<ContainerTable containers={containers} lookups={{ phase: 'loading', byName: {} }} />);
     for (const row of dataRows()) {
-      expect(within(row).getByTestId('container-type').textContent).toBe('—');
+      expect(within(row).getByTestId('container-type').textContent).toBe('n/a');
     }
   });
 });

@@ -1,6 +1,6 @@
 import { css } from '@emotion/css';
 import { Button, Dropdown, LinkButton, Menu, useStyles2 } from '@grafana/ui';
-import React from 'react';
+import React, { useState } from 'react';
 
 import type { DashboardButtonProps } from './DashboardButton.types';
 
@@ -12,6 +12,7 @@ function getStyles(): { host: string } {
 // Single link → LinkButton "Dashboard". Multiple links → "Dashboards" Dropdown menu.
 export function DashboardButton({ state }: Readonly<DashboardButtonProps>): React.JSX.Element | null {
   const styles = useStyles2(getStyles);
+  const [open, setOpen] = useState(false);
 
   if (state.status !== 'ready') {
     return null;
@@ -56,16 +57,25 @@ export function DashboardButton({ state }: Readonly<DashboardButtonProps>): Reac
   );
 
   // Dropdown portals the menu out of the panel's `overflow: hidden` box and owns
-  // open/close + outside-dismiss + the trigger's `aria-expanded`. The wrapper's
-  // stopPropagation keeps the trigger click from deselecting the node behind the panel.
+  // open/close + outside-dismiss. We track open state via `onVisibleChange` and set
+  // `aria-expanded` on the trigger ourselves so the menu a11y contract does not depend
+  // on a specific `@grafana/ui` version's prop injection. The wrapper's stopPropagation
+  // keeps the trigger click from deselecting the node behind the panel.
   return (
     <div
       className={styles.host}
       data-testid="node-detail-dashboards-menu"
       onMouseDown={(event): void => event.stopPropagation()}
     >
-      <Dropdown overlay={menu} placement="bottom-start">
-        <Button size="sm" variant="secondary" fill="outline" icon="external-link-alt" aria-haspopup="menu">
+      <Dropdown overlay={menu} placement="bottom-start" onVisibleChange={setOpen}>
+        <Button
+          size="sm"
+          variant="secondary"
+          fill="outline"
+          icon="external-link-alt"
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
           Dashboards
         </Button>
       </Dropdown>

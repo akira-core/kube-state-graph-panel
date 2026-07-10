@@ -3,44 +3,69 @@ import cytoscape from 'cytoscape';
 import React from 'react';
 
 // A REAL headless cytoscape instance stands in for the one useCytoscape would
-// build, so the cxttap/tap effects bind against genuine event plumbing. The refs
+// build, so the tap/dbltap effects bind against genuine event plumbing. The refs
 // are dereferenced lazily (inside the arrow bodies), keeping hoisting order safe.
 const mockCyRef: { current: cytoscape.Core | null } = { current: null };
 const mockContainerRef = React.createRef<HTMLDivElement>();
+
+// Stand-in expand-collapse api. The real useExpandCollapse would only populate
+// apiRef when collapse is wired + the extension is registered (not in jsdom); the
+// mock just injects this fake so the dbltap → api toggle path is exercisable.
+const mockExpandApi = {
+  isExpandable: jest.fn(() => false),
+  isCollapsible: jest.fn(() => false),
+  expand: jest.fn(),
+  collapse: jest.fn(),
+};
 
 jest.mock('../../hooks/useCytoscape', () => ({
   useCytoscape: (): unknown => ({ containerRef: mockContainerRef, cyRef: mockCyRef, isReady: true }),
 }));
 // fcose/dagre are not registered in the jest env — layout is not under test here.
 jest.mock('../../hooks/useGraphLayout', () => ({ useGraphLayout: (): void => undefined }));
+// Inject the fake expand-collapse api into GraphCanvas's apiRef (headless jsdom has
+// no real extension); lets the dbltap handler reach a working api under test.
+jest.mock('../../hooks/useExpandCollapse', () => ({
+  useExpandCollapse: (props: { apiRef: { current: unknown } }): void => {
+    props.apiRef.current = mockExpandApi;
+  },
+}));
 
 import { GraphCanvas } from './GraphCanvas';
 
 const elements: cytoscape.ElementDefinition[] = [
   { group: 'nodes', data: { id: 'p1', kind: 'pod', label: 'mongo-0' } },
-  // Cluster backplate: decorative, never selectable (mirrors normalize).
+  // Cluster backplate: decorative + NON-selectable (mirrors normalize) — tap deselects,
+  // collapse is dbltap-driven.
   { group: 'nodes', selectable: false, data: { id: 'cl', isCluster: true, label: 'demo' } },
+  // Namespace group: decorative but SELECTABLE (mirrors normalize) — its selection
+  // surfaces the +/- cue; only cluster carries selectable:false.
+  { group: 'nodes', data: { id: 'ns', isNamespace: true, label: 'shop' } },
+  // Controller group: detail-eligible, so it stays SELECTABLE (no selectable:false) — its
+  // clicks must reach the detail panel (mirrors normalize).
+  { group: 'nodes', data: { id: 'ctrl', isController: true, kind: 'statefulset', label: 'mongo' } },
 ];
 
-function renderCanvas(handlers: {
-  onSelect?: (id: string | null) => void;
-  onContextSelect?: (id: string) => void;
-}): ReturnType<typeof render> {
+function renderCanvas(handlers: { onSelect?: (id: string | null) => void }): ReturnType<typeof render> {
   return render(
     <GraphCanvas
       elements={elements}
       stylesheet={[]}
       layout="fcose"
-      visibility={{ visibleNodeIds: new Set(['p1', 'cl']), visibleEdgeIds: new Set() }}
+      visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
       selectedId={null}
       {...handlers}
     />
   );
 }
 
-describe('GraphCanvas right-click (cxttap) wiring', () => {
+describe('GraphCanvas selection wiring (left-click only; right-click detail removed)', () => {
   beforeEach(() => {
     mockCyRef.current = cytoscape({ headless: true, elements });
+    mockExpandApi.isExpandable.mockReturnValue(false);
+    mockExpandApi.isCollapsible.mockReturnValue(false);
+    mockExpandApi.expand.mockClear();
+    mockExpandApi.collapse.mockClear();
   });
 
   afterEach(() => {
@@ -48,50 +73,65 @@ describe('GraphCanvas right-click (cxttap) wiring', () => {
     mockCyRef.current = null;
   });
 
-  it('reports a selectable node through onContextSelect on cxttap', () => {
-    const onContextSelect = jest.fn();
-    renderCanvas({ onContextSelect });
-    mockCyRef.current!.getElementById('p1').emit('cxttap');
-    expect(onContextSelect).toHaveBeenCalledTimes(1);
-    expect(onContextSelect).toHaveBeenCalledWith('p1');
-  });
-
-  it('ignores cxttap on the background and on non-selectable cluster backplates', () => {
-    const onContextSelect = jest.fn();
-    renderCanvas({ onContextSelect });
-    mockCyRef.current!.emit('cxttap'); // background
-    mockCyRef.current!.getElementById('cl').emit('cxttap'); // decorative container
-    expect(onContextSelect).not.toHaveBeenCalled();
-  });
-
-  it('does not route cxttap through the left-tap onSelect path (and vice versa)', () => {
+  it('a right-click (cxttap) on a node does NOT trigger selection (detail flow removed)', () => {
     const onSelect = jest.fn();
-    const onContextSelect = jest.fn();
-    renderCanvas({ onSelect, onContextSelect });
+    renderCanvas({ onSelect });
     mockCyRef.current!.getElementById('p1').emit('cxttap');
-    expect(onContextSelect).toHaveBeenCalledWith('p1');
+    mockCyRef.current!.getElementById('ctrl').emit('cxttap');
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('left-tap still selects a selectable node, including a controller group', () => {
+    const onSelect = jest.fn();
+    renderCanvas({ onSelect });
     mockCyRef.current!.getElementById('p1').emit('tap');
     expect(onSelect).toHaveBeenCalledWith('p1');
-    expect(onContextSelect).toHaveBeenCalledTimes(1);
+    mockCyRef.current!.getElementById('ctrl').emit('tap');
+    expect(onSelect).toHaveBeenCalledWith('ctrl');
   });
 
-  it('suppresses the native context menu over the canvas while wired', () => {
-    renderCanvas({ onContextSelect: jest.fn() });
-    // fireEvent returns false when preventDefault was called on the event.
-    expect(fireEvent.contextMenu(screen.getByTestId('graph-canvas'))).toBe(false);
+  it('a left-tap on the non-selectable cluster deselects (background-tap behaviour, no detail)', () => {
+    const onSelect = jest.fn();
+    renderCanvas({ onSelect });
+    mockCyRef.current!.getElementById('cl').emit('tap');
+    expect(onSelect).toHaveBeenCalledWith(null);
   });
 
-  it('leaves the native context menu alone when onContextSelect is not wired', () => {
-    renderCanvas({});
+  it('double-tapping a cluster toggles its collapse via the expand-collapse api', () => {
+    mockExpandApi.isExpandable.mockReturnValue(true);
+    renderCanvas({ onSelect: jest.fn() });
+    mockCyRef.current!.getElementById('cl').emit('dbltap');
+    expect(mockExpandApi.expand).toHaveBeenCalled();
+    expect(mockExpandApi.collapse).not.toHaveBeenCalled();
+  });
+
+  it('double-tapping a non-cluster node never touches the expand-collapse api', () => {
+    mockExpandApi.isExpandable.mockReturnValue(true);
+    renderCanvas({ onSelect: jest.fn() });
+    mockCyRef.current!.getElementById('p1').emit('dbltap');
+    expect(mockExpandApi.expand).not.toHaveBeenCalled();
+    expect(mockExpandApi.collapse).not.toHaveBeenCalled();
+  });
+
+  it('leaves the native context menu alone (right-click is no longer intercepted)', () => {
+    renderCanvas({ onSelect: jest.fn() });
+    // fireEvent returns true when preventDefault was NOT called on the event.
     expect(fireEvent.contextMenu(screen.getByTestId('graph-canvas'))).toBe(true);
   });
 
-  it('unbinds the cxttap handler on unmount (no listener residue)', () => {
-    const onContextSelect = jest.fn();
-    const { unmount } = renderCanvas({ onContextSelect });
-    unmount();
-    mockCyRef.current!.getElementById('p1').emit('cxttap');
-    expect(onContextSelect).not.toHaveBeenCalled();
+  it('forwards the pinned tooltip to HoverTooltip (top-right card shows with no hovered element)', () => {
+    render(
+      <GraphCanvas
+        elements={elements}
+        stylesheet={[]}
+        layout="fcose"
+        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
+        selectedId="ctrl"
+        pinned={{ label: 'mongo', attributes: [{ key: 'kind', value: 'statefulset' }] }}
+      />
+    );
+    const tip = screen.getByTestId('hover-tooltip');
+    expect(tip).toHaveAttribute('data-pinned', 'true');
+    expect(screen.getByText('mongo')).toBeInTheDocument();
   });
 });

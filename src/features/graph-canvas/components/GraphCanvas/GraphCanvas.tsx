@@ -13,6 +13,7 @@ import { useGraphResize } from '../../hooks/useGraphResize';
 import { useLayoutRunToken } from '../../hooks/useLayoutRunToken';
 import { useSelectionFocus } from '../../hooks/useSelectionFocus';
 
+import { clusterCollapseToggle } from './clusterCollapseToggle';
 import type { GraphCanvasProps } from './GraphCanvas.types';
 import { selectSingle } from './selectSingle';
 
@@ -42,11 +43,11 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     layout,
     visibility,
     onSelect,
-    onContextSelect,
     selectedId,
     collapsedIds,
     onCollapsedChange,
     podParentMode,
+    pinned,
   } = props;
   const styles = useStyles2(getStyles);
 
@@ -142,37 +143,30 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     // isReady gates binding until the instance exists.
   }, [cyRef, onSelect, isReady]);
 
-  // Right-click (cxttap) reports the node for the detail-URL flow, routed through the
-  // same controlled selectedId as tap so highlight + detail panel stay in sync (D1).
-  // cxttap does NOT preventDefault the DOM contextmenu, so we suppress the native menu
-  // at the container level — only while a consumer wires onContextSelect.
+  // Double-tap a (non-selectable) cluster to collapse/expand it — clusters can't surface
+  // the selection-driven `+/-` cue, so dbltap is their toggle gesture. Routes through the
+  // shared expand-collapse api (populated by useExpandCollapse only when collapse is wired,
+  // else null → no-op); the isCluster gate + toggle decision live in clusterCollapseToggle.
   useEffect(() => {
     const cy = cyRef.current;
-    const container = containerRef.current;
-    if (cy === null || container === null || onContextSelect === undefined) {
+    if (cy === null) {
       return;
     }
-    const handleCxtTap = (evt: cytoscape.EventObject): void => {
-      if (evt.target === cy) {
-        return; // background right-click: keep the current selection
+    const handleDblTap = (evt: cytoscape.EventObject): void => {
+      const api = apiRef.current;
+      if (api === null || evt.target === cy) {
+        return;
       }
-      const single = evt.target as cytoscape.NodeSingular;
-      // Same selectability rule as tap: backplates and edges never open the detail panel.
-      if (single.isNode() && single.selectable()) {
-        onContextSelect(single.id());
+      const node = evt.target as cytoscape.NodeSingular;
+      if (node.isNode()) {
+        clusterCollapseToggle(node, api);
       }
     };
-    const suppressNativeMenu = (e: Event): void => {
-      e.preventDefault();
-    };
-    cy.on('cxttap', handleCxtTap);
-    container.addEventListener('contextmenu', suppressNativeMenu);
+    cy.on('dbltap', handleDblTap);
     return (): void => {
-      cy.off('cxttap', handleCxtTap);
-      container.removeEventListener('contextmenu', suppressNativeMenu);
+      cy.off('dbltap', handleDblTap);
     };
-    // isReady gates binding until the instance exists (see useCytoscape).
-  }, [cyRef, containerRef, onContextSelect, isReady]);
+  }, [cyRef, isReady]);
 
   // Mirror selectedId into cytoscape's single selection so the highlight tracks the
   // detail panel. `elements` is a dep: a rebuild/re-add brings the node back UNSELECTED
@@ -192,7 +186,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   return (
     <div className={styles.root} data-testid="graph-canvas-root">
       <div ref={containerRef} className={styles.canvas} data-testid="graph-canvas" />
-      <HoverTooltip cyRef={cyRef} ready={isReady} />
+      <HoverTooltip cyRef={cyRef} ready={isReady} pinned={pinned ?? null} />
     </div>
   );
 }

@@ -52,9 +52,9 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "border-opacity": 0.5,
       "border-width": 1.5,
       "color": "data(clusterColor)",
-      "font-size": 14,
+      "font-size": 18,
       "font-weight": 600,
-      "label": "data(label)",
+      "label": [Function],
       "padding": "18px",
       "shape": "round-rectangle",
       "text-halign": "center",
@@ -72,9 +72,9 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
       "border-opacity": 0.7,
       "border-width": 1.5,
       "color": "data(namespaceColor)",
-      "font-size": 13,
+      "font-size": 17,
       "font-weight": 600,
-      "label": "data(label)",
+      "label": [Function],
       "padding": "12px",
       "shape": "round-rectangle",
       "text-halign": "center",
@@ -83,10 +83,81 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node[?isApplication]",
+    "style": {
+      "background-color": "data(applicationColor)",
+      "background-image": "none",
+      "background-opacity": 0.1,
+      "border-color": "data(applicationColor)",
+      "border-opacity": 0.7,
+      "border-width": 1.5,
+      "color": "data(applicationColor)",
+      "font-size": 17,
+      "font-weight": 600,
+      "label": [Function],
+      "padding": "12px",
+      "shape": "round-rectangle",
+      "text-halign": "center",
+      "text-margin-y": -3,
+      "text-valign": "top",
+    },
+  },
+  {
+    "selector": "node[kind='network']",
+    "style": {
+      "font-size": 17,
+      "font-weight": 600,
+      "label": [Function],
+    },
+  },
+  {
+    "selector": "node[kind='node']:parent",
+    "style": {
+      "font-size": 18,
+      "font-weight": 600,
+      "label": [Function],
+    },
+  },
+  {
+    "selector": "node[kind='node'].cy-expand-collapse-collapsed-node",
+    "style": {
+      "font-size": 18,
+      "font-weight": 600,
+      "label": [Function],
+    },
+  },
+  {
     "selector": "node.cy-expand-collapse-collapsed-node",
     "style": {
       "border-opacity": 0.9,
       "border-width": 3,
+    },
+  },
+  {
+    "selector": "node[?isCluster].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+    },
+  },
+  {
+    "selector": "node[?isNamespace].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+    },
+  },
+  {
+    "selector": "node[?isApplication].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
     },
   },
   {
@@ -183,7 +254,7 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
   {
     "selector": "edge.cy-expand-collapse-meta-edge",
     "style": {
-      "curve-style": "bezier",
+      "curve-style": "straight",
       "width": 2.5,
     },
   },

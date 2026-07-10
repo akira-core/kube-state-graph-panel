@@ -1,32 +1,27 @@
-import { CLUSTER_PALETTE } from './clusterPalette';
-import { NAMESPACE_PALETTE, colorForNamespace } from './namespacePalette';
+import { APPLICATION_COLOR } from './applicationPalette';
+import { CLUSTER_COLOR } from './clusterPalette';
+import { EDGE_STYLE_BY_TYPE } from './colorByEdgeType';
+import { STATUS_COLOR } from './colorByStatus';
+import { NAMESPACE_COLOR } from './namespacePalette';
 
-// The STATUS colours a namespace tint MUST never reuse (so it is never read as health).
-const STATUS_HEXES = ['#73BF69', '#F2CC0C', '#E02F44'];
+const edgeColors = new Set(Object.values(EDGE_STYLE_BY_TYPE).map((s) => s.color.toLowerCase()));
+const statusColors = new Set(Object.values(STATUS_COLOR).map((c) => c.toLowerCase()));
 
-describe('namespacePalette', () => {
-  it('colorForNamespace is deterministic per name and returns a palette member', () => {
-    expect(colorForNamespace('shop')).toBe(colorForNamespace('shop'));
-    expect(NAMESPACE_PALETTE as readonly string[]).toContain(colorForNamespace('shop'));
-    expect(NAMESPACE_PALETTE as readonly string[]).toContain(colorForNamespace('payments'));
+describe('NAMESPACE_COLOR', () => {
+  it('is a single fixed hex constant (one colour for every namespace, no per-name hashing)', () => {
+    expect(NAMESPACE_COLOR).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
 
-  it('returns a stable palette member for the empty string (no throw)', () => {
-    expect(NAMESPACE_PALETTE as readonly string[]).toContain(colorForNamespace(''));
-    expect(colorForNamespace('')).toBe(colorForNamespace(''));
+  it('never reuses a status colour (a namespace tint must never read as node health)', () => {
+    expect(statusColors.has(NAMESPACE_COLOR.toLowerCase())).toBe(false);
   });
 
-  it('avoids the STATUS colours (never confused with node health)', () => {
-    const lower = NAMESPACE_PALETTE.map((c) => c.toLowerCase());
-    for (const status of STATUS_HEXES) {
-      expect(lower).not.toContain(status.toLowerCase());
-    }
+  it('never reuses an edge colour (edges must stay legible crossing the backplate)', () => {
+    expect(edgeColors.has(NAMESPACE_COLOR.toLowerCase())).toBe(false);
   });
 
-  it('does not collide with CLUSTER_PALETTE (nested boxes must stay distinguishable)', () => {
-    const cluster = new Set(CLUSTER_PALETTE.map((c) => c.toLowerCase()));
-    for (const c of NAMESPACE_PALETTE) {
-      expect(cluster.has(c.toLowerCase())).toBe(false);
-    }
+  it('differs from the cluster and application kind colours (nested boxes stay apart)', () => {
+    expect(NAMESPACE_COLOR.toLowerCase()).not.toBe(CLUSTER_COLOR.toLowerCase());
+    expect(NAMESPACE_COLOR.toLowerCase()).not.toBe(APPLICATION_COLOR.toLowerCase());
   });
 });

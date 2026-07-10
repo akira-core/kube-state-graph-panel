@@ -2,6 +2,7 @@ import type cytoscape from 'cytoscape';
 
 import type { PodParentMode } from '../../../../shared/constants/types';
 import type { VisibilitySets } from '../../../element-filter';
+import type { PinnedTooltip } from '../../../hover-tooltip';
 import type { CyStylesheet } from '../../hooks/useCytoscape';
 import type { LayoutName } from '../../hooks/useGraphLayout';
 
@@ -13,11 +14,6 @@ export interface GraphCanvasProps {
   // the panel — shared with its detail-panel gating — and applied here verbatim.
   visibility: VisibilitySets;
   onSelect?: (nodeId: string | null) => void;
-  // Right-click (cxttap) on a selectable node. Shares the same controlled
-  // selection as onSelect (the consumer sets selectedId from it) and additionally
-  // marks the node for the detail-URL lookups. When wired, the browser's native
-  // context menu is suppressed over the canvas.
-  onContextSelect?: (nodeId: string) => void;
   // Controlled selection: keeps cytoscape's single selection in sync (blue
   // highlight) with the detail panel. null/undefined clears the selection.
   selectedId?: string | null;
@@ -30,4 +26,8 @@ export interface GraphCanvasProps {
   // Pod-parent mode. Changing it (re-parent + edge swap) triggers a single
   // re-layout via the run token. Omitted → treated as 'node' (no extra layout).
   podParentMode?: PodParentMode;
+  // Pinned tooltip for the left-click-selected node (derived from selectedNode by
+  // KsgPanel). Forwarded to HoverTooltip → docks top-right + suppresses hover. Not
+  // a useCytoscape dep, so it never re-inits the instance. null → floating hover.
+  pinned?: PinnedTooltip | null;
 }

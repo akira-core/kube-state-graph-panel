@@ -20,9 +20,9 @@ export type NodeKind =
   | 'daemonset'
   | 'job'
   | 'cronjob'
-  // A backend-synthesized StorageClass compound GROUP (cluster > storageclass > pvc).
-  // It is also tagged `isStorageClass` (see cytoscape.d.ts) and behaves like the K8s
-  // `node` container: icon-less while an expanded box, shows its icon when collapsed.
+  // A StorageClass leaf node under the cluster (backend D6: cluster > storageclass,
+  // no children). Carries `provisioner` + `parameters` (see cytoscape.d.ts); its disk
+  // glyph is ALWAYS drawn as a leaf (no expanded-vs-collapsed compound behaviour).
   | 'storageclass'
   // A virtual compound GROUP wrapping the physical switch fabric (network > switch).
   // Pure grouping box, collapsible like other containers; collapsing swaps
@@ -30,24 +30,26 @@ export type NodeKind =
   // carries status/alerts.
   | 'network';
 
-// Full wire contract: every edge type the backend's core graph can carry.
-// `switch-to-switch` / `node-to-switch` are the physical network-fabric edges
-// added in backend v0.0.18 (pkg/graph/edge.go); they involve neither pods nor
-// controllers, so they are drawn in both pod-parent modes.
+// Full wire contract: every edge type the backend's core graph can carry (D6 — all
+// backend-emitted, no panel synthetics). `pod-to-node` (pod→node) and
+// `pvc-to-storageclass` (pvc→storageclass) replace the retired panel synthetics
+// `pod-runs-on-node` / `controller-owns-pod`. `switch-to-switch` / `node-to-switch`
+// are the physical network-fabric edges added in backend v0.0.18 (pkg/graph/edge.go);
+// they involve neither pods nor controllers, so they are drawn in both pod-parent modes.
 export type EdgeType =
-  | 'pod-runs-on-node'
+  | 'pod-to-node'
   | 'pod-mounts-pvc'
   | 'pod-calls-pod'
   | 'pod-calls-service'
   | 'service-selects-pod'
-  | 'controller-owns-pod'
+  | 'pvc-to-storageclass'
   | 'switch-to-switch'
   | 'node-to-switch';
 
 // Which edge types are actually DRAWN (and listed in the legend) depends on the
-// pod-parent mode — see `drawnEdgeTypesForMode`. Notably `pod-runs-on-node` is
-// expressed as compound nesting in the default `node` mode (design D31) and only
-// drawn as an edge in `controller` mode.
+// pod-parent mode — see `drawnEdgeTypesForMode`. Notably `pod-to-node` is expressed
+// as compound nesting in the `node` (infra) mode and only drawn as an edge in the
+// default `controller` mode (design D6/D7).
 
 // Runtime-honest kind / edge type as it actually arrives in graph data: a KNOWN enum
 // value OR a forward-compat string the backend may emit before the panel learns it.
@@ -95,8 +97,9 @@ export interface NodeAlert {
 }
 
 // Which K8s object a pod is compound-nested under (panel-side view toggle, not a
-// wire value). 'node' (default) = backend's view: pod nests in its K8s node,
-// `controller-owns-pod` is a drawn edge and `pod-runs-on-node` is nesting.
-// 'controller' = pod nests under its owning controller; `controller-owns-pod`
-// becomes nesting and `pod-runs-on-node` is drawn. See features/pod-parent-mode.
+// wire value). 'controller' (default) = backend D6 payload as-is: pod nests under
+// its `controller` group (cluster > namespace > application > controller > pod) and
+// `pod-to-node` is a drawn edge. 'node' (infra view) = re-parent each pod under its
+// K8s node (cluster > node > pod), drop the workload group tiers, and express
+// pod↔node as nesting (drop `pod-to-node` edges). See features/pod-parent-mode.
 export type PodParentMode = 'node' | 'controller';

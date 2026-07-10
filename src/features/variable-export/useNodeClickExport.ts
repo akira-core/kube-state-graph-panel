@@ -1,0 +1,31 @@
+import type cytoscape from 'cytoscape';
+import { useMemo } from 'react';
+
+import { nodeClickExportValues } from './nodeClickExportValues';
+import { useListVariableExport } from './useListVariableExport';
+
+/**
+ * Export the LEFT-clicked node's pod name(s) + cluster name into the two dashboard
+ * variables named by the panel options (node-click-export-vars design D2/D6).
+ *
+ * Computes `{ podNames, clusterName }` once via the pure `nodeClickExportValues`,
+ * then drives each variable through `useListVariableExport` — the feature's shared
+ * write-gating primitive (per-name trim gating, content-fingerprint dedup, and the
+ * `$__empty` clear sentinel / `replace: true` semantics of writeDashboardVariable).
+ * The click export is selection-driven, so `enabled` is always true here: clearing
+ * on deselect / other-node clicks is its spec'd behavior (selected-pod-export spec),
+ * unlike the data-driven list exports whose writes are gated on load state.
+ */
+export function useNodeClickExport(
+  elements: readonly cytoscape.ElementDefinition[],
+  selectedNodeId: string | null,
+  podVariable: string,
+  clusterVariable: string
+): void {
+  const { podNames, clusterName } = useMemo(
+    () => nodeClickExportValues(elements, selectedNodeId),
+    [elements, selectedNodeId]
+  );
+  useListVariableExport(podNames, podVariable, true);
+  useListVariableExport(clusterName, clusterVariable, true);
+}

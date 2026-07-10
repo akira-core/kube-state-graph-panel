@@ -1,13 +1,14 @@
 import { css } from '@emotion/css';
 import { LoadingState, type GrafanaTheme2, type PanelProps } from '@grafana/data';
-import { Alert, useStyles2, useTheme2 } from '@grafana/ui';
+import { Alert, IconButton, useStyles2, useTheme2 } from '@grafana/ui';
 import type cytoscape from 'cytoscape';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { computeVisibility, isFilterableKind } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
-import { applyNamespaceGrouping, useGraphData, wrapSwitchFabric } from '../../features/graph-data';
+import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
 import {
+  ApplicationLegend,
   ClusterLegend,
   EdgeLegend,
   LayoutModeControl,
@@ -15,7 +16,7 @@ import {
   NodeContainerLegend,
   NodeLegend,
   StatusLegend,
-  StorageClassLegend,
+  type ApplicationLegendEntry,
   type ClusterLegendEntry,
   type NamespaceLegendEntry,
 } from '../../features/legend';
@@ -32,14 +33,20 @@ import {
 } from '../../features/node-detail';
 import { applyPodParentMode } from '../../features/pod-parent-mode';
 import { useGraphTheme } from '../../features/theme';
-import { useSelectedPodExport, useVariableExport } from '../../features/variable-export';
+import {
+  extractAlertNames,
+  extractAlertPodNames,
+  useListVariableExport,
+  useNodeClickExport,
+} from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
-import type { EdgeType, PodParentMode } from '../../shared/constants/types';
+import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
+import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
 
+import { buildPinnedTooltip } from './buildPinnedTooltip';
 import { deriveLegendEntries } from './deriveLegendEntries';
 import { deriveContainers } from './deriveNodeContainers';
-import { deriveStorageClassContainers } from './deriveStorageClassContainers';
 import { ALL_KINDS, defaultOptions, type KsgPanelOptions } from './KsgPanel.types';
 import { useCollapseGroup } from './useCollapseGroup';
 
@@ -52,6 +59,7 @@ function getStyles(theme: GrafanaTheme2): {
   root: string;
   canvasArea: string;
   legendArea: string;
+  legendExpandButton: string;
   emptyOverlay: string;
   partialWarning: string;
 } {
@@ -104,6 +112,16 @@ function getStyles(theme: GrafanaTheme2): {
         paddingTop: 8,
         borderTop: `1px solid ${borderWeak}`,
       },
+    }),
+    // Floating `>` restore button shown only while the rail is collapsed; sits over
+    // the canvas top-left so the legend is one click away. z-index MUST clear the
+    // cytoscape-expand-collapse overlay canvas (z-index 999) or the canvas swallows
+    // the click; kept below Grafana's panel menu / tooltip layers (theme.zIndex ≥ 1030).
+    legendExpandButton: css({
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      zIndex: 1000,
     }),
   };
 }
@@ -158,7 +176,12 @@ export function resolveSelectedNode(
       continue;
     }
     const d = el.data as cytoscape.NodeDataDefinition;
-    if (d.id === selectedNodeId && isDashboardEligible(d)) {
+    // Detail panel opens for any node EXCEPT the cluster / namespace decorative groups.
+    // The application GROUP node is now included (it shows the whole app's config_changes /
+    // Deployment Changes) — so resolveSelectedNode's scope intentionally diverges from
+    // isDashboardEligible, which still excludes the app group for the /dashboard button
+    // (the group has no per-node dashboard). cluster / namespace stay excluded.
+    if (d.id === selectedNodeId && (isDashboardEligible(d) || d.isApplication === true)) {
       const label = typeof d.label === 'string' ? d.label : selectedNodeId;
       // Controller identity the detail-URL queries fire for (D4): pod → its owner
       // (kind lowercased per synthesized-controller convention), controller → itself,
@@ -176,15 +199,35 @@ export function resolveSelectedNode(
         } else {
           queryTarget = { kind: d.kind, name: label };
         }
+      } else if (d.kind !== undefined && typeof d.application === 'string' && d.application.length > 0) {
+        // Non-workload leaf (service / pvc) that belongs to an ArgoCD application: its
+        // Application change-report (config_changes) queries with the node's OWN kind/name.
+        // It has no containers, so the Containers section never renders (code_changes is
+        // fired by the shared prefetch but its empty result is unused).
+        queryTarget = { kind: d.kind, name: label };
+      } else if (d.isApplication === true && typeof d.application === 'string' && d.application.length > 0) {
+        // The ArgoCD application GROUP node itself (kind-less): config_changes for the whole
+        // app, keyed by the application name.
+        queryTarget = { kind: 'application', name: d.application };
       }
+      // The application group is kind-less; surface a synthetic 'application' kind so the
+      // header badge reads it (mirrors the hover tooltip's synthesized kind).
+      const kind: GraphNodeKind | undefined = d.kind ?? (d.isApplication === true ? 'application' : undefined);
       return {
         id: selectedNodeId,
         label,
-        ...(d.kind !== undefined ? { kind: d.kind } : {}),
+        // Promoted attributes + raw labels feed the pinned hover tooltip (top-right on
+        // left-click) — single source with hover via buildNodeAttributes, so the two
+        // never drift. labels uses a conditional spread for exactOptionalPropertyTypes.
+        attributes: buildNodeAttributes(d),
+        ...(d.labels !== undefined ? { labels: d.labels } : {}),
+        ...(kind !== undefined ? { kind } : {}),
         ...(d.status !== undefined ? { status: d.status } : {}),
         ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
         ...(d.application !== undefined ? { application: d.application } : {}),
         ...(d.containers !== undefined ? { containers: d.containers } : {}),
+        ...(d.provisioner !== undefined ? { provisioner: d.provisioner } : {}),
+        ...(d.parameters !== undefined ? { parameters: d.parameters } : {}),
         ...(queryTarget !== undefined ? { queryTarget } : {}),
       };
     }
@@ -219,25 +262,36 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // gate and the fatal early return so the two can't drift.
   const isFatalNormalizeError = normalizeError !== undefined && baseElements.length === 0;
 
-  // Export every pod name into the dashboard variable. Reads baseElements (pre-view-
-  // transform data-layer truth). Gated off in every non-successful load state (no
-  // payload — also first load, query error, fatal normalize) so it can't write "no
-  // pods"; only a loaded graph with zero pods clears the variable — pod-list-variable-export spec.
-  const podListVariable = options.podListVariable ?? defaultOptions.podListVariable;
+  // Export alert-carrying pod names + all distinct alert names into their configured
+  // dashboard variables. Both read baseElements (pre-view-transform data-layer truth) so
+  // collapse / filter / pod-parent mode never affect the exported list. Gated off in every
+  // non-successful load state (no payload — also first load, query error, fatal normalize)
+  // so it can't write "no alerts"; only a loaded graph with zero matches clears each
+  // variable — pod-list-variable-export spec. Each variable is independently name-gated
+  // inside the hook.
+  const alertPodListVariable = options.alertPodListVariable ?? defaultOptions.alertPodListVariable;
+  const alertNameListVariable = options.alertNameListVariable ?? defaultOptions.alertNameListVariable;
   const variableExportEnabled = hasPayload && seriesError === undefined && !isFatalNormalizeError;
-  useVariableExport(baseElements, podListVariable, variableExportEnabled);
+  const alertPodNames = useMemo(() => extractAlertPodNames(baseElements), [baseElements]);
+  const alertNames = useMemo(() => extractAlertNames(baseElements), [baseElements]);
+  useListVariableExport(alertPodNames, alertPodListVariable, variableExportEnabled);
+  useListVariableExport(alertNames, alertNameListVariable, variableExportEnabled);
 
   // Pod-parent view mode — ephemeral per-session view state, NOT persisted (unlike
   // visibleKinds toggles): a mode flip is a transient view, not a dashboard-authoring
   // decision. 'controller' aggregates pods under their owning controller (default);
   // 'node' is the infrastructure view (cluster > node > pod).
   const [podParentMode, setPodParentMode] = useState<PodParentMode>('controller');
-  // View-transform pipeline (pure, mode-threaded): applyPodParentMode reshapes pod
-  // nesting; applyNamespaceGrouping inserts namespace compounds in CONTROLLER mode
-  // (no-op in node mode — namespace-grouping spec); wrapSwitchFabric synthesizes the
-  // virtual `network > switch` compound for parent-less switches (switch-tier-layout).
+  // Panel-local, ephemeral: lets the user fold the legend rail to the side so the
+  // canvas reclaims the width. Not persisted to panel options (see panel-rendering spec).
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
+  // View-transform pipeline (pure, mode-threaded): applyPodParentMode reshapes the
+  // backend D6 hierarchy (controller = payload as-is; node = re-parent pods under their
+  // K8s node, strip workload groups); wrapSwitchFabric synthesizes the virtual
+  // `network > switch` compound for parent-less switches (switch-tier-layout). Namespace
+  // / application grouping is backend-owned now — no client-side synthesis pass.
   const elements = useMemo(
-    () => wrapSwitchFabric(applyNamespaceGrouping(applyPodParentMode(baseElements, podParentMode), podParentMode)),
+    () => wrapSwitchFabric(applyPodParentMode(baseElements, podParentMode)),
     [baseElements, podParentMode]
   );
 
@@ -245,19 +299,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // highlight. GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Right-click intent: which node the detail-URL queries were requested for, and when
-  // (Unix seconds, captured once at click so re-renders never refetch). Only an explicit
-  // right-click queries (D1); left-click / background tap / close clear it.
+  // Detail intent: which node the detail-URL queries were requested for, and when (Unix
+  // seconds, captured once at selection so re-renders never refetch). LEFT-click selection
+  // drives it now (the unified panel); background tap / close clear it.
   const [detailRequest, setDetailRequest] = useState<{ nodeId: string; time: number } | null>(null);
 
   const handleSelect = useCallback((id: string | null) => {
     setSelectedNodeId(id);
-    setDetailRequest(null);
-  }, []);
-
-  const handleContextSelect = useCallback((id: string) => {
-    setSelectedNodeId(id);
-    setDetailRequest({ nodeId: id, time: Math.floor(Date.now() / 1000) });
+    setDetailRequest(id !== null ? { nodeId: id, time: Math.floor(Date.now() / 1000) } : null);
   }, []);
 
   // Rewind to a ±5m window around the clicked alert (seconds → ms for AbsoluteTimeRange).
@@ -290,8 +339,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, selectedNodeId, visibleNodeIds, collapsedIds]
   );
 
-  // detailQueryInput is defined ONLY when the selection is a right-click on that same
-  // node resolving an application + query target. Endpoint: explicit option wins, else
+  // Pinned tooltip for the selected node — derived from the already-gated selectedNode,
+  // so it self-clears on deselect / switch / filter / collapse. Decorative groups
+  // resolve null (no pin); detail-eligible leaves (incl. storageclass) pin their attrs.
+  const pinnedTooltip = useMemo(() => buildPinnedTooltip(selectedNode), [selectedNode]);
+
+  // detailQueryInput is defined ONLY when the (left-click) selection resolves an
+  // application + query target for that same node. Endpoint: explicit option wins, else
   // the dashboard query's datasource proxy path; '' idles the hook (D7).
   const detailEndpointOption = options.detailEndpoint ?? defaultOptions.detailEndpoint;
   const detailEndpoint = useMemo(
@@ -318,22 +372,26 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
-  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, left OR
-  // right click) — the button appears in both views — not the right-click-only
-  // detailRequest. Params = selected node + children (compound merge); undefined idles the
-  // hook. The dashboard time range rides as from_time/to_time (Unix seconds) and is a memo
-  // dep, so a range change rebuilds params and the hook refetches.
+  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, set by
+  // left-click selection — the sole selection path now). Params = selected node + children
+  // (compound merge); undefined idles the hook. The dashboard time range rides as
+  // from_time/to_time (Unix seconds) and is a memo dep, so a range change rebuilds params
+  // and the hook refetches.
   const dashboardParams = useMemo(
     () => assembleDashboardParams(elements, selectedNodeId, data.timeRange),
     [elements, selectedNodeId, data.timeRange]
   );
   const dashboardLookup = useNodeDashboardUrl(dashboardParams, detailEndpoint);
 
-  // Export the LEFT-clicked, non-normal pod's name into the configured variable for a
-  // sibling panel (cleared on deselect / normal / non-pod / right-click). Left-click is
-  // the alerts-view selection (detailRequest === null); right-click drives the detail flow.
+  // Export the LEFT-clicked node's pod name(s) + cluster name into the two configured
+  // dashboard variables for a sibling panel (e.g. a log panel filter). A pod click writes
+  // its single name; a controller click writes all of its direct child pod names
+  // (multi-value). Cleared on deselect or any other node kind. Left-click is the sole
+  // selection path now (the unified panel), so the export is always active on selection.
+  // Each variable is gated independently inside the hook.
   const selectedPodVariable = options.selectedPodVariable ?? defaultOptions.selectedPodVariable;
-  useSelectedPodExport(selectedNode, detailRequest === null, selectedPodVariable, selectedPodVariable.trim() !== '');
+  const clusterVariable = options.clusterVariable ?? defaultOptions.clusterVariable;
+  useNodeClickExport(elements, selectedNodeId, selectedPodVariable, clusterVariable);
 
   // Cluster swatches from the backend cluster containers (single source: data.clusterColor
   // assigned in normalize) so legend colours match the on-canvas backplates. Deduped by name.
@@ -352,9 +410,9 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     return [...byName].map(([name, color]) => ({ name, color }));
   }, [elements]);
 
-  // Namespace swatches (CONTROLLER mode only) from synthesized namespace boxes
-  // (data.namespaceColor from applyNamespaceGrouping). Deduped by name; SINGLE SOURCE
-  // with namespaceContainerIds below (both filter isNamespace === true).
+  // Namespace swatches (CONTROLLER mode only) from the backend namespace group nodes
+  // (data.namespaceColor assigned in normalize). Deduped by name; SINGLE SOURCE with
+  // namespaceContainerIds below (both filter isNamespace === true).
   const namespaceEntries = useMemo<NamespaceLegendEntry[]>(() => {
     const byName = new Map<string, string>();
     for (const el of elements) {
@@ -379,6 +437,39 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
       }
       const d = el.data as cytoscape.NodeDataDefinition;
       if (d.isNamespace === true && typeof d.id === 'string') {
+        ids.push(d.id);
+      }
+    }
+    return ids;
+  }, [elements]);
+
+  // Application swatches (CONTROLLER mode only) from the backend application group nodes
+  // (data.applicationColor assigned in normalize). Sibling of namespaceEntries; SINGLE
+  // SOURCE with applicationContainerIds below (both filter isApplication === true).
+  const applicationEntries = useMemo<ApplicationLegendEntry[]>(() => {
+    const byName = new Map<string, string>();
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isApplication === true && typeof d.application === 'string' && typeof d.applicationColor === 'string') {
+        byName.set(d.application, d.applicationColor);
+      }
+    }
+    return [...byName].map(([name, color]) => ({ name, color }));
+  }, [elements]);
+
+  // Application box ids for the collapse-all group. Same isApplication filter as
+  // applicationEntries (single source) so toggle and swatch section can't diverge.
+  const applicationContainerIds = useMemo<string[]>(() => {
+    const ids: string[] = [];
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (d.isApplication === true && typeof d.id === 'string') {
         ids.push(d.id);
       }
     }
@@ -441,26 +532,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, theme, podParentMode]
   );
 
-  // StorageClass compound groups (cluster > storageclass > pvc). Mode-INDEPENDENT: a
-  // StorageClass boxes its PVCs in both modes, so it gets its own swatch + collapse group.
-  const { containerEntries: storageClassEntries, containerIds: storageClassIds } = useMemo(
-    () => deriveStorageClassContainers(elements, themeColors(theme).border.weak),
-    [elements, theme]
-  );
-
-  // Default-fold storage classes on first load. Mode-INDEPENDENT; ref-guarded to fire once
-  // per mount so a user-expanded storageclass survives a later data refresh.
-  const storageClassesFoldedRef = useRef(false);
-  useEffect(() => {
-    if (storageClassesFoldedRef.current || storageClassIds.length === 0) {
-      return;
-    }
-    storageClassesFoldedRef.current = true;
-    setCollapsedIds((prev) => new Set([...prev, ...storageClassIds]));
-  }, [storageClassIds]);
-
-  // Icon Node-kinds legend rows — collapse-/container-aware (collapsing a storageclass
-  // swaps pvc → storageclass; node⇄pod / controller⇄pod likewise), UNIONED with kinds
+  // Icon Node-kinds legend rows — collapse-/container-aware (node⇄pod / controller⇄pod;
+  // a storageclass is a D6 leaf and always shows its glyph), UNIONED with kinds
   // visibleKinds currently hides so their eye-slash rows stay restorable (D11).
   const nodeLegendEntries = useMemo(
     () => deriveLegendEntries(elements, collapsedIds, visibleKinds),
@@ -510,15 +583,16 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     collapsedIds,
     setCollapsedIds
   );
-  const { allCollapsed: allStorageClassesCollapsed, toggle: toggleStorageClasses } = useCollapseGroup(
-    storageClassIds,
-    collapsedIds,
-    setCollapsedIds
-  );
   // Namespace collapse-all (controller mode). Namespace boxes are NOT default-collapsed,
   // so allNamespacesCollapsed starts false.
   const { allCollapsed: allNamespacesCollapsed, toggle: toggleNamespaces } = useCollapseGroup(
     namespaceContainerIds,
+    collapsedIds,
+    setCollapsedIds
+  );
+  // Application collapse-all (controller mode). Like namespaces, NOT default-collapsed.
+  const { allCollapsed: allApplicationsCollapsed, toggle: toggleApplications } = useCollapseGroup(
+    applicationContainerIds,
     collapsedIds,
     setCollapsedIds
   );
@@ -562,9 +636,21 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
 
   return (
     <div className={styles.root}>
-      {options.showLegend && (
+      {options.showLegend && !legendCollapsed && (
         <aside className={styles.legendArea}>
-          <LayoutModeControl mode={podParentMode} onChange={setPodParentMode} />
+          <LayoutModeControl
+            mode={podParentMode}
+            onChange={setPodParentMode}
+            action={
+              <IconButton
+                name="angle-left"
+                aria-label="Collapse legend"
+                tooltip="Collapse legend"
+                data-testid="legend-collapse"
+                onClick={() => setLegendCollapsed(true)}
+              />
+            }
+          />
           <NodeLegend entries={nodeLegendEntries} onToggleKind={handleToggleKind} />
           <EdgeLegend edgeTypes={presentEdgeTypes} />
           <StatusLegend />
@@ -573,13 +659,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          {podParentMode === 'controller' && (
-            <NamespaceLegend
-              namespaces={namespaceEntries}
-              onToggleCollapseAll={toggleNamespaces}
-              allCollapsed={allNamespacesCollapsed}
-            />
-          )}
           <NodeContainerLegend
             nodes={containerEntries}
             onToggleCollapseAll={toggleNodes}
@@ -587,14 +666,33 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             title={containerTitle}
             collapseNoun={collapseNoun}
           />
-          <StorageClassLegend
-            storageClasses={storageClassEntries}
-            onToggleCollapseAll={toggleStorageClasses}
-            allCollapsed={allStorageClassesCollapsed}
-          />
+          {podParentMode === 'controller' && (
+            <NamespaceLegend
+              namespaces={namespaceEntries}
+              onToggleCollapseAll={toggleNamespaces}
+              allCollapsed={allNamespacesCollapsed}
+            />
+          )}
+          {podParentMode === 'controller' && (
+            <ApplicationLegend
+              applications={applicationEntries}
+              onToggleCollapseAll={toggleApplications}
+              allCollapsed={allApplicationsCollapsed}
+            />
+          )}
         </aside>
       )}
       <div className={styles.canvasArea}>
+        {options.showLegend && legendCollapsed && (
+          <IconButton
+            name="angle-right"
+            aria-label="Show legend"
+            tooltip="Show legend"
+            data-testid="legend-expand"
+            className={styles.legendExpandButton}
+            onClick={() => setLegendCollapsed(false)}
+          />
+        )}
         {normalizeError !== undefined && (
           <div className={styles.partialWarning}>
             <Alert severity="warning" title="Some graph entries were skipped">
@@ -613,11 +711,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           layout={options.layout}
           visibility={visibility}
           onSelect={handleSelect}
-          onContextSelect={handleContextSelect}
           selectedId={selectedNodeId}
           collapsedIds={collapsedIds}
           onCollapsedChange={setCollapsedIds}
           podParentMode={podParentMode}
+          pinned={pinnedTooltip}
         />
         <NodeDetailPanel
           node={selectedNode}
@@ -626,7 +724,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           timeZone={timeZone}
           lookups={detailLookups}
           dashboard={dashboardLookup}
-          view={detailRequest !== null ? 'detail' : 'alerts'}
         />
       </div>
     </div>

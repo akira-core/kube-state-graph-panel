@@ -14,9 +14,25 @@ describe('colorByEdgeType', () => {
     expect(EDGE_STYLE_BY_TYPE['service-selects-pod'].color.toLowerCase()).not.toBe(STATUS_COLOR.normal.toLowerCase());
   });
 
-  it('defines a style + endpoints for controller-owns-pod', () => {
-    expect(EDGE_STYLE_BY_TYPE['controller-owns-pod']).toBeDefined();
-    expect(EDGE_ENDPOINTS_BY_TYPE['controller-owns-pod']).toEqual({ from: 'controller', to: 'pod' });
+  it('defines a style + endpoints for pod-to-node (blue pod→node)', () => {
+    expect(EDGE_STYLE_BY_TYPE['pod-to-node'].color).toBe('#3b82f6');
+    expect(EDGE_ENDPOINTS_BY_TYPE['pod-to-node']).toEqual({ from: 'pod', to: 'node' });
+  });
+
+  it('defines a style + endpoints for pvc-to-storageclass (violet pvc→storageclass)', () => {
+    expect(EDGE_STYLE_BY_TYPE['pvc-to-storageclass'].color).toBe('#8b5cf6');
+    expect(EDGE_ENDPOINTS_BY_TYPE['pvc-to-storageclass']).toEqual({ from: 'pvc', to: 'storageclass' });
+  });
+
+  it('keeps the two storage edges distinguishable (pvc-to-storageclass ≠ pod-mounts-pvc)', () => {
+    expect(EDGE_STYLE_BY_TYPE['pvc-to-storageclass'].color.toLowerCase()).not.toBe(
+      EDGE_STYLE_BY_TYPE['pod-mounts-pvc'].color.toLowerCase()
+    );
+  });
+
+  it('no longer carries the retired panel-synthetic edge types', () => {
+    expect('pod-runs-on-node' in EDGE_STYLE_BY_TYPE).toBe(false);
+    expect('controller-owns-pod' in EDGE_STYLE_BY_TYPE).toBe(false);
   });
 
   it('renders node-to-switch identically to switch-to-switch (shared infra colour + taxi routing)', () => {
@@ -34,8 +50,9 @@ describe('colorByEdgeType', () => {
     }
   });
 
-  it('includes controller-owns-pod and the switch fabric edges as known wire types', () => {
-    expect('controller-owns-pod' in EDGE_STYLE_BY_TYPE).toBe(true);
+  it('includes the backend edges + switch fabric edges as known wire types', () => {
+    expect('pod-to-node' in EDGE_STYLE_BY_TYPE).toBe(true);
+    expect('pvc-to-storageclass' in EDGE_STYLE_BY_TYPE).toBe(true);
     expect('switch-to-switch' in EDGE_STYLE_BY_TYPE).toBe(true);
     expect('node-to-switch' in EDGE_STYLE_BY_TYPE).toBe(true);
   });

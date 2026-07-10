@@ -15,10 +15,17 @@ declare module 'cytoscape' {
     // (normalize.ts). Drives the detail panel's Application section and both
     // detail-URL queries. Omitted when absent/empty.
     application?: string;
-    // Container name/image specs carried on pod nodes (upstream `containers`); a
-    // synthesized controller carries the (name, image)-deduped union across its
-    // owned pods. Omitted when absent or nothing valid survives validation.
+    // Container name/image specs carried on pod nodes (upstream `containers`); an
+    // enriched backend controller carries the (name, image)-deduped union across its
+    // child pods. Omitted when absent or nothing valid survives validation.
     containers?: ContainerSpec[];
+    // StorageClass leaf structural fields (backend D6: cluster > storageclass leaf,
+    // both omitempty). `provisioner` is the CSI driver; `parameters` is the
+    // provisioner-dependent key/value map (validated via isStringRecord). Surfaced in
+    // the detail panel's Storage Class section; NOT query params (assembleDashboardParams
+    // DENYLIST). Omitted when the backend sends a bare storageclass.
+    provisioner?: string;
+    parameters?: Record<string, string>;
     // A pod's controller owner (typed upstream `data.owner` passthrough). The
     // detail-URL queries resolve a pod's controller kind/name from it; a pod
     // without one queries as itself (standalone pod).
@@ -34,33 +41,29 @@ declare module 'cytoscape' {
     isCluster?: boolean; // true only on a backend-provided cluster container node
     cluster?: string; // cluster name carried on the container node
     clusterColor?: string; // accent colour assigned in normalize so the stylesheet stays pure
-    // true only on a panel-synthesized controller node (see normalize.ts);
-    // distinguishes a controller container from a K8s `node` container in
-    // controller mode (deriveContainers).
+    // true on a backend-provided `controller` group node, enriched in normalize (kind
+    // derived from a child pod's owner.kind). Distinguishes a controller container from
+    // a K8s `node` container in controller mode (deriveContainers).
     isController?: boolean;
     // Worst STATUS a COLLAPSED container would HIDE, surfaced as its border tint in
-    // getStylesheet. On a synthesized controller = worst child-pod status; on a k8s
-    // `node` container = worst of its OWN status and its child pods' statuses
-    // (worst-wins). Aggregated in normalize. Omitted when that worst is `normal` (so the
-    // folded box keeps its neutral / own-status border).
+    // getStylesheet. On an enriched controller = worst child-pod status; on a k8s
+    // `node` container = worst of its OWN status and its pods' statuses (controller view:
+    // pods reachable via `pod-to-node`; node view: nested child pods) — worst-wins.
+    // Aggregated in normalize. Omitted when there is no status info (so the folded box
+    // keeps its neutral border — "no info" is not "normal").
     worstStatus?: NodeStatus;
-    // true only on a backend-synthesized StorageClass compound group node
-    // (data.type === 'storageclass'; cluster > storageclass > pvc nesting). UNLIKE
-    // isCluster, it ALSO carries a real `kind: 'storageclass'` — it renders exactly
-    // like the K8s `node` container (icon-less while an expanded :parent, shows its
-    // kind glyph when collapsed/leaf) and is filterable via visibleKinds. The flag
-    // itself only drives three non-style behaviours: its own "Storage classes" swatch
-    // legend section, exclusion from the detail panel, and synthesized hover context.
-    // It nests under its cluster, tints from that cluster's accent, and stays
-    // interactive / collapsible.
-    isStorageClass?: boolean;
-    // Panel-synthesized namespace compound — CONTROLLER MODE ONLY (applyNamespaceGrouping).
-    // Groups namespaced resources under their cluster: cluster > namespace >
-    // {controller > pod, service, storageclass > pvc}. Decorative (selectable:false),
-    // carries NO status / alerts / worstStatus; coloured by a stable hash of the
-    // namespace name. node mode draws no namespace, so neither flag appears there.
-    isNamespace?: boolean; // true only on a synthesized namespace box
-    namespaceColor?: string; // accent assigned in applyNamespaceGrouping so the stylesheet stays pure
+    // Backend D6 `namespace` group node — accent-only decorative compound (no kind),
+    // recognized in normalize. Decorative (selectable:false), carries NO status / alerts
+    // / worstStatus; coloured by a stable hash of the namespace name. node mode strips
+    // namespace groups, so neither flag appears there.
+    isNamespace?: boolean; // true only on a backend namespace group node
+    namespaceColor?: string; // accent assigned in normalize so the stylesheet stays pure
+    // Backend D6 `application` group node (ArgoCD app) — accent-only decorative compound
+    // (no kind), recognized in normalize. Sibling of isNamespace: selectable:false, no
+    // status/alerts; coloured by a stable hash (applicationPalette). node mode strips
+    // application groups too.
+    isApplication?: boolean; // true only on a backend application group node
+    applicationColor?: string; // accent assigned in normalize so the stylesheet stays pure
   }
 
   interface EdgeDataDefinition {
