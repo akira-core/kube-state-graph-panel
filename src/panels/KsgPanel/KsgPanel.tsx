@@ -659,13 +659,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          <NodeContainerLegend
-            nodes={containerEntries}
-            onToggleCollapseAll={toggleNodes}
-            allCollapsed={allNodesCollapsed}
-            title={containerTitle}
-            collapseNoun={collapseNoun}
-          />
           {podParentMode === 'controller' && (
             <NamespaceLegend
               namespaces={namespaceEntries}
@@ -680,6 +673,13 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               allCollapsed={allApplicationsCollapsed}
             />
           )}
+          <NodeContainerLegend
+            nodes={containerEntries}
+            onToggleCollapseAll={toggleNodes}
+            allCollapsed={allNodesCollapsed}
+            title={containerTitle}
+            collapseNoun={collapseNoun}
+          />
         </aside>
       )}
       <div className={styles.canvasArea}>
