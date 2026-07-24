@@ -29,9 +29,10 @@ Ingress 節點目前無現成標記:`kind` 一律為 `service`/`pod` 等,但後�
 3. **Legend UI 為獨立 `IngressToggle` 元件,不塞進 `NodeLegend`**。NodeLegend row 嚴格以 kind 為 key(icon 來自 `ICON_SVG_BY_KIND`、分組走 `categoryForKind`、切換受 `isFilterableKind` 保護並寫入 `visibleKinds` 陣列)— 合成 label-based row 會破壞全部三個契約。Legend 區為 sibling section 疊放(`& > div + div` 自動分隔線),`LayoutModeControl` 為現成先例;新 section 放在 `<NodeLegend />` 之後(同屬節點可見性控制)。
 4. **持久化為 panel option `showIngress`**,比照 `visibleKinds`(dashboard-authoring 決策,非 transient view state 如 `podParentMode`):`?? defaultOptions` 向後相容讀取 + editor `addBooleanSwitch`。
 5. **Label 常數置於 `src/shared/constants/ingressGateway.ts`**(`INGRESS_LABEL_KEY = 'role'`、`INGRESS_LABEL_VALUE = 'ingress-gateway'`),經 constants barrel 匯出,predicate 與測試共用(single-source-map 慣例)。
+6. **Demo surface 只用 showcase inline fixture**(`ksg-switch-demo.json`),不動 backend seeder。後端對 generic pod/service labels 無 contract(`dev/victoriametrics/topology.prom` 檔頭 10–14 行載明 `kube_pod_labels` 的 app/version/role 是硬限制),seeder 端無法讓 `role=ingress-gateway` 流進 `ksg-demo`;而 inline fixture 的 labels 是手寫 JSON,已有 `role:"edge"`/`role:"primary"` 前例。若也在 seeder 加同構拓撲,`ksg-demo` 會多一條「關不掉」的 ingress 路徑,反而誤導。雙路徑掛在既有節點上:直連 `pod/gateway → service/mongo-svc`(`e-svc-0`)本已存在,只新增 ingress 分支(`prod/app/ingress` app + controller + `service/ingress-svc` 帶 label + `pod/ingress-0` 不帶 label——後者驗證 select-expansion 而非 label 命中)。
 
 ## Risks / Trade-offs
 
 - [被 select 的 pod 同時服務其他 service 時會一併被隱藏] → 接受:ingress gateway pod 依定義專屬 ingress;若未來出現共用情境再改為只隱藏「僅剩 ingress edge」的 pod。
-- [demo seeder 無帶 `role=ingress-gateway` 的節點,無法在 demo 端到端目測隱藏效果] → 隱藏語意以 `computeVisibility` 單元測試完整覆蓋;demo 僅驗證 toggle UI 與 option 持久化。
+- [backend seeder(`ksg-demo`)無法帶 `role=ingress-gateway` label——後端無 generic labels contract] → 隱藏語意以 `computeVisibility` 單元測試完整覆蓋;端到端目測改由 showcase inline fixture(`ksg-switch-demo`)的 ingress 雙路徑承擔(決策 6),`ksg-demo` 僅驗證 toggle UI 與 option 持久化。
 - [label key/value 寫死] → 是刻意的最小修改;若後端命名改變,單一常數檔一處修改。

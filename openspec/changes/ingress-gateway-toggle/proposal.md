@@ -13,6 +13,7 @@ Pod 經由 ingress gateway 呼叫 service 時,圖上會同時出現兩條路徑:
   2. 這些 ingress **service** 沿 `service-selects-pod` edge 所 select 的 pods(即使 pod 自身無該 label)。
 - 相連 edge 的自動隱藏與空 compound 的清除交由既有 edge pass + orphan 級聯處理,不新增級聯邏輯。
 - 新增共用常數 `INGRESS_LABEL_KEY` / `INGRESS_LABEL_VALUE`(single-source-map 慣例)。
+- **Showcase inline fixture 加入 ingress 雙路徑**(`provisioning/dashboards/ksg-switch-demo.json`):`pod/gateway → service/ingress-svc(帶 label)→ pod/ingress-0 → service/mongo-svc → mongo pods` 與既有直連 `pod/gateway → service/mongo-svc` 並存,讓 toggle 關閉時可目測「只剩直連路徑」。
 
 無 **BREAKING** 變更:預設值 `true` 下行為與現狀完全一致;既有 `computeVisibility` 呼叫端不需修改。
 
@@ -33,4 +34,5 @@ Pod 經由 ingress gateway 呼叫 service 時,圖上會同時出現兩條路徑:
 - `src/panels/KsgPanel/KsgPanel.types.ts` / `KsgPanel.editor.tsx` / `KsgPanel.tsx`(+tests)— 新 option、editor switch、接線。
 - `src/shared/constants/ingressGateway.ts`(新常數檔)+ constants barrel。
 - 資料層零修改:`normalize.ts` 已保留 `labels`,`cytoscape.d.ts` 已宣告 `labels?: Record<string, string>`。
-- 後端 / demo fixture 不需改動(demo seeder 目前無帶此 label 的節點,隱藏行為以單元測試驗證)。
+- `provisioning/dashboards/ksg-switch-demo.json` — inline fixture 新增 ingress 雙路徑(4 節點 + 3 edges),供 toggle 目視驗收。
+- 後端與 backend seeder(`dev/victoriametrics/`)不改:`topology.prom` 檔頭載明後端無 generic pod/service labels contract(硬限制),seeder 加 `kube_*_labels` 也不會讓 `role` 進到 `ksg-demo` 的 `data.labels` — ingress 隱藏效果僅能在 inline showcase 目測。

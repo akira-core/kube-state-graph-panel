@@ -53,3 +53,17 @@ Panel SHALL 提供持久化 option `showIngress: boolean`(預設 `true`),於 opt
 
 - **WHEN** `showIngress` 為 `false`
 - **THEN** toggle 顯示 eye-slash 圖示(hidden 語彙),`true` 時顯示 eye
+
+### Requirement: Showcase demo 雙路徑 fixture
+
+Showcase inline fixture(`provisioning/dashboards/ksg-switch-demo.json` 的 `panels[0].targets[0].data`)SHALL 同時包含經 ingress 與直連兩條路徑:`pod/gateway →(pod-calls-service) service/ingress-svc →(service-selects-pod) pod/ingress-0 →(pod-calls-service) service/mongo-svc` 與既有直連 `pod/gateway →(pod-calls-service) service/mongo-svc →(service-selects-pod) mongo pods`。`service/ingress-svc` MUST 帶 `labels.role = "ingress-gateway"`;`pod/ingress-0` MUST NOT 帶該 label(驗證 select-expansion 而非 label 命中)。backend seeder(`dev/victoriametrics/`)MUST NOT 加入此拓撲——後端無 generic labels contract,該路徑在 `ksg-demo` 將無法被 toggle 隱藏。
+
+#### Scenario: 關閉 toggle 後 demo 只剩直連路徑
+
+- **WHEN** 在 `/d/ksg-switch-demo` 將 Ingress gateway toggle 關閉
+- **THEN** `service/ingress-svc`、`pod/ingress-0`、其三條相連 edge,以及清空的 `prod/app/ingress` application 與 `prod/ctrl/Deployment/ingress` controller 容器皆自畫面消失;直連路徑 `pod/gateway → service/mongo-svc → mongo pods` 完整保留
+
+#### Scenario: 開啟 toggle 時雙路徑並存
+
+- **WHEN** `showIngress` 為 `true`(預設)
+- **THEN** 兩條路徑皆可見,與加入本 fixture 前的其餘節點/edge 完全相同(既有 6 node kinds / 4 edge types 覆蓋不受影響)

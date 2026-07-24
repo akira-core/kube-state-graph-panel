@@ -28,3 +28,13 @@
 
 - [x] 5.1 `npm run typecheck && npm run lint && npm run test:ci` 全綠
 - [x] 5.2 手動:`npm run dev` + docker compose 起 demo,確認 legend toggle UI 與 option 持久化(demo fixture 無 ingress label 節點,隱藏行為以單元測試為準)
+
+## 6. demo fixture 擴充(showcase inline)
+
+- [x] 6.1 `provisioning/dashboards/ksg-switch-demo.json` inline `data`:新增 `prod/app/ingress`(application)、`prod/ctrl/Deployment/ingress`(controller)、`service/ingress-svc`(帶 `labels.role="ingress-gateway"`)、`pod/ingress-0`(不帶 role label)四節點,與 `e-ing-0`(gateway→ingress-svc)、`e-sel-6`(ingress-svc→ingress-0)、`e-ing-1`(ingress-0→mongo-svc)三 edges;既有節點/edge 與 escaped-JSON 格式不動
+- [x] 6.2 backend seeder 不改(設計決策 6:後端無 generic labels contract),於 design/proposal 記錄此限制
+
+## 7. demo 目視驗收
+
+- [x] 7.1 `/d/ksg-switch-demo`:toggle 關閉 → ingress-svc、ingress-0、三條 edge 與清空的 ingress app/controller 容器消失,直連 `gateway → mongo-svc → mongo pods` 保留
+- [x] 7.2 toggle 重新開啟 → 雙路徑還原;`npm run test:ci` 維持全綠
