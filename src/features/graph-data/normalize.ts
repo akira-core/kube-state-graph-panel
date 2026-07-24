@@ -6,6 +6,7 @@ import { CLUSTER_COLOR } from '../../shared/constants/clusterPalette';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
 import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
+import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { isPlainObject } from '../../shared/guards/isPlainObject';
 import type { ContainerSpec } from '../../shared/types/containerSpec';
 
@@ -464,6 +465,32 @@ function enrichControllers(nodeElements: cytoscape.ElementDefinition[]): cytosca
   });
 }
 
+// Flag every edge along the ingress-gateway path so the stylesheet can dash it
+// (`edge[?ingressPath]`). An edge is on the path when either endpoint is an ingress
+// node — the same set the showIngress toggle hides — which covers all three hops:
+// pod → ingress-svc (target ∈ set), ingress-svc → ingress-pod (both ∈ set), and
+// ingress-pod → backend-svc (source ∈ set). No new edge type needed: these reuse
+// the shared `pod-calls-service` / `service-selects-pod` types, so the distinction
+// is per-edge (endpoint membership), not per-type. Immutable: only edges touching
+// the set are cloned with `ingressPath: true`; every other element passes through.
+function markIngressEdges(elements: cytoscape.ElementDefinition[]): cytoscape.ElementDefinition[] {
+  const ingressIds = collectIngressNodeIds(elements);
+  if (ingressIds.size === 0) {
+    return elements;
+  }
+  return elements.map((el) => {
+    if (el.group !== 'edges') {
+      return el;
+    }
+    const data = el.data as cytoscape.EdgeDataDefinition;
+    const { source, target } = data;
+    if ((typeof source === 'string' && ingressIds.has(source)) || (typeof target === 'string' && ingressIds.has(target))) {
+      return { ...el, data: { ...data, ingressPath: true } };
+    }
+    return el;
+  });
+}
+
 export function normalizeGraph(raw: unknown): NormalizeResult {
   if (!isPlainObject(raw)) {
     return { elements: [], errors: ['payload is not an object'] };
@@ -490,8 +517,11 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   const edges = parseEdges(rawEdges, nodes.nodeIds);
   const enrichedNodes = enrichControllers(nodes.elements);
 
+  // Post-pass: dash-flag the ingress-gateway path edges (see markIngressEdges).
+  const elements = markIngressEdges([...enrichedNodes, ...edges.elements]);
+
   return {
-    elements: [...enrichedNodes, ...edges.elements],
+    elements,
     errors: [...errors, ...nodes.errors, ...edges.errors],
   };
 }

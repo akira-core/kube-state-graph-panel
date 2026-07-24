@@ -69,6 +69,9 @@ declare module 'cytoscape' {
   interface EdgeDataDefinition {
     edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)
     labels?: Record<string, string>;
+    // true on edges along the ingress-gateway path (either endpoint is an ingress node),
+    // set by normalize's markIngressEdges → dashed via the `edge[?ingressPath]` stylesheet rule.
+    ingressPath?: boolean;
   }
 
   // `events` is a real cytoscape node style key (toggles event capture) missing

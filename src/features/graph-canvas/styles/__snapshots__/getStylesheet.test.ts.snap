@@ -246,6 +246,12 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "edge[?ingressPath]",
+    "style": {
+      "line-style": "dashed",
+    },
+  },
+  {
     "selector": "edge.ksg-faded",
     "style": {
       "opacity": 0.12,

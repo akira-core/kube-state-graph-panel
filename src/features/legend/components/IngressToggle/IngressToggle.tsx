@@ -4,11 +4,14 @@ import React from 'react';
 
 import type { IngressToggleProps } from './IngressToggle.types';
 
-function getStyles(): { row: string; label: string; dimmed: string; toggle: string } {
+function getStyles(): { row: string; heading: string; dimmed: string; toggle: string } {
   return {
     row: css({ display: 'flex', alignItems: 'center', minHeight: 24 }),
-    label: css({ fontSize: 11, fontWeight: 500, opacity: 0.85 }),
-    // Mirrors NodeLegend's hidden-row treatment: the label fades while the eye
+    // An <h4> so the "Ingress gateway" title matches the "Node Kinds" / "Edge Types"
+    // section headings (same theme h4 size/weight); margin reset so its default block
+    // spacing doesn't break the flex-row alignment with the eye button.
+    heading: css({ margin: 0 }),
+    // Mirrors NodeLegend's hidden-row treatment: the title fades while the eye
     // button stays full-strength as the restore affordance.
     dimmed: css({ opacity: 0.4 }),
     toggle: css({ marginLeft: 'auto' }),
@@ -22,7 +25,7 @@ export function IngressToggle({ visible, onToggle }: Readonly<IngressToggleProps
   const styles = useStyles2(getStyles);
   return (
     <div className={styles.row} data-testid="ingress-toggle">
-      <span className={cx(styles.label, !visible && styles.dimmed)}>Ingress gateway</span>
+      <h4 className={cx(styles.heading, !visible && styles.dimmed)}>Ingress gateway</h4>
       <IconButton
         className={styles.toggle}
         name={visible ? 'eye' : 'eye-slash'}

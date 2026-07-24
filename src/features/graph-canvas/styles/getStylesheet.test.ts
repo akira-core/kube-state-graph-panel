@@ -104,6 +104,14 @@ describe('getStylesheet', () => {
     expect(colorFn(fakeEle({ edgeType: 'nope' }))).toBe(FALLBACK_EDGE_STYLE.color);
   });
 
+  it('dashes ingress-path edges via a data-flag selector (overrides the base line-style)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{ selector: string }>;
+    const selectors = sheet.map((s) => s.selector);
+    // Declared after the base `edge` rule so its static dashed line-style wins.
+    expect(selectors.indexOf('edge[?ingressPath]')).toBeGreaterThan(selectors.indexOf('edge'));
+    expect(styleFor('edge[?ingressPath]')['line-style']).toBe('dashed');
+  });
+
   it('enlarges base leaf node to 40x40', () => {
     const nodeStyle = styleFor('node');
     expect(nodeStyle.width).toBe(40);

@@ -1086,4 +1086,67 @@ describe('normalizeGraph — controller enrichment', () => {
     expect(a).toBe(b);
     expect(JSON.stringify(raw)).toBe(snapshot);
   });
+
+  describe('ingress path dashing (markIngressEdges)', () => {
+    // Double-path fixture: p reaches bsvc both THROUGH the ingress gateway
+    // (p → igwSvc → igwPod → bsvc) and DIRECTLY (p → bsvc). Mirrors the demo.
+    const doublePathRaw = {
+      elements: {
+        nodes: [
+          { data: { id: 'p', type: 'pod' } },
+          { data: { id: 'igwSvc', type: 'service', labels: { role: 'ingress-gateway' } } },
+          { data: { id: 'igwPod', type: 'pod' } },
+          { data: { id: 'bsvc', type: 'service' } },
+          { data: { id: 'bpod', type: 'pod' } },
+        ],
+        edges: [
+          { data: { id: 'e1', source: 'p', target: 'igwSvc', type: 'pod-calls-service' } },
+          { data: { id: 'e2', source: 'igwSvc', target: 'igwPod', type: 'service-selects-pod' } },
+          { data: { id: 'e3', source: 'igwPod', target: 'bsvc', type: 'pod-calls-service' } },
+          { data: { id: 'e4', source: 'bsvc', target: 'bpod', type: 'service-selects-pod' } },
+          { data: { id: 'e5', source: 'p', target: 'bsvc', type: 'pod-calls-service' } },
+        ],
+      },
+    };
+
+    const ingressFlagById = (raw: unknown): Map<string, boolean> =>
+      new Map(
+        normalizeGraph(raw)
+          .elements.filter((e) => e.group === 'edges')
+          .map((e) => [String(e.data.id), (e.data as cytoscape.EdgeDataDefinition).ingressPath === true])
+      );
+
+    it('dashes only the three ingress-path edges (either endpoint is an ingress node)', () => {
+      const flags = ingressFlagById(doublePathRaw);
+      // pod → ingress-svc, ingress-svc → ingress-pod, ingress-pod → backend-svc.
+      expect(flags.get('e1')).toBe(true);
+      expect(flags.get('e2')).toBe(true);
+      expect(flags.get('e3')).toBe(true);
+      // The direct path + the backend fan-out stay solid (no ingress endpoint).
+      expect(flags.get('e4')).toBe(false);
+      expect(flags.get('e5')).toBe(false);
+    });
+
+    it('sets ingressPath ONLY on qualifying edges (absent, not false, elsewhere)', () => {
+      const edges = normalizeGraph(doublePathRaw).elements.filter((e) => e.group === 'edges');
+      const byId = new Map(edges.map((e) => [String(e.data.id), e.data as cytoscape.EdgeDataDefinition]));
+      expect(byId.get('e1')?.ingressPath).toBe(true);
+      // Non-ingress edges carry no ingressPath key at all.
+      expect('ingressPath' in (byId.get('e5') ?? {})).toBe(false);
+    });
+
+    it('marks nothing when no node carries the ingress label', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'svc', type: 'service' } },
+            { data: { id: 'pod', type: 'pod' } },
+          ],
+          edges: [{ data: { id: 'e', source: 'svc', target: 'pod', type: 'service-selects-pod' } }],
+        },
+      };
+      const edges = normalizeGraph(raw).elements.filter((e) => e.group === 'edges');
+      expect(edges.every((e) => (e.data as cytoscape.EdgeDataDefinition).ingressPath === undefined)).toBe(true);
+    });
+  });
 });

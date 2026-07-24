@@ -2,8 +2,8 @@ import type cytoscape from 'cytoscape';
 
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { ICON_SVG_BY_KIND } from '../../shared/constants/iconSvgByKind';
-import { INGRESS_LABEL_KEY, INGRESS_LABEL_VALUE } from '../../shared/constants/ingressGateway';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
+import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 
 export interface VisibilitySets {
   visibleNodeIds: Set<string>;
@@ -36,54 +36,6 @@ function nodeIsVisible(kind: unknown, visibleKinds: Set<NodeKind>): boolean {
   return !isFilterableKind(kind) || visibleKinds.has(kind);
 }
 
-// The ingress-gateway node set for the showIngress toggle: (a) every node whose
-// labels carry the backend-guaranteed ingress marker (any kind), plus (b) the
-// target pods those marked nodes select via `service-selects-pod` (source ∈ set)
-// — one derivation level only, NO transitive closure: hiding the ingress service
-// alone would strand its selected pods with a still-visible `ingressPod →
-// backendSvc` edge that the orphan cascade can't remove. Pods selected by an
-// UNMARKED service are untouched.
-function collectIngressHiddenIds(elements: cytoscape.ElementDefinition[]): Set<string> {
-  const hidden = new Set<string>();
-  for (const el of elements) {
-    if (el.group !== 'nodes') {
-      continue;
-    }
-    const data = el.data as Record<string, unknown>;
-    const id = data.id;
-    const labels = data.labels;
-    if (
-      typeof id === 'string' &&
-      typeof labels === 'object' &&
-      labels !== null &&
-      (labels as Record<string, unknown>)[INGRESS_LABEL_KEY] === INGRESS_LABEL_VALUE
-    ) {
-      hidden.add(id);
-    }
-  }
-  if (hidden.size === 0) {
-    return hidden;
-  }
-  // Expand from a snapshot of the labeled set — a target added here must never
-  // itself seed further expansion (single level, not a closure).
-  const labeled = new Set(hidden);
-  for (const el of elements) {
-    if (el.group !== 'edges') {
-      continue;
-    }
-    const data = el.data as Record<string, unknown>;
-    if (data.edgeType !== 'service-selects-pod') {
-      continue;
-    }
-    const source = data.source;
-    const target = data.target;
-    if (typeof source === 'string' && typeof target === 'string' && labeled.has(source)) {
-      hidden.add(target);
-    }
-  }
-  return hidden;
-}
-
 export function computeVisibility(
   elements: cytoscape.ElementDefinition[],
   visibleKinds: NodeKind[],
@@ -94,7 +46,9 @@ export function computeVisibility(
   const edgeTypeSet = new Set<EdgeType>(visibleEdgeTypes);
   const visibleNodeIds = new Set<string>();
   const visibleEdgeIds = new Set<string>();
-  const ingressHiddenIds = showIngress ? new Set<string>() : collectIngressHiddenIds(elements);
+  // When the toggle is off, hide the whole ingress-gateway path (labeled nodes +
+  // the pods their services select); edge hiding + the orphan cascade handle the rest.
+  const ingressHiddenIds = showIngress ? new Set<string>() : collectIngressNodeIds(elements);
 
   for (const el of elements) {
     if (el.group !== 'nodes') {
