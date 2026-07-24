@@ -8,6 +8,10 @@ export interface KsgPanelOptions {
   showLegend: boolean;
   visibleKinds: NodeKind[];
   visibleEdgeTypes: EdgeType[];
+  // Show/hide the ingress-gateway path: nodes labeled role=ingress-gateway plus
+  // the pods their services select (see element-filter's ingress predicate).
+  // Persisted like visibleKinds — a dashboard-authoring decision.
+  showIngress: boolean;
   // Override for the base the node-detail URL lookups append their fixed
   // segments (/config_changes + /code_changes) to. Empty (default) DERIVES the
   // base from the dashboard query so the detail endpoints resolve as SIBLINGS of
@@ -72,6 +76,7 @@ export const defaultOptions: KsgPanelOptions = {
   showLegend: true,
   visibleKinds: ALL_KINDS,
   visibleEdgeTypes: ALL_EDGE_TYPES,
+  showIngress: true,
   detailEndpoint: '',
   alertPodListVariable: '',
   alertNameListVariable: '',

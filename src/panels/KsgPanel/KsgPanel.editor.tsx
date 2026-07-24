@@ -64,6 +64,14 @@ export function buildKsgPanelOptions(
       defaultValue: defaultOptions.visibleEdgeTypes,
       editor: EdgeTypesEditor,
     })
+    .addBooleanSwitch({
+      path: 'showIngress',
+      name: 'Show ingress gateway',
+      description:
+        'Show nodes labeled role=ingress-gateway and the pods their services select. ' +
+        'Turn off to hide the whole ingress path and keep only direct service connections.',
+      defaultValue: defaultOptions.showIngress,
+    })
     .addTextInput({
       path: 'detailEndpoint',
       name: 'Detail URL endpoint',

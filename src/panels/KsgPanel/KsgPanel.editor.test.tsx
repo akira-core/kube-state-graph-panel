@@ -79,6 +79,13 @@ describe('buildKsgPanelOptions', () => {
     expect(settings.options.map((o) => o.value)).toEqual(['fcose', 'dagre']);
   });
 
+  it('showIngress registers as a boolean switch defaulting to visible', () => {
+    const items = buildItems();
+    const item = itemByPath(items, 'showIngress');
+    expect(item?.method).toBe('addBooleanSwitch');
+    expect(item?.config.defaultValue).toBe(true);
+  });
+
   it('the two multi-select options are custom editors with id === path and a function editor', () => {
     const items = buildItems();
     for (const path of ['visibleKinds', 'visibleEdgeTypes']) {

@@ -177,4 +177,94 @@ describe('computeVisibility', () => {
       expect(visibleNodeIds.has('p2')).toBe(false);
     });
   });
+
+  describe('ingress gateway toggle', () => {
+    const INGRESS_LABELS = { labels: { role: 'ingress-gateway' } };
+    const ALL_KINDS = ['pod', 'service', 'node'] as const;
+    const ALL_EDGES = ['pod-calls-service', 'service-selects-pod'] as const;
+
+    // The double-path fixture from the spec: p reaches bsvc both THROUGH the
+    // ingress gateway (p → igwSvc → igwPod → bsvc → bpod) and DIRECTLY (p → bsvc).
+    const doublePath = () => [
+      node('p', 'pod'),
+      node('igwSvc', 'service', INGRESS_LABELS),
+      node('igwPod', 'pod'),
+      node('bsvc', 'service'),
+      node('bpod', 'pod'),
+      edge('e1', 'p', 'igwSvc', 'pod-calls-service'),
+      edge('e2', 'igwSvc', 'igwPod', 'service-selects-pod'),
+      edge('e3', 'igwPod', 'bsvc', 'pod-calls-service'),
+      edge('e4', 'bsvc', 'bpod', 'service-selects-pod'),
+      edge('e5', 'p', 'bsvc', 'pod-calls-service'),
+    ];
+
+    it('showIngress=false erases the ingress path entirely and keeps the direct path intact', () => {
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(doublePath(), [...ALL_KINDS], [...ALL_EDGES], false);
+      expect([...visibleNodeIds].sort()).toEqual(['bpod', 'bsvc', 'p']);
+      expect([...visibleEdgeIds].sort()).toEqual(['e4', 'e5']);
+    });
+
+    it('omitting the parameter changes nothing (back-compat default true)', () => {
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(doublePath(), [...ALL_KINDS], [...ALL_EDGES]);
+      expect(visibleNodeIds.size).toBe(5);
+      expect(visibleEdgeIds.size).toBe(5);
+    });
+
+    it('hides a labeled non-service node on its own (no service-selects-pod out-edge)', () => {
+      const elements = [
+        node('igw', 'pod', INGRESS_LABELS),
+        node('a', 'pod'),
+        node('b', 'pod'),
+        edge('e1', 'igw', 'a', 'pod-calls-pod'),
+        edge('e2', 'a', 'b', 'pod-calls-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod'], false);
+      expect([...visibleNodeIds].sort()).toEqual(['a', 'b']);
+    });
+
+    it('hides the unlabeled pod a labeled service selects', () => {
+      const elements = [
+        node('igwSvc', 'service', INGRESS_LABELS),
+        node('igwPod', 'pod'),
+        node('a', 'pod'),
+        node('b', 'pod'),
+        edge('e1', 'igwSvc', 'igwPod', 'service-selects-pod'),
+        edge('e2', 'igwPod', 'a', 'pod-calls-pod'),
+        edge('e3', 'a', 'b', 'pod-calls-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, [...ALL_KINDS], [...ALL_EDGES, 'pod-calls-pod'], false);
+      expect(visibleNodeIds.has('igwPod')).toBe(false);
+      expect(visibleNodeIds.has('a')).toBe(true);
+      expect(visibleNodeIds.has('b')).toBe(true);
+    });
+
+    it('leaves pods selected by an unlabeled service untouched', () => {
+      const elements = [
+        node('otherSvc', 'service'),
+        node('somePod', 'pod'),
+        edge('e1', 'otherSvc', 'somePod', 'service-selects-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, [...ALL_KINDS], [...ALL_EDGES], false);
+      expect(visibleNodeIds.has('otherSvc')).toBe(true);
+      expect(visibleNodeIds.has('somePod')).toBe(true);
+    });
+
+    it('cascades an emptied cluster > node compound away with its ingress pod', () => {
+      const elements = [
+        cluster('cl'),
+        node('n', 'node', { parent: 'cl' }),
+        node('igwPod', 'pod', { parent: 'n', ...INGRESS_LABELS }),
+        node('a', 'pod'),
+        node('b', 'pod'),
+        edge('e1', 'igwPod', 'a', 'pod-calls-pod'),
+        edge('e2', 'a', 'b', 'pod-calls-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, ['pod', 'node'], ['pod-calls-pod'], false);
+      expect(visibleNodeIds.has('igwPod')).toBe(false);
+      expect(visibleNodeIds.has('n')).toBe(false);
+      expect(visibleNodeIds.has('cl')).toBe(false);
+      expect(visibleNodeIds.has('a')).toBe(true);
+      expect(visibleNodeIds.has('b')).toBe(true);
+    });
+  });
 });

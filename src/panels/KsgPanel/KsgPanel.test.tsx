@@ -835,6 +835,25 @@ describe('KsgPanel', () => {
       expect({ ...next, visibleKinds: defaultOptions.visibleKinds }).toEqual(defaultOptions);
     });
 
+    it('ingress toggle click writes showIngress through onOptionsChange (other options untouched)', () => {
+      const onOptionsChange = jest.fn<void, [KsgPanelOptions]>();
+      render(<KsgPanel {...buildProps({ data: dataDone, onOptionsChange })} />);
+      fireEvent.click(screen.getByTestId('ingress-toggle-button'));
+      expect(onOptionsChange).toHaveBeenCalledTimes(1);
+      const next = onOptionsChange.mock.calls.at(0)![0];
+      expect(next.showIngress).toBe(false);
+      expect({ ...next, showIngress: defaultOptions.showIngress }).toEqual(defaultOptions);
+    });
+
+    it('a hidden showIngress flips the toggle to the Show affordance and the click restores it', () => {
+      const onOptionsChange = jest.fn<void, [KsgPanelOptions]>();
+      const options: KsgPanelOptions = { ...defaultOptions, showIngress: false };
+      render(<KsgPanel {...buildProps({ data: dataDone, options, onOptionsChange })} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Show ingress gateway' }));
+      const next = onOptionsChange.mock.calls.at(0)![0];
+      expect(next.showIngress).toBe(true);
+    });
+
     it('a hidden kind keeps its legend row (Show affordance) and the eye click restores it', () => {
       const onOptionsChange = jest.fn<void, [KsgPanelOptions]>();
       const options: KsgPanelOptions = {

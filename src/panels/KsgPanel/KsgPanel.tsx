@@ -11,6 +11,7 @@ import {
   ApplicationLegend,
   ClusterLegend,
   EdgeLegend,
+  IngressToggle,
   LayoutModeControl,
   NamespaceLegend,
   NodeContainerLegend,
@@ -244,6 +245,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // Back-compat read — older dashboards may lack new fields.
   const visibleKinds = options.visibleKinds ?? defaultOptions.visibleKinds;
   const visibleEdgeTypes = options.visibleEdgeTypes ?? defaultOptions.visibleEdgeTypes;
+  const showIngress = options.showIngress ?? defaultOptions.showIngress;
 
   const isLoading = data.state === LoadingState.Loading;
   // DataQueryError.message is optional — fall back through statusText/status; treat
@@ -328,8 +330,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // (useElementFilter) and the detail-panel gate below consume it — computed once to keep
   // them in lockstep and halve the most expensive pure pass.
   const visibility = useMemo(
-    () => computeVisibility(elements, visibleKinds, visibleEdgeTypes),
-    [elements, visibleKinds, visibleEdgeTypes]
+    () => computeVisibility(elements, visibleKinds, visibleEdgeTypes, showIngress),
+    [elements, visibleKinds, visibleEdgeTypes, showIngress]
   );
   const { visibleNodeIds } = visibility;
 
@@ -557,6 +559,12 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [visibleKinds, options, onOptionsChange]
   );
 
+  // Same persistence path as the kind eyes: the legend toggle and the options-editor
+  // boolean switch are two faces of the showIngress option.
+  const handleToggleIngress = useCallback(() => {
+    onOptionsChange({ ...options, showIngress: !showIngress });
+  }, [showIngress, options, onOptionsChange]);
+
   const clusterContainerIds = useMemo<string[]>(() => {
     const ids: string[] = [];
     for (const el of elements) {
@@ -652,6 +660,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             }
           />
           <NodeLegend entries={nodeLegendEntries} onToggleKind={handleToggleKind} />
+          <IngressToggle visible={showIngress} onToggle={handleToggleIngress} />
           <EdgeLegend edgeTypes={presentEdgeTypes} />
           <StatusLegend />
           <ClusterLegend
