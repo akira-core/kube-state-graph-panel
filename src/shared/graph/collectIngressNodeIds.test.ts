@@ -63,4 +63,61 @@ describe('collectIngressNodeIds', () => {
     // The pod calling the ingress service is not itself an ingress node.
     expect([...collectIngressNodeIds(elements)]).toEqual(['igwSvc']);
   });
+
+  it('excludes a pod also selected by a non-ingress-labeled service (still serves other traffic)', () => {
+    const elements = [
+      node('igwSvc', 'service', INGRESS_LABELS),
+      node('appSvc', 'service'),
+      node('sharedPod', 'pod'),
+      edge('e1', 'igwSvc', 'sharedPod', 'service-selects-pod'),
+      edge('e2', 'appSvc', 'sharedPod', 'service-selects-pod'),
+    ];
+    // 'sharedPod' is reachable via BOTH a labeled and an unlabeled service — hiding it
+    // would silently remove a pod that has nothing to do with the gateway, so only the
+    // labeled service itself is folded into the ingress set.
+    expect([...collectIngressNodeIds(elements)]).toEqual(['igwSvc']);
+  });
+
+  it('keeps a DIRECTLY LABELLED pod even when a non-ingress service also selects it', () => {
+    const elements = [
+      node('appSvc', 'service'),
+      node('labelledPod', 'pod', INGRESS_LABELS),
+      edge('e1', 'appSvc', 'labelledPod', 'service-selects-pod'),
+    ];
+    // The shared-selector exemption applies only to INFERRED (expansion-derived)
+    // membership. An explicit label is a declaration by the operator and stays
+    // authoritative regardless of who else selects the pod.
+    expect([...collectIngressNodeIds(elements)]).toEqual(['labelledPod']);
+  });
+
+  it('folds a labelled compound’s whole subtree in (label is not kind-restricted)', () => {
+    const elements = [
+      node('ctrl', 'controller', INGRESS_LABELS),
+      node('igwPod', 'pod', { parent: 'ctrl' }),
+      node('sidecar', 'pod', { parent: 'igwPod' }),
+      node('other', 'pod'),
+    ];
+    // Transitive along the nesting chain: everything inside the labelled group is part
+    // of the gateway it names. Unrelated nodes are untouched.
+    expect([...collectIngressNodeIds(elements)].sort()).toEqual(['ctrl', 'igwPod', 'sidecar']);
+  });
+
+  it('lets a service NESTED in a labelled compound seed the one-level expansion', () => {
+    const elements = [
+      node('ctrl', 'controller', INGRESS_LABELS),
+      node('nestedSvc', 'service', { parent: 'ctrl' }),
+      node('backendPod', 'pod'),
+      edge('e1', 'nestedSvc', 'backendPod', 'service-selects-pod'),
+    ];
+    // A service inside the labelled group is as much part of the gateway as one carrying
+    // the label directly, so its selected pods expand in too.
+    expect([...collectIngressNodeIds(elements)].sort()).toEqual(['backendPod', 'ctrl', 'nestedSvc']);
+  });
+
+  it('does not treat an array-valued labels field as a labels map', () => {
+    // Guards the shared isPlainObject narrowing — an array would satisfy a bare
+    // `typeof === 'object'` check and could index truthy for a numeric-ish key.
+    const elements = [node('weird', 'pod', { labels: ['role', 'ingress-gateway'] })];
+    expect(collectIngressNodeIds(elements).size).toBe(0);
+  });
 });

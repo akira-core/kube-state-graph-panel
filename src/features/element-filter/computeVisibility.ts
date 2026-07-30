@@ -3,6 +3,7 @@ import type cytoscape from 'cytoscape';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { ICON_SVG_BY_KIND } from '../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../shared/constants/types';
+import { buildChildrenByParent, collectDescendantIds } from '../../shared/graph/childrenByParent';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 
 export interface VisibilitySets {
@@ -40,15 +41,34 @@ export function computeVisibility(
   elements: cytoscape.ElementDefinition[],
   visibleKinds: NodeKind[],
   visibleEdgeTypes: EdgeType[],
-  showIngress = true
+  showIngress = true,
+  // Precomputed ingress-node set. Load-bearing for CORRECTNESS, not just speed: the panel
+  // derives it from the PRE-view-transform elements so the set survives a pod-parent mode
+  // flip (which strips the very controller / application groups the label may sit on),
+  // whereas self-computing here would read the already-transformed `elements` and could
+  // come back empty. It also spares a second full-element scan on every unrelated
+  // kind/edge-type toggle. Omit to self-compute (tests, isolated use).
+  ingressNodeIds?: ReadonlySet<string>
 ): VisibilitySets {
   const kindSet = new Set<NodeKind>(visibleKinds);
   const edgeTypeSet = new Set<EdgeType>(visibleEdgeTypes);
   const visibleNodeIds = new Set<string>();
   const visibleEdgeIds = new Set<string>();
-  // When the toggle is off, hide the whole ingress-gateway path (labeled nodes +
-  // the pods their services select); edge hiding + the orphan cascade handle the rest.
-  const ingressHiddenIds = showIngress ? new Set<string>() : collectIngressNodeIds(elements);
+  // When the toggle is off, hide the whole ingress-gateway path; edge hiding + the orphan
+  // cascade handle the rest. collectIngressNodeIds already folded in the descendants it
+  // could see, but it ran against a DIFFERENT nesting than the one on screen: the panel
+  // feeds it the backend hierarchy (pods under their controller), while `elements` here is
+  // the current view (in node mode, pods re-parented under their K8s node). Re-fold against
+  // the view so a labelled container hides what is nested inside it HERE — cytoscape's
+  // effective visibility is the AND over ancestors, so those children vanish from canvas
+  // either way, and a visibleNodeIds that disagreed would open the detail panel for an
+  // off-canvas node and keep an emptied container out of the orphan cascade.
+  const ingressHiddenSeed = showIngress ? new Set<string>() : (ingressNodeIds ?? collectIngressNodeIds(elements));
+  const childrenByParent = buildChildrenByParent(elements);
+  const ingressHiddenIds =
+    ingressHiddenSeed.size === 0
+      ? ingressHiddenSeed
+      : new Set([...ingressHiddenSeed, ...collectDescendantIds(childrenByParent, ingressHiddenSeed)]);
 
   for (const el of elements) {
     if (el.group !== 'nodes') {
@@ -91,7 +111,7 @@ export function computeVisibility(
     }
   }
 
-  hideOrphans(elements, visibleNodeIds, visibleEdgeIds);
+  hideOrphans(elements, childrenByParent, visibleNodeIds, visibleEdgeIds);
 
   return { visibleNodeIds, visibleEdgeIds };
 }
@@ -103,28 +123,11 @@ export function computeVisibility(
  */
 function hideOrphans(
   elements: cytoscape.ElementDefinition[],
+  childrenByParent: ReadonlyMap<string, string[]>,
   visibleNodeIds: Set<string>,
   visibleEdgeIds: Set<string>
 ): void {
-  const childrenByParent = new Map<string, string[]>();
   const incidentEdges = new Map<string, Set<string>>();
-
-  for (const el of elements) {
-    if (el.group !== 'nodes') {
-      continue;
-    }
-    const data = el.data as Record<string, unknown>;
-    const id = data.id;
-    const parent = data.parent;
-    if (typeof id === 'string' && typeof parent === 'string') {
-      const siblings = childrenByParent.get(parent);
-      if (siblings) {
-        siblings.push(id);
-      } else {
-        childrenByParent.set(parent, [id]);
-      }
-    }
-  }
 
   for (const el of elements) {
     if (el.group !== 'edges') {

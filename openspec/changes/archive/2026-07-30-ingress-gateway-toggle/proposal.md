@@ -25,7 +25,7 @@ Pod 經由 ingress gateway 呼叫 service 時,圖上會同時出現兩條路徑:
 
 ### Modified Capabilities
 
-(無 — 既有 `panel-rendering` 的 kind/edge 過濾與 legend 需求不變,本切換為純新增的獨立 legend 區塊與獨立過濾條件。)
+- `panel-rendering`: 「圖例 (Legend)」requirement 的**區段垂直順序**與 **Title Case 標題列舉**須納入新的 `Ingress Gateway` 區段(置於 `Node Kinds` 與 `Edge Types` 之間,presence-gated)。原判定本切換為「純新增、不動既有 requirement」有誤:該順序為 `MUST` 且以列舉方式寫死,於其中插入一個區段即構成修改,故補上 `specs/panel-rendering/` delta。kind/edge 過濾語意本身不變。
 
 ## Impact
 

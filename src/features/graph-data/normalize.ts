@@ -24,16 +24,24 @@ function isString(v: unknown): v is string {
 // the guard moved to shared/.
 export { isPlainObject };
 
-function isStringRecord(v: unknown): v is Record<string, string> {
+// Anti-corruption: keeps only the string-valued entries (partial-parse contract, like
+// parseAlerts/parseContainers below) instead of dropping the WHOLE map when one value is
+// non-string — a single stray non-string label (e.g. a numeric `replicas` key) must not
+// make every other label (incl. the ingress-gateway marker) silently disappear.
+function parseStringRecord(v: unknown): Record<string, string> | undefined {
   if (!isPlainObject(v)) {
-    return false;
+    return undefined;
   }
-  for (const val of Object.values(v)) {
-    if (typeof val !== 'string') {
-      return false;
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(v)) {
+    if (typeof val === 'string') {
+      result[key] = val;
     }
   }
-  return true;
+  // An originally-empty object stays an empty object (the prior all-or-nothing guard was
+  // vacuously true for it); a non-empty object that loses every entry to filtering is
+  // reported as absent, not as a spurious empty object.
+  return Object.keys(v).length === 0 || Object.keys(result).length > 0 ? result : undefined;
 }
 
 function isNonEmptyStringArray(v: unknown): v is string[] {
@@ -272,7 +280,7 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
       errors.push(`nodes[${String(index)}] duplicate id "${d.id}"`);
       continue;
     }
-    const labels = isStringRecord(d.labels) ? d.labels : undefined;
+    const labels = parseStringRecord(d.labels);
     const namespace = labels?.namespace;
     // Bare upstream name for every node — decorative-group kind prefixes are render-only
     // in the stylesheet (tooltip / identity consumers must not see them).
@@ -304,7 +312,7 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const owner = isPod ? parseOwner(d, labels) : undefined;
     // storageclass leaf structural fields (D3); omitempty — passed through when present.
     const provisioner = isString(d.provisioner) ? d.provisioner : undefined;
-    const parameters = isStringRecord(d.parameters) ? d.parameters : undefined;
+    const parameters = parseStringRecord(d.parameters);
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -362,7 +370,7 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
       continue;
     }
     edgeIds.add(d.id);
-    const labels = isStringRecord(d.labels) ? d.labels : undefined;
+    const labels = parseStringRecord(d.labels);
     elements.push({
       group: 'edges',
       data: {

@@ -249,6 +249,85 @@ describe('computeVisibility', () => {
       expect(visibleNodeIds.has('somePod')).toBe(true);
     });
 
+    it('keeps a pod visible when a non-ingress service also selects it (shared selector)', () => {
+      const elements = [
+        node('igwSvc', 'service', INGRESS_LABELS),
+        node('appSvc', 'service'),
+        node('sharedPod', 'pod'),
+        edge('e1', 'igwSvc', 'sharedPod', 'service-selects-pod'),
+        edge('e2', 'appSvc', 'sharedPod', 'service-selects-pod'),
+      ];
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(
+        elements,
+        [...ALL_KINDS],
+        [...ALL_EDGES],
+        false
+      );
+      // Only the labeled service itself is hidden; the shared pod and its unrelated
+      // service keep serving traffic and must stay visible.
+      expect(visibleNodeIds.has('igwSvc')).toBe(false);
+      expect(visibleNodeIds.has('sharedPod')).toBe(true);
+      expect(visibleNodeIds.has('appSvc')).toBe(true);
+      expect(visibleEdgeIds.has('e2')).toBe(true);
+    });
+
+    it('hides the descendants of a compound ingress-labeled node (label is not kind-restricted)', () => {
+      const elements = [
+        node('igwNode', 'node', INGRESS_LABELS),
+        node('igwPod', 'pod', { parent: 'igwNode' }),
+        node('a', 'pod'),
+        node('b', 'pod'),
+        edge('e1', 'igwPod', 'a', 'pod-calls-pod'),
+        edge('e2', 'a', 'b', 'pod-calls-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, ['pod', 'node'], ['pod-calls-pod'], false);
+      // The labeled K8s-node compound and its child pod are both hidden — not just the
+      // compound itself — even though only 'igwNode' carries the label directly (the
+      // child pod is reached via parent-nesting, not the service-selects-pod expansion).
+      expect(visibleNodeIds.has('igwNode')).toBe(false);
+      expect(visibleNodeIds.has('igwPod')).toBe(false);
+      expect(visibleNodeIds.has('a')).toBe(true);
+      expect(visibleNodeIds.has('b')).toBe(true);
+    });
+
+    it('uses a precomputed ingress set over self-computation (5th parameter)', () => {
+      // The panel derives the set from the PRE-transform baseElements, because the view
+      // transform can strip the very group the label sits on. Self-computing from the
+      // elements passed here would find nothing — the precomputed set must win.
+      const elements = [
+        node('strandedPod', 'pod'), // label lives on a group absent from this view
+        node('a', 'pod'),
+        node('b', 'pod'),
+        edge('e1', 'strandedPod', 'a', 'pod-calls-pod'),
+        edge('e2', 'a', 'b', 'pod-calls-pod'),
+      ];
+      // Self-computed: no labels in `elements` at all → nothing hidden.
+      expect(computeVisibility(elements, ['pod'], ['pod-calls-pod'], false).visibleNodeIds.has('strandedPod')).toBe(
+        true
+      );
+      // Precomputed set supplied → honoured even though `elements` carries no label.
+      const { visibleNodeIds } = computeVisibility(
+        elements,
+        ['pod'],
+        ['pod-calls-pod'],
+        false,
+        new Set(['strandedPod'])
+      );
+      expect(visibleNodeIds.has('strandedPod')).toBe(false);
+      expect(visibleNodeIds.has('a')).toBe(true);
+      expect(visibleNodeIds.has('b')).toBe(true);
+    });
+
+    it('ignores a precomputed ingress set while showIngress is on', () => {
+      const elements = [
+        node('igw', 'pod', INGRESS_LABELS),
+        node('a', 'pod'),
+        edge('e1', 'igw', 'a', 'pod-calls-pod'),
+      ];
+      const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod'], true, new Set(['igw']));
+      expect(visibleNodeIds.has('igw')).toBe(true);
+    });
+
     it('cascades an emptied cluster > node compound away with its ingress pod', () => {
       const elements = [
         cluster('cl'),

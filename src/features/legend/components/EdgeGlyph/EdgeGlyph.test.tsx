@@ -20,6 +20,14 @@ describe('EdgeGlyph', () => {
     expect(getByTestId('edge-glyph').querySelector('line')?.getAttribute('stroke-dasharray')).toBeNull();
   });
 
+  it('honours an explicit dashPattern for dashed, and ignores it for solid', () => {
+    const { getByTestId, rerender } = render(<EdgeGlyph color="#f97316" lineStyle="dashed" dashPattern="8 8" />);
+    expect(getByTestId('edge-glyph').querySelector('line')?.getAttribute('stroke-dasharray')).toBe('8 8');
+    // A solid line has no dash rhythm to override.
+    rerender(<EdgeGlyph color="#f97316" lineStyle="solid" dashPattern="8 8" />);
+    expect(getByTestId('edge-glyph').querySelector('line')?.getAttribute('stroke-dasharray')).toBeNull();
+  });
+
   it('draws a single arrowhead (one polygon)', () => {
     const { getByTestId } = render(<EdgeGlyph color="#10b981" lineStyle="solid" />);
     expect(getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(1);

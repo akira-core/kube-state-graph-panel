@@ -42,6 +42,7 @@ import {
 } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
+import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
 
@@ -326,12 +327,24 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // one source; GraphCanvas reports the next Set via onCollapsedChange.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
+  // Ingress-gateway node set — single source shared by computeVisibility (below) and the
+  // "does this graph have an ingress path at all" gate on rendering IngressToggle (a graph
+  // with no labelled node would otherwise show a dead eye button that toggles nothing).
+  //
+  // Derived from baseElements (the DATA layer), NOT the view-transformed `elements`: the
+  // label can sit on a controller / application group, and applyPodParentMode strips exactly
+  // those groups in `node` mode. Reading the transformed view would then return an empty set
+  // mid-session — silently un-hiding a path the user had hidden AND removing the toggle
+  // needed to notice or undo it, while `options.showIngress` stayed false. Node ids survive
+  // the transform, so a set derived here stays valid for lookups against `elements`.
+  const ingressNodeIds = useMemo(() => collectIngressNodeIds(baseElements), [baseElements]);
+
   // The ONE visibility computation (kind/edge filter + orphan cascade). Both GraphCanvas
   // (useElementFilter) and the detail-panel gate below consume it — computed once to keep
   // them in lockstep and halve the most expensive pure pass.
   const visibility = useMemo(
-    () => computeVisibility(elements, visibleKinds, visibleEdgeTypes, showIngress),
-    [elements, visibleKinds, visibleEdgeTypes, showIngress]
+    () => computeVisibility(elements, visibleKinds, visibleEdgeTypes, showIngress, ingressNodeIds),
+    [elements, visibleKinds, visibleEdgeTypes, showIngress, ingressNodeIds]
   );
   const { visibleNodeIds } = visibility;
 
@@ -660,13 +673,20 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             }
           />
           <NodeLegend entries={nodeLegendEntries} onToggleKind={handleToggleKind} />
-          <IngressToggle visible={showIngress} onToggle={handleToggleIngress} />
+          {ingressNodeIds.size > 0 && <IngressToggle visible={showIngress} onToggle={handleToggleIngress} />}
           <EdgeLegend edgeTypes={presentEdgeTypes} />
           <StatusLegend />
           <ClusterLegend
             clusters={clusterEntries}
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
+          />
+          <NodeContainerLegend
+            nodes={containerEntries}
+            onToggleCollapseAll={toggleNodes}
+            allCollapsed={allNodesCollapsed}
+            title={containerTitle}
+            collapseNoun={collapseNoun}
           />
           {podParentMode === 'controller' && (
             <NamespaceLegend
@@ -682,13 +702,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               allCollapsed={allApplicationsCollapsed}
             />
           )}
-          <NodeContainerLegend
-            nodes={containerEntries}
-            onToggleCollapseAll={toggleNodes}
-            allCollapsed={allNodesCollapsed}
-            title={containerTitle}
-            collapseNoun={collapseNoun}
-          />
         </aside>
       )}
       <div className={styles.canvasArea}>

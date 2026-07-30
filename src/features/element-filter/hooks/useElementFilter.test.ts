@@ -44,53 +44,52 @@ describe('useElementFilter', () => {
     expect(layoutSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps a meta-edge visible by endpoint visibility, exempt from edge-type filter', () => {
+  it('keeps a filtered-out edge hidden after expand-collapse re-points it onto a visible container (no meta-edge exemption)', () => {
+    // cytoscape-expand-collapse's barrowEdgesOfcollapsedChildren never creates a new
+    // synthetic edge for a boundary edge — it MOVES the original edge (same id, same
+    // data) so its source/target point at the collapsed container instead. Model that
+    // directly: 'ac' is the same edge before and after, just re-pointed + reclassed.
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
       elements: [
         { group: 'nodes', data: { id: 'a', kind: 'pod' } },
         { group: 'nodes', data: { id: 'b', kind: 'pod' } },
-        { group: 'nodes', data: { id: 'anchor', kind: 'pod' } },
         { group: 'nodes', data: { id: 'c', kind: 'service' } },
-        // Real edges keep a & b connected (as in production, where a collapsed
-        // container's real edges remain in `elements` and the meta-edge merely
-        // aggregates them visually).
-        { group: 'edges', data: { id: 'ra', source: 'a', target: 'anchor', edgeType: 'pod-calls-pod' } },
-        { group: 'edges', data: { id: 'rb', source: 'b', target: 'anchor', edgeType: 'pod-calls-pod' } },
-        // meta-edges have no edgeType and are NOT in `elements` → must not be
-        // hidden by the edge-type pass; visibility follows their endpoints.
-        { group: 'edges', data: { id: 'meta', source: 'a', target: 'b' } },
-        { group: 'edges', data: { id: 'meta2', source: 'a', target: 'c' } },
+        { group: 'edges', data: { id: 'ab', source: 'a', target: 'b', edgeType: 'pod-calls-pod' } },
+        { group: 'edges', data: { id: 'ac', source: 'a', target: 'c', edgeType: 'service-selects-pod' } },
       ],
     });
-    cy.getElementById('meta').addClass('cy-expand-collapse-meta-edge');
-    cy.getElementById('meta2').addClass('cy-expand-collapse-meta-edge');
+    // Simulate collapse: 'ac' (filtered out below because 'c' is hidden) gets re-pointed
+    // onto 'b' (a fully-visible node) and reclassed as a meta-edge — exactly what happens
+    // when 'a' folds into a container that also holds 'b'.
+    cy.getElementById('ac').move({ target: 'b' });
+    cy.getElementById('ac').addClass('cy-expand-collapse-meta-edge');
     const cyRef = { current: cy } as MutableRefObject<cytoscape.Core | null>;
 
     renderHook(() =>
       useElementFilter({
         cyRef,
-        // Only the real (non-meta) elements feed the visibility sets, as in production.
         sets: computeVisibility(
           [
             { group: 'nodes', data: { id: 'a', kind: 'pod' } },
             { group: 'nodes', data: { id: 'b', kind: 'pod' } },
-            { group: 'nodes', data: { id: 'anchor', kind: 'pod' } },
             { group: 'nodes', data: { id: 'c', kind: 'service' } },
-            { group: 'edges', data: { id: 'ra', source: 'a', target: 'anchor', edgeType: 'pod-calls-pod' } },
-            { group: 'edges', data: { id: 'rb', source: 'b', target: 'anchor', edgeType: 'pod-calls-pod' } },
+            { group: 'edges', data: { id: 'ab', source: 'a', target: 'b', edgeType: 'pod-calls-pod' } },
+            { group: 'edges', data: { id: 'ac', source: 'a', target: 'c', edgeType: 'service-selects-pod' } },
           ] as cytoscape.ElementDefinition[],
           ['pod'],
-          ['pod-calls-pod']
+          ['pod-calls-pod', 'service-selects-pod']
         ),
       })
     );
 
-    // a,b,anchor are pods (connected) → visible; c is a service → hidden.
-    // meta (a→b): both endpoints visible → visible, despite having no edgeType.
-    expect(cy.getElementById('meta').style('visibility')).toBe('visible');
-    // meta2 (a→c): endpoint c hidden → hidden.
-    expect(cy.getElementById('meta2').style('visibility')).toBe('hidden');
+    // 'ac' was filtered out because its real endpoint 'c' (a service) is hidden. Even
+    // though expand-collapse re-pointed it onto the now-fully-visible 'b', it must STAY
+    // hidden — its own id ('ac') is still absent from visibleEdgeIds. Reviving it here
+    // would resurrect e.g. a hidden ingress-path edge whenever expand-collapse folds one
+    // of its endpoints into a container that still has other visible children.
+    expect(cy.getElementById('ac').style('visibility')).toBe('hidden');
+    expect(cy.getElementById('ab').style('visibility')).toBe('visible');
   });
 });

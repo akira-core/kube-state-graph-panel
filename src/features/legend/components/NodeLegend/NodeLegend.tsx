@@ -4,7 +4,7 @@ import React from 'react';
 
 import { CATEGORY_ORDER, categoryForKind, type NodeCategory } from '../../../../shared/constants/categoryByKind';
 import { ICON_SVG_BY_KIND } from '../../../../shared/constants/iconSvgByKind';
-import { legendListStyles } from '../../legendStyles';
+import { legendListStyles, legendToggleStyles } from '../../legendStyles';
 import { IconGlyph } from '../IconGlyph';
 
 function getStyles(): {
@@ -36,10 +36,10 @@ function getStyles(): {
       opacity: 0.6,
       margin: '6px 0 2px',
     }),
-    // A filtered-out kind keeps its row (so it can be restored) but fades its
-    // glyph + label; the toggle button itself stays full-strength for affordance.
-    dimmed: css({ opacity: 0.4 }),
-    toggle: css({ marginLeft: 'auto' }),
+    // A filtered-out kind keeps its row (so it can be restored) but fades its glyph +
+    // label; the toggle button itself stays full-strength for affordance (shared with
+    // IngressToggle via legendToggleStyles).
+    ...legendToggleStyles(),
   };
 }
 

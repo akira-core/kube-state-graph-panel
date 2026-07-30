@@ -13,6 +13,11 @@ jobs:
   check:
     name: Check NG words
     runs-on: ubuntu-latest
+    # Fork PRs receive no secrets (GitHub default) — secrets.NG_WORDS would resolve to an
+    # empty string, making the check either a silent no-op or a permanently red X an
+    # external contributor can never clear. Skip it there; same-repo PRs and direct pushes
+    # still run normally.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v6
         with:

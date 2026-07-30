@@ -179,9 +179,12 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     selectSingle(cy, selectedId ?? null);
   }, [cyRef, selectedId, isReady, elements]);
 
-  // Dim everything outside the selected node's focus set (colour alone is too subtle
-  // on a dense graph). `elements` re-applies after a rebuild, which drops the imperative classes.
-  useSelectionFocus({ cyRef, selectedId: selectedId ?? null, isReady, elements });
+  // Dim everything outside the selected node's focus set (colour alone is too subtle on a
+  // dense graph). `elements` re-applies after a rebuild, which drops the imperative classes;
+  // `visibility` re-applies when a filter hides/restores the selected node (the hook skips
+  // the focus entirely for an off-canvas selection). Declared AFTER useElementFilter so the
+  // visibility styles it reads are current.
+  useSelectionFocus({ cyRef, selectedId: selectedId ?? null, isReady, elements, visibility });
 
   return (
     <div className={styles.root} data-testid="graph-canvas-root">

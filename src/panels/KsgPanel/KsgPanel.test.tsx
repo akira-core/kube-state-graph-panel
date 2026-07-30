@@ -770,7 +770,7 @@ describe('KsgPanel', () => {
     expect(screen.getByTestId('node-legend-row-storageclass')).toBeInTheDocument();
   });
 
-  it('orders legend sections with the swatch sections (Clusters → Namespaces → Applications) AFTER Status', () => {
+  it('orders legend sections with the swatch sections (Clusters → Controllers → Namespaces → Applications) AFTER Status', () => {
     const frame: DataFrame = {
       name: 'graph',
       length: 1,
@@ -790,10 +790,61 @@ describe('KsgPanel', () => {
     expect(idx(/node kinds/i)).toBeGreaterThanOrEqual(0);
     expect(idx(/node kinds/i)).toBeLessThan(idx(/edge types/i));
     expect(idx(/edge types/i)).toBeLessThan(idx(/status/i));
-    // … then the swatch sections, moved BELOW Status, in Clusters → Namespaces → Applications order.
+    // … then the swatch sections, moved BELOW Status, in
+    // Clusters → Nodes|Controllers → Namespaces → Applications order.
     expect(idx(/status/i)).toBeLessThan(idx(/clusters/i));
-    expect(idx(/clusters/i)).toBeLessThan(idx(/namespaces/i));
+    expect(idx(/clusters/i)).toBeLessThan(idx(/controllers/i));
+    expect(idx(/controllers/i)).toBeLessThan(idx(/namespaces/i));
     expect(idx(/namespaces/i)).toBeLessThan(idx(/applications/i));
+    // This payload carries no ingress label, so the presence-gated section is absent
+    // and Node Kinds runs straight into Edge Types.
+    expect(idx(/ingress gateway/i)).toBe(-1);
+  });
+
+  it('places the Ingress Gateway section between Node Kinds and Edge Types', () => {
+    // Same D6 chain, but the service carries the ingress marker so the section renders.
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/igw-svc',
+              type: 'service',
+              name: 'igw-svc',
+              parent: 'cluster:demo',
+              labels: { role: 'ingress-gateway' },
+            },
+          },
+          { data: { id: 'demo/p1', type: 'pod', name: 'web-0', parent: 'cluster:demo' } },
+        ],
+        edges: [
+          { data: { id: 'e-sel', type: 'service-selects-pod', source: 'demo/igw-svc', target: 'demo/p1' } },
+          { data: { id: 'e-ptn', type: 'pod-to-node', source: 'demo/p1', target: 'demo/node-a' } },
+        ],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    render(
+      <KsgPanel
+        {...buildProps({
+          data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+          options: { ...defaultOptions, showLegend: true },
+        })}
+      />
+    );
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
+    const idx = (re: RegExp): number => headings.findIndex((t) => re.test(t));
+    expect(idx(/ingress gateway/i)).toBeGreaterThanOrEqual(0);
+    expect(idx(/node kinds/i)).toBeLessThan(idx(/ingress gateway/i));
+    expect(idx(/ingress gateway/i)).toBeLessThan(idx(/edge types/i));
+    // Title Case, matching every other section heading (panel-rendering spec).
+    expect(headings).toContain('Ingress Gateway');
   });
 
   it('does not render the cluster legend when there are no clusters', () => {
@@ -806,14 +857,20 @@ describe('KsgPanel', () => {
     expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
   });
 
+  it('does not render the ingress toggle when no node carries the ingress label', () => {
+    render(<KsgPanel {...buildProps({ options: { ...defaultOptions, showLegend: true } })} />);
+    expect(screen.queryByTestId('ingress-toggle')).not.toBeInTheDocument();
+  });
+
   describe('legend kind visibility toggles', () => {
-    // A pod and a service joined by an edge (keeps both out of the orphan
-    // cascade), so the icon legend lists two togglable kinds.
+    // A pod and a service joined by an edge (keeps both out of the orphan cascade), so the
+    // icon legend lists two togglable kinds. The service also carries the ingress label so
+    // the IngressToggle tests below have a graph it actually renders for.
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'p1', type: 'pod', name: 'web' } },
-          { data: { id: 's1', type: 'service', name: 'web-svc' } },
+          { data: { id: 's1', type: 'service', name: 'web-svc', labels: { role: 'ingress-gateway' } } },
         ],
         edges: [{ data: { id: 'e1', type: 'service-selects-pod', source: 's1', target: 'p1' } }],
       },
@@ -852,6 +909,69 @@ describe('KsgPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Show ingress gateway' }));
       const next = onOptionsChange.mock.calls.at(0)![0];
       expect(next.showIngress).toBe(true);
+    });
+
+    it('keeps the ingress toggle and the hidden set across a pod-parent mode flip when the label sits on a group node', () => {
+      // The label is allowed on any kind, including a controller GROUP — and `node` mode
+      // strips controller/namespace/application groups. Deriving the ingress set from the
+      // transformed view would lose it mid-session: the path would silently reappear while
+      // showIngress stayed false, with no toggle left to notice or undo it.
+      const groupLabelPayload = {
+        elements: {
+          nodes: [
+            { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+            { data: { id: 'demo/node-a', type: 'node', name: 'node-a', parent: 'cluster:demo' } },
+            {
+              data: {
+                id: 'demo/ctrl/ingress',
+                type: 'controller',
+                name: 'ingress',
+                parent: 'cluster:demo',
+                labels: { role: 'ingress-gateway' },
+              },
+            },
+            {
+              data: {
+                id: 'demo/igwPod',
+                type: 'pod',
+                name: 'ingress-0',
+                parent: 'demo/ctrl/ingress',
+                labels: { node: 'demo/node-a' },
+              },
+            },
+            { data: { id: 'demo/appPod', type: 'pod', name: 'app-0', parent: 'cluster:demo' } },
+            { data: { id: 'demo/appSvc', type: 'service', name: 'app-svc', parent: 'cluster:demo' } },
+          ],
+          edges: [
+            { data: { id: 'e-ptn', type: 'pod-to-node', source: 'demo/igwPod', target: 'demo/node-a' } },
+            { data: { id: 'e-app', type: 'pod-calls-service', source: 'demo/appPod', target: 'demo/appSvc' } },
+          ],
+        },
+      };
+      const groupFrame: DataFrame = {
+        name: 'graph',
+        length: 1,
+        fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(groupLabelPayload)] }],
+      };
+      const data: PanelData = { state: LoadingState.Done, series: [groupFrame], timeRange: stubTimeRange };
+      const options: KsgPanelOptions = { ...defaultOptions, showLegend: true, showIngress: false };
+      render(<KsgPanel {...buildProps({ data, options })} />);
+      type CanvasVisibility = { visibility?: { visibleNodeIds: Set<string> } };
+      const lastVisible = (): Set<string> =>
+        (graphCanvasSpy.mock.calls as Array<[CanvasVisibility]>).at(-1)![0].visibility!.visibleNodeIds;
+
+      // Controller mode: the labelled group AND the pod nested inside it are hidden.
+      expect(lastVisible().has('demo/ctrl/ingress')).toBe(false);
+      expect(lastVisible().has('demo/igwPod')).toBe(false);
+      expect(screen.getByTestId('ingress-toggle')).toBeInTheDocument();
+
+      // Flip to node mode — applyPodParentMode drops the labelled controller group and
+      // re-parents the pod under its K8s node.
+      act(() => {
+        fireEvent.click(screen.getByLabelText('Node'));
+      });
+      expect(lastVisible().has('demo/igwPod')).toBe(false);
+      expect(screen.getByTestId('ingress-toggle')).toBeInTheDocument();
     });
 
     it('a hidden kind keeps its legend row (Show affordance) and the eye click restores it', () => {

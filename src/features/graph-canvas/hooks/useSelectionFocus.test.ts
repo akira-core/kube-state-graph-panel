@@ -64,4 +64,46 @@ describe('applySelectionFocus', () => {
     expect(faded(cy)).not.toContain('pod/a');
     cy.destroy();
   });
+
+  it('fades nothing when the selected node is hidden by the filter', () => {
+    // styleEnabled so visibility styles (and .visible()) are live, as in production.
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      elements: [
+        { group: 'nodes', data: { id: 'pod/igw', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'pod/a', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'pod/b', kind: 'pod' } },
+        { group: 'edges', data: { id: 'e-ab', source: 'pod/a', target: 'pod/b', edgeType: 'pod-calls-pod' } },
+      ],
+    });
+    // The ingress toggle (or a kind/edge-type filter) hides the SELECTED node.
+    cy.getElementById('pod/igw').style('visibility', 'hidden');
+    applySelectionFocus(cy, 'pod/igw');
+    // Nothing may fade: dimming around an invisible node leaves the whole graph at
+    // reduced opacity with nothing lit to explain why.
+    expect(faded(cy)).toEqual([]);
+    cy.destroy();
+  });
+
+  it('fades nothing when the selected node is hidden via a filtered-out ancestor', () => {
+    // cytoscape's effective visibility is the AND over ancestors, so a node whose
+    // container was filtered out is off-canvas despite its own style being 'visible'.
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      elements: [
+        { group: 'nodes', data: { id: 'ctrl/igw' } },
+        { group: 'nodes', data: { id: 'pod/igw', kind: 'pod', parent: 'ctrl/igw' } },
+        { group: 'nodes', data: { id: 'pod/a', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'pod/b', kind: 'pod' } },
+        { group: 'edges', data: { id: 'e-ab', source: 'pod/a', target: 'pod/b', edgeType: 'pod-calls-pod' } },
+      ],
+    });
+    cy.getElementById('ctrl/igw').style('visibility', 'hidden');
+    expect(cy.getElementById('pod/igw').style('visibility')).toBe('visible'); // own style only
+    applySelectionFocus(cy, 'pod/igw');
+    expect(faded(cy)).toEqual([]);
+    cy.destroy();
+  });
 });

@@ -21,7 +21,7 @@ declare module 'cytoscape' {
     containers?: ContainerSpec[];
     // StorageClass leaf structural fields (backend D6: cluster > storageclass leaf,
     // both omitempty). `provisioner` is the CSI driver; `parameters` is the
-    // provisioner-dependent key/value map (validated via isStringRecord). Surfaced in
+    // provisioner-dependent key/value map (validated via parseStringRecord). Surfaced in
     // the detail panel's Storage Class section; NOT query params (assembleDashboardParams
     // DENYLIST). Omitted when the backend sends a bare storageclass.
     provisioner?: string;

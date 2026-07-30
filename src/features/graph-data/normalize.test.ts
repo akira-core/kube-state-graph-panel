@@ -669,7 +669,7 @@ describe('normalizeGraph', () => {
       expect(sc !== undefined && 'parameters' in sc).toBe(false);
     });
 
-    it('drops parameters that fail the string-record shape, keeping the rest', () => {
+    it('drops only the non-string parameter entries, keeping the valid ones (and the rest of the node)', () => {
       const raw = {
         elements: {
           nodes: [
@@ -679,7 +679,7 @@ describe('normalizeGraph', () => {
                 type: 'storageclass',
                 name: 'sc',
                 provisioner: 'csi',
-                parameters: { pool: 'kube', bad: 7 }, // non-string value → whole map dropped
+                parameters: { pool: 'kube', bad: 7 }, // non-string value → only 'bad' dropped
               },
             },
           ],
@@ -688,6 +688,27 @@ describe('normalizeGraph', () => {
       };
       const sc = byId(raw).get('prod/storageclass/sc') as Record<string, unknown> | undefined;
       expect(sc?.provisioner).toBe('csi');
+      expect(sc?.parameters).toEqual({ pool: 'kube' });
+    });
+
+    it('drops the whole parameters map only when every entry fails the string-record shape', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'prod/storageclass/sc2',
+                type: 'storageclass',
+                name: 'sc2',
+                provisioner: 'csi',
+                parameters: { bad: 7 },
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      const sc = byId(raw).get('prod/storageclass/sc2') as Record<string, unknown> | undefined;
       expect(sc !== undefined && 'parameters' in sc).toBe(false);
     });
   });
@@ -1178,6 +1199,66 @@ describe('normalizeGraph — controller enrichment', () => {
       };
       const edges = normalizeGraph(raw).elements.filter((e) => e.group === 'edges');
       expect(edges.every((e) => (e.data as cytoscape.EdgeDataDefinition).ingressPath === undefined)).toBe(true);
+    });
+
+    it('dashes the traffic edges of a pod nested inside a LABELLED COMPOUND', () => {
+      // The label may sit on a controller/application group. The set that HIDES such a
+      // group's subtree (computeVisibility) and the set that DASHES its traffic
+      // (markIngressEdges) must be the same one — a path the toggle can hide but whose
+      // edges never dash is a contradiction visible on canvas.
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'ctrl', type: 'controller', labels: { role: 'ingress-gateway' } } },
+            { data: { id: 'igwPod', type: 'pod', parent: 'ctrl' } },
+            { data: { id: 'bsvc', type: 'service' } },
+            { data: { id: 'k8sNode', type: 'node' } },
+          ],
+          edges: [
+            { data: { id: 'e1', source: 'igwPod', target: 'bsvc', type: 'pod-calls-service' } },
+            { data: { id: 'e2', source: 'igwPod', target: 'k8sNode', type: 'pod-to-node' } },
+          ],
+        },
+      };
+      const flags = ingressFlagById(raw);
+      // Nested pod's traffic hop dashes …
+      expect(flags.get('e1')).toBe(true);
+      // … while its scheduling edge stays solid (traffic-only rule still applies).
+      expect(flags.get('e2')).toBe(false);
+    });
+
+    it('leaves an Object.prototype-named edge type solid (no prototype-chain lookup)', () => {
+      // `data.type` is untrusted and copied verbatim; a bare map index would resolve
+      // 'constructor' to the inherited Function (truthy) and dash the edge.
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'igwSvc', type: 'service', labels: { role: 'ingress-gateway' } } },
+            { data: { id: 'other', type: 'pod' } },
+          ],
+          edges: [{ data: { id: 'e', source: 'igwSvc', target: 'other', type: 'constructor' } }],
+        },
+      };
+      expect(ingressFlagById(raw).get('e')).toBe(false);
+    });
+
+    it('still detects the ingress label when a sibling label value is non-string', () => {
+      // A single stray non-string label (e.g. a numeric `replicas`) must not make the
+      // WHOLE labels map disappear and silently break ingress detection.
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'igwSvc', type: 'service', labels: { role: 'ingress-gateway', replicas: 3 } } },
+            { data: { id: 'igwPod', type: 'pod' } },
+          ],
+          edges: [{ data: { id: 'e', source: 'igwSvc', target: 'igwPod', type: 'service-selects-pod' } }],
+        },
+      };
+      const { elements } = normalizeGraph(raw);
+      const igwSvc = elements.find((e) => e.data.id === 'igwSvc')?.data as cytoscape.NodeDataDefinition;
+      expect(igwSvc.labels).toEqual({ role: 'ingress-gateway' });
+      const edge = elements.find((e) => e.data.id === 'e')?.data as cytoscape.EdgeDataDefinition;
+      expect(edge.ingressPath).toBe(true);
     });
   });
 });
