@@ -69,8 +69,10 @@ declare module 'cytoscape' {
   interface EdgeDataDefinition {
     edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)
     labels?: Record<string, string>;
-    // true on edges along the ingress-gateway path (either endpoint is an ingress node),
-    // set by normalize's markIngressEdges → dashed via the `edge[?ingressPath]` stylesheet rule.
+    // true on edges along the ingress-gateway TRAFFIC path — an endpoint is an ingress node
+    // AND the type carries traffic (so the ingress pod's own pod-to-node / pod-mounts-pvc
+    // edges are excluded). Set by normalize's markIngressEdges → dashed via the
+    // `edge[?ingressPath]` stylesheet rule.
     ingressPath?: boolean;
   }
 

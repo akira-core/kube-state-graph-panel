@@ -35,6 +35,38 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
   'node-to-switch': { from: 'node', to: 'switch' },
 };
 
+// Which edge types carry REQUEST TRAFFIC (as opposed to placement, storage or
+// physical-link relationships). Consumed by normalize's ingress-path dashing: an
+// edge is on the ingress traffic path only if it touches an ingress node AND its
+// type is traffic — otherwise the ingress pod's own pod-to-node / pod-mounts-pvc
+// edges would be dashed too, which claims a traffic detour that does not exist.
+// An exhaustive `Record<EdgeType, boolean>` (like EDGE_ENDPOINTS_BY_TYPE) so a new
+// edge type cannot silently pick a side — TypeScript demands the key. Unmapped
+// backend types resolve to `undefined` and are treated as NON-traffic by the
+// consumer (`?? false`): a dash asserts something, and an unknown type cannot be
+// asserted. That differs from the filter's unknown-visible rule on purpose —
+// withholding a dash hides nothing.
+export const EDGE_IS_TRAFFIC_BY_TYPE: Record<EdgeType, boolean> = {
+  'pod-calls-pod': true,
+  'pod-calls-service': true,
+  'service-selects-pod': true,
+  'pod-to-node': false,
+  'pod-mounts-pvc': false,
+  'pvc-to-storageclass': false,
+  'switch-to-switch': false,
+  'node-to-switch': false,
+};
+
+// The safe read of the map above: an unmapped backend type (GraphEdgeType widens to
+// string) resolves to `undefined` and is reported as non-traffic. Keeping the widening
+// cast here means no consumer has to reproduce the fallback.
+export function isTrafficEdgeType(type: string | undefined): boolean {
+  if (type === undefined) {
+    return false;
+  }
+  return (EDGE_IS_TRAFFIC_BY_TYPE as Record<string, boolean | undefined>)[type] ?? false;
+}
+
 // Single source of truth for edge styling, keyed by upstream edge `data.type`,
 // covering ALL wire edge types (D6 — every type is backend-emitted). The stylesheet
 // resolves a colour/line-style per edge from this map regardless of mode — styling an

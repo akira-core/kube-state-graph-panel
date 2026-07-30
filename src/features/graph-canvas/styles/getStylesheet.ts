@@ -380,8 +380,13 @@ export function getStylesheet({
       // from normal traffic when the ingress toggle is on. Declared after the base `edge` +
       // taxi rules so it overrides their `line-style`; colour/arrow/routing are left intact.
       // Only visible when the toggle is on — otherwise these edges are filtered out entirely.
+      // The explicit [dash, gap] pattern widens cytoscape's default (6/3) so the dashing
+      // still reads as dashed at zoomed-out scales instead of blurring into a solid line.
       selector: 'edge[?ingressPath]',
-      style: { 'line-style': 'dashed' },
+      style: {
+        'line-style': 'dashed',
+        'line-dash-pattern': [8, 8],
+      },
     },
     {
       // Focus dimming for edges (see node.FADED_CLASS); lower than nodes so faded

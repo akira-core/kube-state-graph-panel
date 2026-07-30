@@ -40,6 +40,32 @@ Panel SHALL 以節點 `data.labels` 中的 `role: "ingress-gateway"`(常數 `ING
 - **WHEN** 某 `cluster > node` compound 內僅含一個 ingress pod,`showIngress === false`
 - **THEN** 該 pod、其 K8s node 容器與 cluster 容器皆不在 `visibleNodeIds`
 
+### Requirement: Ingress 流量路徑虛線
+
+`normalizeGraph` SHALL 在 edge 上設 `data.ingressPath = true`,當且僅當 **兩個條件同時成立**:(a) 該 edge 任一端點屬 ingress 節點集合,且 (b) 該 edge 的 type 屬「流量」類型(`EDGE_IS_TRAFFIC_BY_TYPE`,單一來源於 `src/shared/constants/colorByEdgeType.ts`:`pod-calls-pod` / `pod-calls-service` / `service-selects-pod` 為 `true`,其餘為 `false`)。未收錄於該 map 的後端 edge type MUST 視為非流量(不標記)—— 虛線是「此流量繞經 gateway」的斷言,未知類型無法斷言;此處刻意不套用 filter 的 unknown-visible 慣例,因為不畫虛線不會讓任何元素消失。不符條件的 edge MUST **不帶** `ingressPath` key(不是 `false`)。
+
+Stylesheet SHALL 以 `edge[?ingressPath]` 選擇器將這些 edge 畫成虛線,宣告順序在基礎 `edge` 與 taxi 規則之後以覆寫 `line-style`;顏色、箭頭、routing MUST 保持與該 edge type 原本一致(虛線是唯一差異)。具體 dash/gap 數值為實作細節,由 `getStylesheet` snapshot 測試釘住,不在本 Requirement 約束。
+
+#### Scenario: 三段流量 hop 虛線、直連路徑實線
+
+- **WHEN** elements 含 `p →(pod-calls-service) igwSvc →(service-selects-pod) igwPod →(pod-calls-service) bsvc →(service-selects-pod) bpod` 及直連 `p →(pod-calls-service) bsvc`,`igwSvc` 帶 ingress label
+- **THEN** 前三條 edge 帶 `ingressPath: true`;`bsvc → bpod` 與直連 `p → bsvc` 皆不帶該 key
+
+#### Scenario: ingress pod 的排程與掛載 edge 保持實線
+
+- **WHEN** `igwPod` 另有 `igwPod →(pod-to-node) k8sNode` 與 `igwPod →(pod-mounts-pvc) igwPvc` 兩條 edge
+- **THEN** 兩條皆不帶 `ingressPath` —— 端點雖屬 ingress 集合,但表達的是放置與掛載關係,非繞經 gateway 的流量
+
+#### Scenario: 未知 edge type 保持實線
+
+- **WHEN** `igwPod` 有一條 type 不在 `EDGE_IS_TRAFFIC_BY_TYPE` 內的 edge(例如後端新增的 `pod-calls-configmap`)
+- **THEN** 該 edge 不帶 `ingressPath`(該 edge 本身仍照 unknown-visible 慣例可見,只是不畫虛線)
+
+#### Scenario: 無 ingress label 時零標記
+
+- **WHEN** 無任何節點帶 `labels.role = "ingress-gateway"`
+- **THEN** 全部 edge 皆不帶 `ingressPath`,elements 原樣通過(免除 map 走訪)
+
 ### Requirement: Legend Ingress toggle 與 panel option 持久化
 
 Panel SHALL 提供持久化 option `showIngress: boolean`(預設 `true`),於 options editor 以 boolean switch 呈現;讀取 MUST 以 `options.showIngress ?? defaultOptions.showIngress` 向後相容舊 dashboard。左側 legend SHALL 於 node-kinds 圖例(`NodeLegend`)之後渲染獨立的 `IngressToggle` 區塊:文字 "Ingress gateway" + eye(顯示中)/ eye-slash(隱藏中)IconButton;點擊 MUST 經 `onOptionsChange` 寫入 `showIngress` 的反值且 MUST NOT 動到其他 option。`IngressToggle` MUST 為受控元件(狀態由 panel 持有),不塞入 `NodeLegend` 的 kind-based row。

@@ -425,7 +425,11 @@ describe('normalizeGraph', () => {
 
     it('never carries containers / owner onto a service leaf (those stay pod-only)', () => {
       const d = dataOf(
-        leaf('service', { application: 'mongodb', containers: [{ name: 'c', image: 'r/c:1' }], owner: { kind: 'X', name: 'y' } })
+        leaf('service', {
+          application: 'mongodb',
+          containers: [{ name: 'c', image: 'r/c:1' }],
+          owner: { kind: 'X', name: 'y' },
+        })
       );
       expect(d?.application).toBe('mongodb');
       expect(d !== undefined && 'containers' in d).toBe(false);
@@ -501,7 +505,9 @@ describe('normalizeGraph', () => {
         elements: {
           nodes: [
             { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
-            { data: { id: 'prod/namespace/shop', type: 'namespace', name: 'shop', parent: 'cluster/prod', labels: {} } },
+            {
+              data: { id: 'prod/namespace/shop', type: 'namespace', name: 'shop', parent: 'cluster/prod', labels: {} },
+            },
           ],
           edges: [],
         },
@@ -829,7 +835,10 @@ describe('normalizeGraph — node worstStatus via pod-to-node edges', () => {
   const podToNode = (podId: string, nodeId: string) => ({
     data: { id: `e:${podId}:${nodeId}`, type: 'pod-to-node', source: podId, target: nodeId },
   });
-  const graph = (nodes: Array<{ data: Record<string, unknown> }>, edges: Array<{ data: Record<string, unknown> }> = []): unknown => ({
+  const graph = (
+    nodes: Array<{ data: Record<string, unknown> }>,
+    edges: Array<{ data: Record<string, unknown> }> = []
+  ): unknown => ({
     elements: { nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster' } }, ...nodes], edges },
   });
 
@@ -955,7 +964,9 @@ describe('normalizeGraph — controller enrichment', () => {
     });
 
     it('treats unknown / absent status as normal (drawn green, D10)', () => {
-      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0', { status: 'bogus' })))?.worstStatus).toBe('normal');
+      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0', { status: 'bogus' })))?.worstStatus).toBe(
+        'normal'
+      );
       expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0')))?.worstStatus).toBe('normal');
     });
   });
@@ -1090,6 +1101,9 @@ describe('normalizeGraph — controller enrichment', () => {
   describe('ingress path dashing (markIngressEdges)', () => {
     // Double-path fixture: p reaches bsvc both THROUGH the ingress gateway
     // (p → igwSvc → igwPod → bsvc) and DIRECTLY (p → bsvc). Mirrors the demo.
+    // It also carries the counter-examples for the traffic-only rule: the ingress
+    // pod's scheduling (e6) / storage (e7) edges and an unknown-type edge (e8) all
+    // touch an ingress node yet MUST stay solid.
     const doublePathRaw = {
       elements: {
         nodes: [
@@ -1098,6 +1112,8 @@ describe('normalizeGraph — controller enrichment', () => {
           { data: { id: 'igwPod', type: 'pod' } },
           { data: { id: 'bsvc', type: 'service' } },
           { data: { id: 'bpod', type: 'pod' } },
+          { data: { id: 'k8sNode', type: 'node' } },
+          { data: { id: 'igwPvc', type: 'pvc' } },
         ],
         edges: [
           { data: { id: 'e1', source: 'p', target: 'igwSvc', type: 'pod-calls-service' } },
@@ -1105,6 +1121,9 @@ describe('normalizeGraph — controller enrichment', () => {
           { data: { id: 'e3', source: 'igwPod', target: 'bsvc', type: 'pod-calls-service' } },
           { data: { id: 'e4', source: 'bsvc', target: 'bpod', type: 'service-selects-pod' } },
           { data: { id: 'e5', source: 'p', target: 'bsvc', type: 'pod-calls-service' } },
+          { data: { id: 'e6', source: 'igwPod', target: 'k8sNode', type: 'pod-to-node' } },
+          { data: { id: 'e7', source: 'igwPod', target: 'igwPvc', type: 'pod-mounts-pvc' } },
+          { data: { id: 'e8', source: 'igwPod', target: 'bpod', type: 'pod-calls-configmap' } },
         ],
       },
     };
@@ -1116,7 +1135,7 @@ describe('normalizeGraph — controller enrichment', () => {
           .map((e) => [String(e.data.id), (e.data as cytoscape.EdgeDataDefinition).ingressPath === true])
       );
 
-    it('dashes only the three ingress-path edges (either endpoint is an ingress node)', () => {
+    it('dashes only the three traffic edges on the ingress path', () => {
       const flags = ingressFlagById(doublePathRaw);
       // pod → ingress-svc, ingress-svc → ingress-pod, ingress-pod → backend-svc.
       expect(flags.get('e1')).toBe(true);
@@ -1125,6 +1144,21 @@ describe('normalizeGraph — controller enrichment', () => {
       // The direct path + the backend fan-out stay solid (no ingress endpoint).
       expect(flags.get('e4')).toBe(false);
       expect(flags.get('e5')).toBe(false);
+    });
+
+    it('leaves the ingress pod NON-traffic edges solid (scheduling / storage)', () => {
+      const flags = ingressFlagById(doublePathRaw);
+      // Both touch an ingress node, but pod-to-node / pod-mounts-pvc express
+      // placement and mounts — not traffic routed through the gateway.
+      expect(flags.get('e6')).toBe(false);
+      expect(flags.get('e7')).toBe(false);
+    });
+
+    it('leaves an unknown edge type solid even when it touches an ingress node', () => {
+      // A dash ASSERTS "this traffic detours via the gateway"; an unmapped backend
+      // type cannot be asserted, so it defaults to non-traffic (no dash). Unlike
+      // the filter's unknown-visible rule, this hides nothing.
+      expect(ingressFlagById(doublePathRaw).get('e8')).toBe(false);
     });
 
     it('sets ingressPath ONLY on qualifying edges (absent, not false, elsewhere)', () => {
@@ -1138,10 +1172,7 @@ describe('normalizeGraph — controller enrichment', () => {
     it('marks nothing when no node carries the ingress label', () => {
       const raw = {
         elements: {
-          nodes: [
-            { data: { id: 'svc', type: 'service' } },
-            { data: { id: 'pod', type: 'pod' } },
-          ],
+          nodes: [{ data: { id: 'svc', type: 'service' } }, { data: { id: 'pod', type: 'pod' } }],
           edges: [{ data: { id: 'e', source: 'svc', target: 'pod', type: 'service-selects-pod' } }],
         },
       };

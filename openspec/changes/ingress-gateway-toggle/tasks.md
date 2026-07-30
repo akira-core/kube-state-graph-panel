@@ -38,3 +38,13 @@
 
 - [x] 7.1 `/d/ksg-switch-demo`:toggle 關閉 → ingress-svc、ingress-0、三條 edge 與清空的 ingress app/controller 容器消失,直連 `gateway → mongo-svc → mongo pods` 保留
 - [x] 7.2 toggle 重新開啟 → 雙路徑還原;`npm run test:ci` 維持全綠
+
+## 8. Ingress 流量路徑虛線(設計決策 7)
+
+- [x] 8.1 `src/shared/graph/collectIngressNodeIds.ts`:把集合推導由 `computeVisibility` module-private 提升為 exported 純函式 + 自身單元測試(供 element-filter 與 graph-data 共用);design 決策 2 同步修正
+- [x] 8.2 `src/features/graph-data/normalize.ts`:後置 pass `markIngressEdges`,對合格 edge clone 出 `data.ingressPath = true`;`cytoscape.d.ts` 宣告 `ingressPath?: boolean`
+- [x] 8.3 `getStylesheet.ts`:`edge[?ingressPath]` 選擇器置於基礎 `edge` + taxi 規則之後,只設 `line-style: 'dashed'` 與 `line-dash-pattern: [8, 8]`(加寬預設 6/3,縮放後仍讀得出);snapshot 更新
+- [x] 8.4 `src/shared/constants/colorByEdgeType.ts`:新增 exhaustive `EDGE_IS_TRAFFIC_BY_TYPE: Record<EdgeType, boolean>` 與安全讀取 `isTrafficEdgeType(type)`(未知 type ⇒ 非流量);`colorByEdgeType.test.ts` 補流量集合、key 完整性、未知/undefined 三組斷言
+- [x] 8.5 `markIngressEdges` 判準加第二個條件 `isTrafficEdgeType(edgeType)`,排除 ingress pod 自身的 `pod-to-node` / `pod-mounts-pvc`;檔頭註解與 `cytoscape.d.ts` 註解改寫為「流量路徑」語意
+- [x] 8.6 `normalize.test.ts` 的 `doublePathRaw` fixture 擴為正反例同處:加 `k8sNode` / `igwPvc` 節點與 `e6`(pod-to-node)、`e7`(pod-mounts-pvc)、`e8`(未知 type `pod-calls-configmap`)三條邊;新增兩個 test 斷言其皆不帶 `ingressPath`
+- [x] 8.7 `npm run typecheck && npm run lint && npm run test:ci` 全綠;`/d/ksg-switch-demo` 目視確認 8/8 dash 在縮放後仍讀得出

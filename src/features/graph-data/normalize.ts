@@ -3,6 +3,7 @@ import type cytoscape from 'cytoscape';
 import { APPLICATION_BEARING_KINDS } from '../../shared/constants/applicationBearingKinds';
 import { APPLICATION_COLOR } from '../../shared/constants/applicationPalette';
 import { CLUSTER_COLOR } from '../../shared/constants/clusterPalette';
+import { isTrafficEdgeType } from '../../shared/constants/colorByEdgeType';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
 import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
@@ -465,14 +466,19 @@ function enrichControllers(nodeElements: cytoscape.ElementDefinition[]): cytosca
   });
 }
 
-// Flag every edge along the ingress-gateway path so the stylesheet can dash it
-// (`edge[?ingressPath]`). An edge is on the path when either endpoint is an ingress
-// node — the same set the showIngress toggle hides — which covers all three hops:
-// pod → ingress-svc (target ∈ set), ingress-svc → ingress-pod (both ∈ set), and
-// ingress-pod → backend-svc (source ∈ set). No new edge type needed: these reuse
-// the shared `pod-calls-service` / `service-selects-pod` types, so the distinction
-// is per-edge (endpoint membership), not per-type. Immutable: only edges touching
-// the set are cloned with `ingressPath: true`; every other element passes through.
+// Flag every edge on the ingress-gateway TRAFFIC path so the stylesheet can dash it
+// (`edge[?ingressPath]`). Two conditions, both required:
+//   1. an endpoint is an ingress node (the same set the showIngress toggle hides), and
+//   2. the edge type carries traffic (EDGE_IS_TRAFFIC_BY_TYPE; unmapped ⇒ NOT traffic).
+// Together they cover exactly the three hops — pod → ingress-svc (target ∈ set),
+// ingress-svc → ingress-pod (both ∈ set), ingress-pod → backend-svc (source ∈ set) —
+// while leaving the ingress pod's own scheduling (`pod-to-node`) and storage
+// (`pod-mounts-pvc`) edges solid: those touch an ingress node but are not traffic
+// routed through the gateway, and dashing them would assert a detour that does not
+// exist. No new edge type needed: the traffic hops reuse the shared
+// `pod-calls-service` / `service-selects-pod` types, so the distinction is per-edge
+// (endpoint membership), not per-type. Immutable: only qualifying edges are cloned
+// with `ingressPath: true`; every other element passes through.
 function markIngressEdges(elements: cytoscape.ElementDefinition[]): cytoscape.ElementDefinition[] {
   const ingressIds = collectIngressNodeIds(elements);
   if (ingressIds.size === 0) {
@@ -483,8 +489,10 @@ function markIngressEdges(elements: cytoscape.ElementDefinition[]): cytoscape.El
       return el;
     }
     const data = el.data as cytoscape.EdgeDataDefinition;
-    const { source, target } = data;
-    if ((typeof source === 'string' && ingressIds.has(source)) || (typeof target === 'string' && ingressIds.has(target))) {
+    const { source, target, edgeType } = data;
+    const touchesIngress =
+      (typeof source === 'string' && ingressIds.has(source)) || (typeof target === 'string' && ingressIds.has(target));
+    if (touchesIngress && isTrafficEdgeType(edgeType)) {
       return { ...el, data: { ...data, ingressPath: true } };
     }
     return el;

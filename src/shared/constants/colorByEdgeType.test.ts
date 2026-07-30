@@ -1,4 +1,9 @@
-import { EDGE_STYLE_BY_TYPE, EDGE_ENDPOINTS_BY_TYPE } from './colorByEdgeType';
+import {
+  EDGE_STYLE_BY_TYPE,
+  EDGE_ENDPOINTS_BY_TYPE,
+  EDGE_IS_TRAFFIC_BY_TYPE,
+  isTrafficEdgeType,
+} from './colorByEdgeType';
 import { STATUS_COLOR } from './colorByStatus';
 
 describe('colorByEdgeType', () => {
@@ -48,6 +53,25 @@ describe('colorByEdgeType', () => {
         expect(`${type}:${style.routing}`).toBe(`${type}:bezier`);
       }
     }
+  });
+
+  it('classifies only the request-carrying edge types as traffic', () => {
+    const traffic = Object.entries(EDGE_IS_TRAFFIC_BY_TYPE)
+      .filter(([, isTraffic]) => isTraffic)
+      .map(([type]) => type)
+      .sort();
+    expect(traffic).toEqual(['pod-calls-pod', 'pod-calls-service', 'service-selects-pod']);
+  });
+
+  it('covers every styled edge type in the traffic map (no silent default for a new type)', () => {
+    expect(Object.keys(EDGE_IS_TRAFFIC_BY_TYPE).sort()).toEqual(Object.keys(EDGE_STYLE_BY_TYPE).sort());
+  });
+
+  it('reports an unmapped or missing edge type as non-traffic', () => {
+    expect(isTrafficEdgeType('pod-calls-service')).toBe(true);
+    expect(isTrafficEdgeType('pod-mounts-pvc')).toBe(false);
+    expect(isTrafficEdgeType('pod-calls-configmap')).toBe(false);
+    expect(isTrafficEdgeType(undefined)).toBe(false);
   });
 
   it('includes the backend edges + switch fabric edges as known wire types', () => {
