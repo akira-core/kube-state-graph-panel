@@ -11,6 +11,10 @@ export interface EdgeGlyphProps {
   // the merged `pod ↔ pod/service` legend row, which stands in for a relationship
   // that runs in both directions (pod calls service, service selects pod).
   bidirectional?: boolean;
+  // Overrides the default dash rhythm for `lineStyle: 'dashed'` as an SVG stroke-dasharray
+  // (e.g. '8 8'). Lets a key mirror a canvas rule that sets its own line-dash-pattern —
+  // the ingress-path dash — instead of drawing a rhythm nothing on canvas uses.
+  dashPattern?: string;
 }
 
 // Mirrors the on-canvas edge: a line in the edge colour + line-style, capped by
@@ -32,8 +36,9 @@ export function EdgeGlyph({
   width = 30,
   height = 12,
   bidirectional = false,
+  dashPattern,
 }: Readonly<EdgeGlyphProps>): React.JSX.Element {
-  const dash = dashArray(lineStyle);
+  const dash = lineStyle === 'dashed' && dashPattern !== undefined ? dashPattern : dashArray(lineStyle);
   // Leave room on the left for the second arrowhead when bidirectional.
   const lineStart = bidirectional ? 8 : 1;
   return (

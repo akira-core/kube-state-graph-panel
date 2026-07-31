@@ -21,7 +21,7 @@ declare module 'cytoscape' {
     containers?: ContainerSpec[];
     // StorageClass leaf structural fields (backend D6: cluster > storageclass leaf,
     // both omitempty). `provisioner` is the CSI driver; `parameters` is the
-    // provisioner-dependent key/value map (validated via isStringRecord). Surfaced in
+    // provisioner-dependent key/value map (validated via parseStringRecord). Surfaced in
     // the detail panel's Storage Class section; NOT query params (assembleDashboardParams
     // DENYLIST). Omitted when the backend sends a bare storageclass.
     provisioner?: string;
@@ -69,6 +69,11 @@ declare module 'cytoscape' {
   interface EdgeDataDefinition {
     edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)
     labels?: Record<string, string>;
+    // true on edges along the ingress-gateway TRAFFIC path — an endpoint is an ingress node
+    // AND the type carries traffic (so the ingress pod's own pod-to-node / pod-mounts-pvc
+    // edges are excluded). Set by normalize's markIngressEdges → dashed via the
+    // `edge[?ingressPath]` stylesheet rule.
+    ingressPath?: boolean;
   }
 
   // `events` is a real cytoscape node style key (toggles event capture) missing

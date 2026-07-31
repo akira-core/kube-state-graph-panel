@@ -6,4 +6,5 @@ export * from './drawnEdgeTypesForMode';
 export * from './colorByStatus';
 export * from './missingValuePlaceholder';
 export * from './clusterPalette';
+export * from './ingressGateway';
 export * from './applicationPalette';

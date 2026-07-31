@@ -3,9 +3,11 @@ import type cytoscape from 'cytoscape';
 import { APPLICATION_BEARING_KINDS } from '../../shared/constants/applicationBearingKinds';
 import { APPLICATION_COLOR } from '../../shared/constants/applicationPalette';
 import { CLUSTER_COLOR } from '../../shared/constants/clusterPalette';
+import { isTrafficEdgeType } from '../../shared/constants/colorByEdgeType';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
 import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
+import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { isPlainObject } from '../../shared/guards/isPlainObject';
 import type { ContainerSpec } from '../../shared/types/containerSpec';
 
@@ -22,16 +24,24 @@ function isString(v: unknown): v is string {
 // the guard moved to shared/.
 export { isPlainObject };
 
-function isStringRecord(v: unknown): v is Record<string, string> {
+// Anti-corruption: keeps only the string-valued entries (partial-parse contract, like
+// parseAlerts/parseContainers below) instead of dropping the WHOLE map when one value is
+// non-string — a single stray non-string label (e.g. a numeric `replicas` key) must not
+// make every other label (incl. the ingress-gateway marker) silently disappear.
+function parseStringRecord(v: unknown): Record<string, string> | undefined {
   if (!isPlainObject(v)) {
-    return false;
+    return undefined;
   }
-  for (const val of Object.values(v)) {
-    if (typeof val !== 'string') {
-      return false;
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(v)) {
+    if (typeof val === 'string') {
+      result[key] = val;
     }
   }
-  return true;
+  // An originally-empty object stays an empty object (the prior all-or-nothing guard was
+  // vacuously true for it); a non-empty object that loses every entry to filtering is
+  // reported as absent, not as a spurious empty object.
+  return Object.keys(v).length === 0 || Object.keys(result).length > 0 ? result : undefined;
 }
 
 function isNonEmptyStringArray(v: unknown): v is string[] {
@@ -270,7 +280,7 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
       errors.push(`nodes[${String(index)}] duplicate id "${d.id}"`);
       continue;
     }
-    const labels = isStringRecord(d.labels) ? d.labels : undefined;
+    const labels = parseStringRecord(d.labels);
     const namespace = labels?.namespace;
     // Bare upstream name for every node — decorative-group kind prefixes are render-only
     // in the stylesheet (tooltip / identity consumers must not see them).
@@ -302,7 +312,7 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const owner = isPod ? parseOwner(d, labels) : undefined;
     // storageclass leaf structural fields (D3); omitempty — passed through when present.
     const provisioner = isString(d.provisioner) ? d.provisioner : undefined;
-    const parameters = isStringRecord(d.parameters) ? d.parameters : undefined;
+    const parameters = parseStringRecord(d.parameters);
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -360,7 +370,7 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
       continue;
     }
     edgeIds.add(d.id);
-    const labels = isStringRecord(d.labels) ? d.labels : undefined;
+    const labels = parseStringRecord(d.labels);
     elements.push({
       group: 'edges',
       data: {
@@ -464,6 +474,39 @@ function enrichControllers(nodeElements: cytoscape.ElementDefinition[]): cytosca
   });
 }
 
+// Flag every edge on the ingress-gateway TRAFFIC path so the stylesheet can dash it
+// (`edge[?ingressPath]`). Two conditions, both required:
+//   1. an endpoint is an ingress node (the same set the showIngress toggle hides), and
+//   2. the edge type carries traffic (EDGE_IS_TRAFFIC_BY_TYPE; unmapped ⇒ NOT traffic).
+// Together they cover exactly the three hops — pod → ingress-svc (target ∈ set),
+// ingress-svc → ingress-pod (both ∈ set), ingress-pod → backend-svc (source ∈ set) —
+// while leaving the ingress pod's own scheduling (`pod-to-node`) and storage
+// (`pod-mounts-pvc`) edges solid: those touch an ingress node but are not traffic
+// routed through the gateway, and dashing them would assert a detour that does not
+// exist. No new edge type needed: the traffic hops reuse the shared
+// `pod-calls-service` / `service-selects-pod` types, so the distinction is per-edge
+// (endpoint membership), not per-type. Immutable: only qualifying edges are cloned
+// with `ingressPath: true`; every other element passes through.
+function markIngressEdges(elements: cytoscape.ElementDefinition[]): cytoscape.ElementDefinition[] {
+  const ingressIds = collectIngressNodeIds(elements);
+  if (ingressIds.size === 0) {
+    return elements;
+  }
+  return elements.map((el) => {
+    if (el.group !== 'edges') {
+      return el;
+    }
+    const data = el.data as cytoscape.EdgeDataDefinition;
+    const { source, target, edgeType } = data;
+    const touchesIngress =
+      (typeof source === 'string' && ingressIds.has(source)) || (typeof target === 'string' && ingressIds.has(target));
+    if (touchesIngress && isTrafficEdgeType(edgeType)) {
+      return { ...el, data: { ...data, ingressPath: true } };
+    }
+    return el;
+  });
+}
+
 export function normalizeGraph(raw: unknown): NormalizeResult {
   if (!isPlainObject(raw)) {
     return { elements: [], errors: ['payload is not an object'] };
@@ -490,8 +533,11 @@ export function normalizeGraph(raw: unknown): NormalizeResult {
   const edges = parseEdges(rawEdges, nodes.nodeIds);
   const enrichedNodes = enrichControllers(nodes.elements);
 
+  // Post-pass: dash-flag the ingress-gateway path edges (see markIngressEdges).
+  const elements = markIngressEdges([...enrichedNodes, ...edges.elements]);
+
   return {
-    elements: [...enrichedNodes, ...edges.elements],
+    elements,
     errors: [...errors, ...nodes.errors, ...edges.errors],
   };
 }

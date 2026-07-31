@@ -1,4 +1,11 @@
-import { EDGE_STYLE_BY_TYPE, EDGE_ENDPOINTS_BY_TYPE } from './colorByEdgeType';
+import {
+  EDGE_STYLE_BY_TYPE,
+  EDGE_ENDPOINTS_BY_TYPE,
+  EDGE_IS_TRAFFIC_BY_TYPE,
+  INGRESS_DASH_COLOR,
+  INGRESS_DASH_PATTERN,
+  isTrafficEdgeType,
+} from './colorByEdgeType';
 import { STATUS_COLOR } from './colorByStatus';
 
 describe('colorByEdgeType', () => {
@@ -48,6 +55,47 @@ describe('colorByEdgeType', () => {
         expect(`${type}:${style.routing}`).toBe(`${type}:bezier`);
       }
     }
+  });
+
+  it('classifies only the request-carrying edge types as traffic', () => {
+    const traffic = Object.entries(EDGE_IS_TRAFFIC_BY_TYPE)
+      .filter(([, isTraffic]) => isTraffic)
+      .map(([type]) => type)
+      .sort();
+    expect(traffic).toEqual(['pod-calls-pod', 'pod-calls-service', 'service-selects-pod']);
+  });
+
+  it('covers every styled edge type in the traffic map (no silent default for a new type)', () => {
+    expect(Object.keys(EDGE_IS_TRAFFIC_BY_TYPE).sort()).toEqual(Object.keys(EDGE_STYLE_BY_TYPE).sort());
+  });
+
+  it('reports an unmapped or missing edge type as non-traffic', () => {
+    expect(isTrafficEdgeType('pod-calls-service')).toBe(true);
+    expect(isTrafficEdgeType('pod-mounts-pvc')).toBe(false);
+    expect(isTrafficEdgeType('pod-calls-configmap')).toBe(false);
+    expect(isTrafficEdgeType(undefined)).toBe(false);
+  });
+
+  it('reports Object.prototype-named edge types as non-traffic (own-property lookup only)', () => {
+    // `data.type` is untrusted backend input copied verbatim by normalize. A bare map
+    // index would resolve these to INHERITED prototype members — truthy, never undefined —
+    // so the `?? false` unknown-is-not-traffic guarantee would not hold and the edge would
+    // be dashed as gateway traffic.
+    for (const inherited of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(isTrafficEdgeType(inherited)).toBe(false);
+    }
+  });
+
+  it('single-sources the ingress dash key from a real traffic-edge colour', () => {
+    // The legend key must be drawn in a colour that actually appears dashed on canvas:
+    // only traffic types can carry ingressPath, and they all share one colour.
+    const trafficColors = new Set(
+      Object.entries(EDGE_IS_TRAFFIC_BY_TYPE)
+        .filter(([, isTraffic]) => isTraffic)
+        .map(([type]) => EDGE_STYLE_BY_TYPE[type as keyof typeof EDGE_STYLE_BY_TYPE].color)
+    );
+    expect(trafficColors).toContain(INGRESS_DASH_COLOR);
+    expect(INGRESS_DASH_PATTERN).toHaveLength(2);
   });
 
   it('includes the backend edges + switch fabric edges as known wire types', () => {

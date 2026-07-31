@@ -9,3 +9,13 @@ export function legendListStyles(): { list: string; row: string } {
     row: css({ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }),
   };
 }
+
+// Shared "hideable row" treatment: content fades when toggled off while the eye /
+// eye-slash button stays full-strength as the restore affordance (NodeLegend kind rows,
+// IngressToggle). One place to keep the fade opacity + button alignment in sync.
+export function legendToggleStyles(): { dimmed: string; toggle: string } {
+  return {
+    dimmed: css({ opacity: 0.4 }),
+    toggle: css({ marginLeft: 'auto' }),
+  };
+}

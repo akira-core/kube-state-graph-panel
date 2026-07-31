@@ -1,6 +1,7 @@
 export { NodeLegend, type NodeLegendKindEntry } from './components/NodeLegend';
 export { EdgeLegend } from './components/EdgeLegend';
 export { LayoutModeControl } from './components/LayoutModeControl';
+export { IngressToggle } from './components/IngressToggle';
 export { ClusterLegend, type ClusterLegendEntry } from './components/ClusterLegend';
 export { NamespaceLegend, type NamespaceLegendEntry } from './components/NamespaceLegend';
 export { ApplicationLegend, type ApplicationLegendEntry } from './components/ApplicationLegend';

@@ -425,7 +425,11 @@ describe('normalizeGraph', () => {
 
     it('never carries containers / owner onto a service leaf (those stay pod-only)', () => {
       const d = dataOf(
-        leaf('service', { application: 'mongodb', containers: [{ name: 'c', image: 'r/c:1' }], owner: { kind: 'X', name: 'y' } })
+        leaf('service', {
+          application: 'mongodb',
+          containers: [{ name: 'c', image: 'r/c:1' }],
+          owner: { kind: 'X', name: 'y' },
+        })
       );
       expect(d?.application).toBe('mongodb');
       expect(d !== undefined && 'containers' in d).toBe(false);
@@ -501,7 +505,9 @@ describe('normalizeGraph', () => {
         elements: {
           nodes: [
             { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
-            { data: { id: 'prod/namespace/shop', type: 'namespace', name: 'shop', parent: 'cluster/prod', labels: {} } },
+            {
+              data: { id: 'prod/namespace/shop', type: 'namespace', name: 'shop', parent: 'cluster/prod', labels: {} },
+            },
           ],
           edges: [],
         },
@@ -663,7 +669,7 @@ describe('normalizeGraph', () => {
       expect(sc !== undefined && 'parameters' in sc).toBe(false);
     });
 
-    it('drops parameters that fail the string-record shape, keeping the rest', () => {
+    it('drops only the non-string parameter entries, keeping the valid ones (and the rest of the node)', () => {
       const raw = {
         elements: {
           nodes: [
@@ -673,7 +679,7 @@ describe('normalizeGraph', () => {
                 type: 'storageclass',
                 name: 'sc',
                 provisioner: 'csi',
-                parameters: { pool: 'kube', bad: 7 }, // non-string value → whole map dropped
+                parameters: { pool: 'kube', bad: 7 }, // non-string value → only 'bad' dropped
               },
             },
           ],
@@ -682,6 +688,27 @@ describe('normalizeGraph', () => {
       };
       const sc = byId(raw).get('prod/storageclass/sc') as Record<string, unknown> | undefined;
       expect(sc?.provisioner).toBe('csi');
+      expect(sc?.parameters).toEqual({ pool: 'kube' });
+    });
+
+    it('drops the whole parameters map only when every entry fails the string-record shape', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            {
+              data: {
+                id: 'prod/storageclass/sc2',
+                type: 'storageclass',
+                name: 'sc2',
+                provisioner: 'csi',
+                parameters: { bad: 7 },
+              },
+            },
+          ],
+          edges: [],
+        },
+      };
+      const sc = byId(raw).get('prod/storageclass/sc2') as Record<string, unknown> | undefined;
       expect(sc !== undefined && 'parameters' in sc).toBe(false);
     });
   });
@@ -829,7 +856,10 @@ describe('normalizeGraph — node worstStatus via pod-to-node edges', () => {
   const podToNode = (podId: string, nodeId: string) => ({
     data: { id: `e:${podId}:${nodeId}`, type: 'pod-to-node', source: podId, target: nodeId },
   });
-  const graph = (nodes: Array<{ data: Record<string, unknown> }>, edges: Array<{ data: Record<string, unknown> }> = []): unknown => ({
+  const graph = (
+    nodes: Array<{ data: Record<string, unknown> }>,
+    edges: Array<{ data: Record<string, unknown> }> = []
+  ): unknown => ({
     elements: { nodes: [{ data: { id: 'cluster/prod', name: 'prod', type: 'cluster' } }, ...nodes], edges },
   });
 
@@ -955,7 +985,9 @@ describe('normalizeGraph — controller enrichment', () => {
     });
 
     it('treats unknown / absent status as normal (drawn green, D10)', () => {
-      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0', { status: 'bogus' })))?.worstStatus).toBe('normal');
+      expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0', { status: 'bogus' })))?.worstStatus).toBe(
+        'normal'
+      );
       expect(controllerOf(enrichGraph(childPod('prod/p1', 'mongo-0')))?.worstStatus).toBe('normal');
     });
   });
@@ -1085,5 +1117,148 @@ describe('normalizeGraph — controller enrichment', () => {
     const b = JSON.stringify(normalizeGraph(raw).elements);
     expect(a).toBe(b);
     expect(JSON.stringify(raw)).toBe(snapshot);
+  });
+
+  describe('ingress path dashing (markIngressEdges)', () => {
+    // Double-path fixture: p reaches bsvc both THROUGH the ingress gateway
+    // (p → igwSvc → igwPod → bsvc) and DIRECTLY (p → bsvc). Mirrors the demo.
+    // It also carries the counter-examples for the traffic-only rule: the ingress
+    // pod's scheduling (e6) / storage (e7) edges and an unknown-type edge (e8) all
+    // touch an ingress node yet MUST stay solid.
+    const doublePathRaw = {
+      elements: {
+        nodes: [
+          { data: { id: 'p', type: 'pod' } },
+          { data: { id: 'igwSvc', type: 'service', labels: { role: 'ingress-gateway' } } },
+          { data: { id: 'igwPod', type: 'pod' } },
+          { data: { id: 'bsvc', type: 'service' } },
+          { data: { id: 'bpod', type: 'pod' } },
+          { data: { id: 'k8sNode', type: 'node' } },
+          { data: { id: 'igwPvc', type: 'pvc' } },
+        ],
+        edges: [
+          { data: { id: 'e1', source: 'p', target: 'igwSvc', type: 'pod-calls-service' } },
+          { data: { id: 'e2', source: 'igwSvc', target: 'igwPod', type: 'service-selects-pod' } },
+          { data: { id: 'e3', source: 'igwPod', target: 'bsvc', type: 'pod-calls-service' } },
+          { data: { id: 'e4', source: 'bsvc', target: 'bpod', type: 'service-selects-pod' } },
+          { data: { id: 'e5', source: 'p', target: 'bsvc', type: 'pod-calls-service' } },
+          { data: { id: 'e6', source: 'igwPod', target: 'k8sNode', type: 'pod-to-node' } },
+          { data: { id: 'e7', source: 'igwPod', target: 'igwPvc', type: 'pod-mounts-pvc' } },
+          { data: { id: 'e8', source: 'igwPod', target: 'bpod', type: 'pod-calls-configmap' } },
+        ],
+      },
+    };
+
+    const ingressFlagById = (raw: unknown): Map<string, boolean> =>
+      new Map(
+        normalizeGraph(raw)
+          .elements.filter((e) => e.group === 'edges')
+          .map((e) => [String(e.data.id), (e.data as cytoscape.EdgeDataDefinition).ingressPath === true])
+      );
+
+    it('dashes only the three traffic edges on the ingress path', () => {
+      const flags = ingressFlagById(doublePathRaw);
+      // pod → ingress-svc, ingress-svc → ingress-pod, ingress-pod → backend-svc.
+      expect(flags.get('e1')).toBe(true);
+      expect(flags.get('e2')).toBe(true);
+      expect(flags.get('e3')).toBe(true);
+      // The direct path + the backend fan-out stay solid (no ingress endpoint).
+      expect(flags.get('e4')).toBe(false);
+      expect(flags.get('e5')).toBe(false);
+    });
+
+    it('leaves the ingress pod NON-traffic edges solid (scheduling / storage)', () => {
+      const flags = ingressFlagById(doublePathRaw);
+      // Both touch an ingress node, but pod-to-node / pod-mounts-pvc express
+      // placement and mounts — not traffic routed through the gateway.
+      expect(flags.get('e6')).toBe(false);
+      expect(flags.get('e7')).toBe(false);
+    });
+
+    it('leaves an unknown edge type solid even when it touches an ingress node', () => {
+      // A dash ASSERTS "this traffic detours via the gateway"; an unmapped backend
+      // type cannot be asserted, so it defaults to non-traffic (no dash). Unlike
+      // the filter's unknown-visible rule, this hides nothing.
+      expect(ingressFlagById(doublePathRaw).get('e8')).toBe(false);
+    });
+
+    it('sets ingressPath ONLY on qualifying edges (absent, not false, elsewhere)', () => {
+      const edges = normalizeGraph(doublePathRaw).elements.filter((e) => e.group === 'edges');
+      const byId = new Map(edges.map((e) => [String(e.data.id), e.data as cytoscape.EdgeDataDefinition]));
+      expect(byId.get('e1')?.ingressPath).toBe(true);
+      // Non-ingress edges carry no ingressPath key at all.
+      expect('ingressPath' in (byId.get('e5') ?? {})).toBe(false);
+    });
+
+    it('marks nothing when no node carries the ingress label', () => {
+      const raw = {
+        elements: {
+          nodes: [{ data: { id: 'svc', type: 'service' } }, { data: { id: 'pod', type: 'pod' } }],
+          edges: [{ data: { id: 'e', source: 'svc', target: 'pod', type: 'service-selects-pod' } }],
+        },
+      };
+      const edges = normalizeGraph(raw).elements.filter((e) => e.group === 'edges');
+      expect(edges.every((e) => (e.data as cytoscape.EdgeDataDefinition).ingressPath === undefined)).toBe(true);
+    });
+
+    it('dashes the traffic edges of a pod nested inside a LABELLED COMPOUND', () => {
+      // The label may sit on a controller/application group. The set that HIDES such a
+      // group's subtree (computeVisibility) and the set that DASHES its traffic
+      // (markIngressEdges) must be the same one — a path the toggle can hide but whose
+      // edges never dash is a contradiction visible on canvas.
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'ctrl', type: 'controller', labels: { role: 'ingress-gateway' } } },
+            { data: { id: 'igwPod', type: 'pod', parent: 'ctrl' } },
+            { data: { id: 'bsvc', type: 'service' } },
+            { data: { id: 'k8sNode', type: 'node' } },
+          ],
+          edges: [
+            { data: { id: 'e1', source: 'igwPod', target: 'bsvc', type: 'pod-calls-service' } },
+            { data: { id: 'e2', source: 'igwPod', target: 'k8sNode', type: 'pod-to-node' } },
+          ],
+        },
+      };
+      const flags = ingressFlagById(raw);
+      // Nested pod's traffic hop dashes …
+      expect(flags.get('e1')).toBe(true);
+      // … while its scheduling edge stays solid (traffic-only rule still applies).
+      expect(flags.get('e2')).toBe(false);
+    });
+
+    it('leaves an Object.prototype-named edge type solid (no prototype-chain lookup)', () => {
+      // `data.type` is untrusted and copied verbatim; a bare map index would resolve
+      // 'constructor' to the inherited Function (truthy) and dash the edge.
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'igwSvc', type: 'service', labels: { role: 'ingress-gateway' } } },
+            { data: { id: 'other', type: 'pod' } },
+          ],
+          edges: [{ data: { id: 'e', source: 'igwSvc', target: 'other', type: 'constructor' } }],
+        },
+      };
+      expect(ingressFlagById(raw).get('e')).toBe(false);
+    });
+
+    it('still detects the ingress label when a sibling label value is non-string', () => {
+      // A single stray non-string label (e.g. a numeric `replicas`) must not make the
+      // WHOLE labels map disappear and silently break ingress detection.
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'igwSvc', type: 'service', labels: { role: 'ingress-gateway', replicas: 3 } } },
+            { data: { id: 'igwPod', type: 'pod' } },
+          ],
+          edges: [{ data: { id: 'e', source: 'igwSvc', target: 'igwPod', type: 'service-selects-pod' } }],
+        },
+      };
+      const { elements } = normalizeGraph(raw);
+      const igwSvc = elements.find((e) => e.data.id === 'igwSvc')?.data as cytoscape.NodeDataDefinition;
+      expect(igwSvc.labels).toEqual({ role: 'ingress-gateway' });
+      const edge = elements.find((e) => e.data.id === 'e')?.data as cytoscape.EdgeDataDefinition;
+      expect(edge.ingressPath).toBe(true);
+    });
   });
 });

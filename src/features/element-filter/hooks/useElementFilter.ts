@@ -21,18 +21,17 @@ export function useElementFilter({ cyRef, sets }: UseElementFilterProps): void {
       cy.nodes().forEach((node) => {
         node.style('visibility', visibleNodeIds.has(node.id()) ? 'visible' : 'hidden');
       });
+      // NODE collapse — the only expand-collapse path this panel uses — re-points a boundary
+      // edge onto the collapsed container via `edge.move()`
+      // (barrowEdgesOfcollapsedChildren), which preserves the edge's ORIGINAL id and data.
+      // So `edge.id()` here is still exactly the id visibleEdgeIds was computed from, and no
+      // `.cy-expand-collapse-meta-edge` exemption is needed — or correct: overriding by
+      // endpoint visibility would revive an edge filtered out on its own merits
+      // (kind/edge-type/ingress) whenever collapse folds one of its real endpoints into a
+      // container that still has other visible children. (The extension's separate EDGE
+      // collapse api — `api.collapseEdges` — does mint new ids, but we never call it.)
       cy.edges().forEach((edge) => {
         edge.style('visibility', visibleEdgeIds.has(edge.id()) ? 'visible' : 'hidden');
-      });
-      // Meta-edges (synthesised by expand-collapse) are not in `elements`, so they
-      // are absent from visibleEdgeIds and would be wrongly hidden above. They
-      // aggregate multiple edge types, so they are exempt from edge-type filtering;
-      // visibility follows their endpoints only. Run AFTER the node pass so the
-      // endpoint visibility we read is already up to date.
-      cy.edges('.cy-expand-collapse-meta-edge').forEach((edge) => {
-        const visible =
-          edge.source().style('visibility') === 'visible' && edge.target().style('visibility') === 'visible';
-        edge.style('visibility', visible ? 'visible' : 'hidden');
       });
     });
   }, [cyRef, sets]);

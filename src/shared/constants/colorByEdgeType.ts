@@ -35,6 +35,44 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
   'node-to-switch': { from: 'node', to: 'switch' },
 };
 
+// Which edge types carry REQUEST TRAFFIC (as opposed to placement, storage or
+// physical-link relationships). Consumed by normalize's ingress-path dashing: an
+// edge is on the ingress traffic path only if it touches an ingress node AND its
+// type is traffic — otherwise the ingress pod's own pod-to-node / pod-mounts-pvc
+// edges would be dashed too, which claims a traffic detour that does not exist.
+// An exhaustive `Record<EdgeType, boolean>` (like EDGE_ENDPOINTS_BY_TYPE) so a new
+// edge type cannot silently pick a side — TypeScript demands the key. Unmapped
+// backend types resolve to `undefined` and are treated as NON-traffic by the
+// consumer (`?? false`): a dash asserts something, and an unknown type cannot be
+// asserted. That differs from the filter's unknown-visible rule on purpose —
+// withholding a dash hides nothing.
+export const EDGE_IS_TRAFFIC_BY_TYPE: Record<EdgeType, boolean> = {
+  'pod-calls-pod': true,
+  'pod-calls-service': true,
+  'service-selects-pod': true,
+  'pod-to-node': false,
+  'pod-mounts-pvc': false,
+  'pvc-to-storageclass': false,
+  'switch-to-switch': false,
+  'node-to-switch': false,
+};
+
+// The safe read of the map above: an unmapped backend type (GraphEdgeType widens to
+// string) is reported as non-traffic. Keeping the lookup here means no consumer has to
+// reproduce the fallback.
+//
+// Object.hasOwn, not a bare index + `?? false`: the backend type string is untrusted
+// (normalize copies `data.type` verbatim, no allow-list), so a type named after an
+// Object.prototype member — `constructor`, `toString`, `valueOf` — would otherwise
+// resolve to the INHERITED function, which is truthy and never `undefined`, and get
+// dashed as gateway traffic. Same guard as resolveEdgeStyle in getStylesheet.
+export function isTrafficEdgeType(type: string | undefined): boolean {
+  if (type === undefined || !Object.hasOwn(EDGE_IS_TRAFFIC_BY_TYPE, type)) {
+    return false;
+  }
+  return (EDGE_IS_TRAFFIC_BY_TYPE as Record<string, boolean>)[type] === true;
+}
+
 // Single source of truth for edge styling, keyed by upstream edge `data.type`,
 // covering ALL wire edge types (D6 — every type is backend-emitted). The stylesheet
 // resolves a colour/line-style per edge from this map regardless of mode — styling an
@@ -43,9 +81,13 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
 // (infra) mode the panel expresses it as compound nesting (design D7) so no such edge
 // exists. Which types are *drawn* (and shown in the legend) per mode is derived by
 // `drawnEdgeTypesForMode`.
-// All edges are SOLID — direction is conveyed by the arrowhead, and same-direction
-// distinctions by colour. (No dashed/dotted strokes.) Same-colour pairs
-// (pod→service / service→pod share orange) differ only by arrow direction.
+// Every TYPE here is SOLID — direction is conveyed by the arrowhead, and same-direction
+// distinctions by colour. Same-colour pairs (pod→service / service→pod share orange) differ
+// only by arrow direction. EXCEPTION (ingress-visibility-toggle): normalize's
+// markIngressEdges flags individual qualifying edges with `data.ingressPath`, and the
+// stylesheet's `edge[?ingressPath]` rule overrides `line-style` to dashed for those specific
+// edges only — a per-EDGE overlay driven by endpoint/traffic-type data, not a per-TYPE
+// property. This map still owns colour/routing/base line-style for every type.
 export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   // Pod → K8s node (backend D6). Blue (#3b82f6), the old node-edge hue.
   'pod-to-node': { color: '#3b82f6', lineStyle: 'solid', routing: 'bezier' },
@@ -71,3 +113,14 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
 };
 
 export const FALLBACK_EDGE_STYLE: EdgeStyle = { color: '#94a3b8', lineStyle: 'solid', routing: 'bezier' };
+
+// The ingress-path dash overlay, single-sourced so the canvas rule (`edge[?ingressPath]`
+// in getStylesheet) and the legend key (IngressToggle) cannot drift apart — a key drawn in
+// a pattern or colour nothing on canvas uses explains nothing. Wider than cytoscape's
+// default 6/3 so the dashing still reads as dashed when zoomed out.
+export const INGRESS_DASH_PATTERN: readonly [number, number] = [8, 8];
+
+// Every edge that CAN be dashed is a traffic type (markIngressEdges requires
+// isTrafficEdgeType), and all three traffic types share this orange — so it is the one
+// honest colour for the legend key. Read from the map rather than re-typed as a literal.
+export const INGRESS_DASH_COLOR: string = EDGE_STYLE_BY_TYPE['pod-calls-service'].color;

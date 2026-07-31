@@ -1,7 +1,12 @@
 import type { GrafanaTheme2 } from '@grafana/data';
 import type cytoscape from 'cytoscape';
 
-import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE, type EdgeStyle } from '../../../shared/constants/colorByEdgeType';
+import {
+  EDGE_STYLE_BY_TYPE,
+  FALLBACK_EDGE_STYLE,
+  INGRESS_DASH_PATTERN,
+  type EdgeStyle,
+} from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { FOLDER_ICON_SVG, iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
@@ -375,17 +380,31 @@ export function getStylesheet({
           },
         ]),
     {
+      // Ingress-gateway path edges (data.ingressPath, set by normalize's markIngressEdges):
+      // rendered dashed so the pod → ingress-svc → ingress-pod → backend-svc path reads apart
+      // from normal traffic when the ingress toggle is on. Declared after the base `edge` +
+      // taxi rules so it overrides their `line-style`; colour/arrow/routing are left intact.
+      // Only visible when the toggle is on — otherwise these edges are filtered out entirely.
+      // Dash pattern is single-sourced with the legend key (INGRESS_DASH_PATTERN).
+      selector: 'edge[?ingressPath]',
+      style: {
+        'line-style': 'dashed',
+        'line-dash-pattern': [...INGRESS_DASH_PATTERN],
+      },
+    },
+    {
       // Focus dimming for edges (see node.FADED_CLASS); lower than nodes so faded
       // connections recede further than faded glyphs.
       selector: `edge.${FADED_CLASS}`,
       style: { opacity: 0.12 },
     },
     {
-      // Boundary edge re-pointed to a collapsed container by expand-collapse. The
-      // extension preserves the original `data.edgeType`, so colour/arrow/line-style
-      // cascade from the base `edge` rule. This rule only bumps width + forces a
-      // straight line (taxi/bezier both look noisy between collapsed boxes). Exempt
-      // from edge-type filtering — see useElementFilter.
+      // Boundary edge re-pointed to a collapsed container by expand-collapse. The extension
+      // MOVES the original edge (same id, same data) rather than synthesising a new one, so
+      // colour/arrow/line-style cascade from the base `edge` rule and the edge stays subject
+      // to the normal edge-type/ingress filtering under its own id (see useElementFilter —
+      // it deliberately has NO meta-edge exemption). This rule only bumps width + forces a
+      // straight line (taxi/bezier both look noisy between collapsed boxes).
       selector: 'edge.cy-expand-collapse-meta-edge',
       style: {
         'curve-style': 'straight',
