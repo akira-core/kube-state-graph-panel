@@ -51,15 +51,13 @@ export type EdgeType =
 // as compound nesting in the `node` (infra) mode and only drawn as an edge in the
 // default `controller` mode (design D6/D7).
 
-// Runtime-honest kind / edge type as it actually arrives in graph data: a KNOWN enum
-// value OR a forward-compat string the backend may emit before the panel learns it.
-// Unknown values are kept (computeVisibility leaves them visible, categoryForKind /
-// the *_BY_KIND maps fall back) — they are never dropped, so the type must admit them.
-// `(string & {})` keeps known-literal autocomplete while accepting any string; the
-// cytoscape data declaration uses these so `normalize` need not cast `data.type` to a
-// closed union it cannot prove.
-export type GraphNodeKind = NodeKind | (string & {});
-export type GraphEdgeType = EdgeType | (string & {});
+// Runtime-honest kind / edge type as it actually arrives in graph data: free-form
+// string so unknown backend values stay typed (computeVisibility leaves them visible,
+// categoryForKind / the *_BY_KIND maps fall back) — never dropped. Named aliases keep
+// the domain clear; closed-union autocomplete lives on NodeKind / EdgeType where those
+// are used. (Avoid `string & {}` — Sonar typescript:S4335.)
+export type GraphNodeKind = string;
+export type GraphEdgeType = string;
 
 // Health status carried on leaf nodes (upstream data.status). Drives the status
 // border colour (pod/node/pvc) and the detail panel badge. Absent/unknown values
