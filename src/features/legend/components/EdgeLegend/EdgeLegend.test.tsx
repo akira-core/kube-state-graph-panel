@@ -1,7 +1,11 @@
 import { render, screen, within } from '@testing-library/react';
 import React from 'react';
 
-import { EDGE_ENDPOINTS_BY_TYPE, EDGE_STYLE_BY_TYPE } from '../../../../shared/constants/colorByEdgeType';
+import {
+  EDGE_ENDPOINTS_BY_TYPE,
+  EDGE_STYLE_BY_TYPE,
+  NETWORK_HOP_DASH_PATTERN,
+} from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
 
 import { EdgeLegend } from './EdgeLegend';
@@ -124,6 +128,49 @@ describe('EdgeLegend', () => {
   it('renders nothing when no edge types are present', () => {
     const { container } = render(<EdgeLegend edgeTypes={[]} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe('network-hop variant row', () => {
+    // Dashing is a per-edge overlay (ingress path / `relation: transport`), but every edge
+    // that can carry it is one of the traffic types the `pod ↔ pod/service` row already
+    // stands in for — so it reads as a variant of that row, not a section of its own.
+    const ROW = 'edge-legend-row-network-hop';
+
+    it('stays out of the list unless the caller says the graph has dashed edges', () => {
+      render(<EdgeLegend />);
+      expect(screen.queryByTestId(ROW)).toBeNull();
+    });
+
+    it('sits directly under the solid row it varies, so the contrast needs no prose', () => {
+      render(<EdgeLegend edgeTypes={['pod-mounts-pvc', 'pod-calls-pod', 'pvc-to-storageclass']} hasNetworkHop />);
+      const legend = screen.getByTestId('edge-legend');
+      const keys = within(legend)
+        .getAllByRole('listitem')
+        .map((li) => li.getAttribute('data-testid'));
+      expect(keys.indexOf(ROW)).toBe(keys.indexOf('edge-legend-row-pod-calls-pod') + 1);
+    });
+
+    it('reuses the solid row’s endpoints and colour, differing only in rhythm', () => {
+      render(<EdgeLegend edgeTypes={['pod-calls-pod']} hasNetworkHop />);
+      const row = within(screen.getByTestId('edge-legend')).getByTestId(ROW);
+      expect(within(row).getByText('pod')).toBeInTheDocument();
+      expect(within(row).getByText('pod/service')).toBeInTheDocument();
+      expect(within(row).getByText('via gateway / broker')).toBeInTheDocument();
+      const line = within(row).getByTestId('edge-glyph').querySelector('line');
+      // Same colour as pod-calls-pod on canvas; the dash rhythm is the one the stylesheet's
+      // ingressPath / transport rules set, so the key describes strokes that really appear.
+      expect(line?.getAttribute('stroke')).toBe(EDGE_STYLE_BY_TYPE['pod-calls-pod'].color);
+      expect(line?.getAttribute('stroke-dasharray')).toBe(NETWORK_HOP_DASH_PATTERN.join(' '));
+    });
+
+    it('falls back to appending when the solid row is absent (only omitted svc types drawn)', () => {
+      render(<EdgeLegend edgeTypes={['pod-mounts-pvc', 'pod-calls-service']} hasNetworkHop />);
+      const legend = screen.getByTestId('edge-legend');
+      const keys = within(legend)
+        .getAllByRole('listitem')
+        .map((li) => li.getAttribute('data-testid'));
+      expect(keys).toEqual(['edge-legend-row-pod-mounts-pvc', ROW]);
+    });
   });
 
   describe('controller pod-parent mode', () => {

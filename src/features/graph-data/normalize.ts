@@ -5,6 +5,7 @@ import { APPLICATION_COLOR } from '../../shared/constants/applicationPalette';
 import { CLUSTER_COLOR } from '../../shared/constants/clusterPalette';
 import { isTrafficEdgeType } from '../../shared/constants/colorByEdgeType';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
+import { RELATION_LABEL_KEY } from '../../shared/constants/edgeRelation';
 import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
@@ -371,6 +372,12 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
     }
     edgeIds.add(d.id);
     const labels = parseStringRecord(d.labels);
+    // Hoist `labels.relation` to a flat field: cytoscape selectors cannot reach nested
+    // data, so `edge[relation = "transport"]` needs it at the top level. Copied verbatim
+    // (unlike the derived `ingressPath`) — the backend owns the value, and an unknown
+    // one passes through to the solid default. `labels.relation` stays in place for the
+    // hover tooltip; the duplication is deliberate.
+    const relation = labels?.[RELATION_LABEL_KEY];
     elements.push({
       group: 'edges',
       data: {
@@ -379,6 +386,7 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
         target: d.target,
         edgeType: d.type,
         ...(labels !== undefined ? { labels } : {}),
+        ...(relation !== undefined ? { relation } : {}),
       },
     });
   }

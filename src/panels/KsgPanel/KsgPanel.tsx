@@ -41,6 +41,7 @@ import {
   useNodeClickExport,
 } from '../../features/variable-export';
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
+import { EDGE_RELATION_TRANSPORT } from '../../shared/constants/edgeRelation';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
@@ -338,6 +339,20 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // needed to notice or undo it, while `options.showIngress` stayed false. Node ids survive
   // the transform, so a set derived here stays valid for lookups against `elements`.
   const ingressNodeIds = useMemo(() => collectIngressNodeIds(baseElements), [baseElements]);
+
+  // Does this graph produce dashed strokes at all? Two independent sources — the ingress
+  // path above and backend-labelled transport edges — so EdgeLegend's dashed variant row
+  // shows for EITHER on its own. Read from baseElements for the same reason ingressNodeIds
+  // is: the view transforms must not change what the legend claims.
+  const hasNetworkHop = useMemo(
+    () =>
+      ingressNodeIds.size > 0 ||
+      baseElements.some(
+        (el) =>
+          el.group === 'edges' && (el.data as cytoscape.EdgeDataDefinition).relation === EDGE_RELATION_TRANSPORT
+      ),
+    [ingressNodeIds, baseElements]
+  );
 
   // The ONE visibility computation (kind/edge filter + orphan cascade). Both GraphCanvas
   // (useElementFilter) and the detail-panel gate below consume it — computed once to keep
@@ -674,7 +689,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           />
           <NodeLegend entries={nodeLegendEntries} onToggleKind={handleToggleKind} />
           {ingressNodeIds.size > 0 && <IngressToggle visible={showIngress} onToggle={handleToggleIngress} />}
-          <EdgeLegend edgeTypes={presentEdgeTypes} />
+          <EdgeLegend edgeTypes={presentEdgeTypes} hasNetworkHop={hasNetworkHop} />
           <StatusLegend />
           <ClusterLegend
             clusters={clusterEntries}

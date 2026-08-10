@@ -1261,4 +1261,81 @@ describe('normalizeGraph — controller enrichment', () => {
       expect(edge.ingressPath).toBe(true);
     });
   });
+
+  describe('edge relation label', () => {
+    // The backend marks service-graph edges with `labels.relation`: 'transport' = the pod's
+    // real network hop to a broker, 'link' = the logical dependency that hop stands in for,
+    // absent = ordinary RPC. Cytoscape selectors cannot read nested data, so normalize
+    // hoists the value to a flat `data.relation` — verbatim, no allow-list.
+    const withRelation = (relation: unknown): Record<string, unknown> => ({
+      elements: {
+        nodes: [
+          { data: { id: 'a', type: 'pod' } },
+          { data: { id: 'b', type: 'service' } },
+        ],
+        edges: [
+          {
+            data: {
+              id: 'e',
+              source: 'a',
+              target: 'b',
+              type: 'pod-calls-service',
+              ...(relation === undefined ? {} : { labels: { relation } }),
+            },
+          },
+        ],
+      },
+    });
+
+    const edgeData = (raw: unknown): cytoscape.EdgeDataDefinition => {
+      const { elements, errors } = normalizeGraph(raw);
+      expect(errors).toEqual([]);
+      return elements.find((e) => e.data.id === 'e')?.data as cytoscape.EdgeDataDefinition;
+    };
+
+    it.each(['transport', 'link'])('hoists relation "%s" to a flat field', (relation) => {
+      const data = edgeData(withRelation(relation));
+      expect(data.relation).toBe(relation);
+      // The label itself stays put — the hover tooltip renders it from data.labels.
+      expect(data.labels).toEqual({ relation });
+    });
+
+    it('passes an unknown relation value through rather than dropping it', () => {
+      // A future value must reach the stylesheet, which simply has no rule for it (solid),
+      // instead of being silently rewritten to something that has one.
+      expect(edgeData(withRelation('sidecar')).relation).toBe('sidecar');
+    });
+
+    it('omits the key entirely when the label is absent', () => {
+      const data = edgeData(withRelation(undefined));
+      // Absent, not `undefined`: same discipline as ingressPath, and `edge[relation]`
+      // selectors treat a present-but-undefined field differently from a missing one.
+      expect('relation' in data).toBe(false);
+    });
+
+    it('drops a non-string relation without losing its sibling labels', () => {
+      const raw = {
+        elements: {
+          nodes: [
+            { data: { id: 'a', type: 'pod' } },
+            { data: { id: 'b', type: 'service' } },
+          ],
+          edges: [
+            {
+              data: {
+                id: 'e',
+                source: 'a',
+                target: 'b',
+                type: 'pod-calls-service',
+                labels: { relation: ['transport'], namespace: 'shop' },
+              },
+            },
+          ],
+        },
+      };
+      const data = edgeData(raw);
+      expect('relation' in data).toBe(false);
+      expect(data.labels).toEqual({ namespace: 'shop' });
+    });
+  });
 });

@@ -7,4 +7,5 @@ export * from './colorByStatus';
 export * from './missingValuePlaceholder';
 export * from './clusterPalette';
 export * from './ingressGateway';
+export * from './edgeRelation';
 export * from './applicationPalette';

@@ -83,11 +83,15 @@ export function isTrafficEdgeType(type: string | undefined): boolean {
 // `drawnEdgeTypesForMode`.
 // Every TYPE here is SOLID — direction is conveyed by the arrowhead, and same-direction
 // distinctions by colour. Same-colour pairs (pod→service / service→pod share orange) differ
-// only by arrow direction. EXCEPTION (ingress-visibility-toggle): normalize's
-// markIngressEdges flags individual qualifying edges with `data.ingressPath`, and the
-// stylesheet's `edge[?ingressPath]` rule overrides `line-style` to dashed for those specific
-// edges only — a per-EDGE overlay driven by endpoint/traffic-type data, not a per-TYPE
-// property. This map still owns colour/routing/base line-style for every type.
+// only by arrow direction. EXCEPTION — two per-EDGE dash overlays, both meaning "this is a
+// network hop through a middlebox, not the thing the pod actually depends on":
+//   * `data.ingressPath` (derived by normalize's markIngressEdges from endpoint membership
+//     + traffic type) → `edge[?ingressPath]`
+//   * `data.relation === 'transport'` (given by the backend on service-graph edges, hoisted
+//     verbatim by normalize) → `edge[relation = "transport"]`
+// Both override `line-style` to dashed for those specific edges only, driven by per-edge
+// data rather than a per-TYPE property. This map still owns colour/routing/base line-style
+// for every type.
 export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   // Pod → K8s node (backend D6). Blue (#3b82f6), the old node-edge hue.
   'pod-to-node': { color: '#3b82f6', lineStyle: 'solid', routing: 'bezier' },
@@ -114,13 +118,10 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
 
 export const FALLBACK_EDGE_STYLE: EdgeStyle = { color: '#94a3b8', lineStyle: 'solid', routing: 'bezier' };
 
-// The ingress-path dash overlay, single-sourced so the canvas rule (`edge[?ingressPath]`
-// in getStylesheet) and the legend key (IngressToggle) cannot drift apart — a key drawn in
-// a pattern or colour nothing on canvas uses explains nothing. Wider than cytoscape's
-// default 6/3 so the dashing still reads as dashed when zoomed out.
-export const INGRESS_DASH_PATTERN: readonly [number, number] = [8, 8];
-
-// Every edge that CAN be dashed is a traffic type (markIngressEdges requires
-// isTrafficEdgeType), and all three traffic types share this orange — so it is the one
-// honest colour for the legend key. Read from the map rather than re-typed as a literal.
-export const INGRESS_DASH_COLOR: string = EDGE_STYLE_BY_TYPE['pod-calls-service'].color;
+// The network-hop dash overlay, shared by BOTH dashed cases (ingress path and
+// `relation: transport`) so they read as one idea rather than two coincidences. One
+// shared pattern also means an edge that is both ingress-path AND transport gets
+// identical values from either stylesheet rule, so their declaration order is not
+// load-bearing. Wider than cytoscape's default 6/3 so the dashing still reads as dashed
+// when zoomed out.
+export const NETWORK_HOP_DASH_PATTERN: readonly [number, number] = [8, 8];
