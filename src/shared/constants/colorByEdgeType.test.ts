@@ -2,8 +2,7 @@ import {
   EDGE_STYLE_BY_TYPE,
   EDGE_ENDPOINTS_BY_TYPE,
   EDGE_IS_TRAFFIC_BY_TYPE,
-  INGRESS_DASH_COLOR,
-  INGRESS_DASH_PATTERN,
+  NETWORK_HOP_DASH_PATTERN,
   isTrafficEdgeType,
 } from './colorByEdgeType';
 import { STATUS_COLOR } from './colorByStatus';
@@ -86,16 +85,8 @@ describe('colorByEdgeType', () => {
     }
   });
 
-  it('single-sources the ingress dash key from a real traffic-edge colour', () => {
-    // The legend key must be drawn in a colour that actually appears dashed on canvas:
-    // only traffic types can carry ingressPath, and they all share one colour.
-    const trafficColors = new Set(
-      Object.entries(EDGE_IS_TRAFFIC_BY_TYPE)
-        .filter(([, isTraffic]) => isTraffic)
-        .map(([type]) => EDGE_STYLE_BY_TYPE[type as keyof typeof EDGE_STYLE_BY_TYPE].color)
-    );
-    expect(trafficColors).toContain(INGRESS_DASH_COLOR);
-    expect(INGRESS_DASH_PATTERN).toHaveLength(2);
+  it('gives the network-hop dash a two-part rhythm cytoscape can consume', () => {
+    expect(NETWORK_HOP_DASH_PATTERN).toHaveLength(2);
   });
 
   it('includes the backend edges + switch fabric edges as known wire types', () => {

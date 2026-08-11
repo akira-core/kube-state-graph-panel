@@ -862,6 +862,71 @@ describe('KsgPanel', () => {
     expect(screen.queryByTestId('ingress-toggle')).not.toBeInTheDocument();
   });
 
+  describe('edge-legend network-hop row gating', () => {
+    // Two independent sources produce dashed strokes, so the row must appear for EITHER on
+    // its own — and stay away when neither is in the graph.
+    const renderWith = (relation?: string, ingress = false): void => {
+      const payload = {
+        elements: {
+          nodes: [
+            { data: { id: 'p1', type: 'pod', name: 'client' } },
+            { data: { id: 'p2', type: 'pod', name: 'server' } },
+            {
+              data: {
+                id: 's1',
+                type: 'service',
+                name: 'broker-svc',
+                ...(ingress ? { labels: { role: 'ingress-gateway' } } : {}),
+              },
+            },
+          ],
+          edges: [
+            { data: { id: 'e0', type: 'pod-calls-pod', source: 'p1', target: 'p2' } },
+            {
+              data: {
+                id: 'e1',
+                type: 'pod-calls-service',
+                source: 'p1',
+                target: 's1',
+                ...(relation === undefined ? {} : { labels: { relation } }),
+              },
+            },
+          ],
+        },
+      };
+      const frame: DataFrame = {
+        name: 'graph',
+        length: 1,
+        fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+      };
+      render(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+            options: { ...defaultOptions, showLegend: true },
+          })}
+        />
+      );
+    };
+
+    it('shows for a transport edge even with no ingress gateway in the graph', () => {
+      renderWith('transport');
+      expect(screen.getByTestId('edge-legend-row-network-hop')).toBeInTheDocument();
+      // …without implying an ingress path that isn't there.
+      expect(screen.queryByTestId('ingress-toggle')).not.toBeInTheDocument();
+    });
+
+    it('shows for an ingress path with no transport edge', () => {
+      renderWith(undefined, true);
+      expect(screen.getByTestId('edge-legend-row-network-hop')).toBeInTheDocument();
+    });
+
+    it('stays out of the legend when nothing on canvas is dashed', () => {
+      renderWith('link');
+      expect(screen.queryByTestId('edge-legend-row-network-hop')).not.toBeInTheDocument();
+    });
+  });
+
   describe('legend kind visibility toggles', () => {
     // A pod and a service joined by an edge (keeps both out of the orphan cascade), so the
     // icon legend lists two togglable kinds. The service also carries the ingress label so

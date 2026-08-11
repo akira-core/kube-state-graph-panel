@@ -4,10 +4,11 @@ import type cytoscape from 'cytoscape';
 import {
   EDGE_STYLE_BY_TYPE,
   FALLBACK_EDGE_STYLE,
-  INGRESS_DASH_PATTERN,
+  NETWORK_HOP_DASH_PATTERN,
   type EdgeStyle,
 } from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
+import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation';
 import { FOLDER_ICON_SVG, iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
@@ -385,11 +386,26 @@ export function getStylesheet({
       // from normal traffic when the ingress toggle is on. Declared after the base `edge` +
       // taxi rules so it overrides their `line-style`; colour/arrow/routing are left intact.
       // Only visible when the toggle is on — otherwise these edges are filtered out entirely.
-      // Dash pattern is single-sourced with the legend key (INGRESS_DASH_PATTERN).
+      // Dash pattern is shared with the transport rule below (NETWORK_HOP_DASH_PATTERN).
       selector: 'edge[?ingressPath]',
       style: {
         'line-style': 'dashed',
-        'line-dash-pattern': [...INGRESS_DASH_PATTERN],
+        'line-dash-pattern': [...NETWORK_HOP_DASH_PATTERN],
+      },
+    },
+    {
+      // The broker counterpart of the rule above: the backend labels a service-graph edge
+      // `relation: transport` when it is the pod's actual network connection to a broker,
+      // as opposed to `relation: link` (the logical producer → consumer dependency that hop
+      // stands in for) which stays solid. Same dashed treatment and the SAME pattern — both
+      // say "network hop through a middlebox, not the real dependency" — so an edge that is
+      // both ingressPath and transport gets identical values from either rule and the
+      // declaration order between them does not matter. Matches on the flat `data.relation`
+      // hoisted by normalize: cytoscape selectors cannot read nested `labels.relation`.
+      selector: `edge[relation = "${EDGE_RELATION_TRANSPORT}"]`,
+      style: {
+        'line-style': 'dashed',
+        'line-dash-pattern': [...NETWORK_HOP_DASH_PATTERN],
       },
     },
     {

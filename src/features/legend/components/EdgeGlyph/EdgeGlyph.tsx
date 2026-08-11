@@ -12,8 +12,8 @@ export interface EdgeGlyphProps {
   // that runs in both directions (pod calls service, service selects pod).
   bidirectional?: boolean;
   // Overrides the default dash rhythm for `lineStyle: 'dashed'` as an SVG stroke-dasharray
-  // (e.g. '8 8'). Lets a key mirror a canvas rule that sets its own line-dash-pattern —
-  // the ingress-path dash — instead of drawing a rhythm nothing on canvas uses.
+  // (e.g. '8 8'), so a key can mirror a canvas rule that sets its own line-dash-pattern
+  // instead of drawing a rhythm nothing on canvas uses.
   dashPattern?: string;
 }
 

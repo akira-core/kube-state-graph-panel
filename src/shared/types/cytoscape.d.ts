@@ -74,6 +74,13 @@ declare module 'cytoscape' {
     // edges are excluded). Set by normalize's markIngressEdges → dashed via the
     // `edge[?ingressPath]` stylesheet rule.
     ingressPath?: boolean;
+    // Hoisted verbatim from `data.labels.relation` by normalize (cytoscape selectors
+    // cannot read nested data). 'transport' = the pod's real network hop to a broker →
+    // dashed via the `edge[relation = "transport"]` rule; 'link' = the logical dependency
+    // that hop stands in for → solid; absent = ordinary RPC edge → solid. Typed as a bare
+    // string like edgeType's GraphEdgeType: an unknown backend value must pass through,
+    // not fail the build.
+    relation?: string;
   }
 
   // `events` is a real cytoscape node style key (toggles event capture) missing

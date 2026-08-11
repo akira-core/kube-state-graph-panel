@@ -1,8 +1,13 @@
 import { createTheme } from '@grafana/data';
 import cytoscape from 'cytoscape';
 
-import { EDGE_STYLE_BY_TYPE, FALLBACK_EDGE_STYLE } from '../../../shared/constants/colorByEdgeType';
+import {
+  EDGE_STYLE_BY_TYPE,
+  FALLBACK_EDGE_STYLE,
+  NETWORK_HOP_DASH_PATTERN,
+} from '../../../shared/constants/colorByEdgeType';
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
+import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation';
 import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
@@ -110,6 +115,22 @@ describe('getStylesheet', () => {
     // Declared after the base `edge` rule so its static dashed line-style wins.
     expect(selectors.indexOf('edge[?ingressPath]')).toBeGreaterThan(selectors.indexOf('edge'));
     expect(styleFor('edge[?ingressPath]')['line-style']).toBe('dashed');
+  });
+
+  it('dashes relation=transport edges via the hoisted flat data field', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{ selector: string }>;
+    const selectors = sheet.map((s) => s.selector);
+    const transportSelector = `edge[relation = "${EDGE_RELATION_TRANSPORT}"]`;
+    // Same override requirement as the ingress rule above.
+    expect(selectors.indexOf(transportSelector)).toBeGreaterThan(selectors.indexOf('edge'));
+    expect(styleFor(transportSelector)['line-style']).toBe('dashed');
+  });
+
+  it('gives both dash overlays the same rhythm, so their declaration order cannot matter', () => {
+    const ingress = styleFor('edge[?ingressPath]');
+    const transport = styleFor(`edge[relation = "${EDGE_RELATION_TRANSPORT}"]`);
+    expect(transport).toEqual(ingress);
+    expect(ingress['line-dash-pattern']).toEqual([...NETWORK_HOP_DASH_PATTERN]);
   });
 
   it('enlarges base leaf node to 40x40', () => {

@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Language
+
+Write in **Traditional Chinese (繁體中文)**: conversational replies to the user, plan files, and PR descriptions (the body — the title keeps the English conventional-commit form so it reads consistently in the commit list).
+
+Keep in **English** everything that becomes part of the codebase's own record: code and code comments, test names, commit messages, OpenSpec artifacts (`openspec/**` — `proposal.md`, `design.md`, `specs/**/spec.md`, `tasks.md`), and all user-facing UI strings (legend labels, tooltips, option names). Technical terms inside Chinese prose stay in English rather than being translated.
+
+The split is by audience, not by file type: a PR description argues a change to reviewers here and now, so it goes in the reviewers' language; a commit message or a spec is read later by whoever touches the code, so it matches the code.
+
 ## Project
 
 Grafana 12.x panel plugin (`marz32one-ksg-panel`) that visualizes Kubernetes resource topology with cytoscape.js. Data is sourced from the upstream [kube-state-graph](https://github.com/Marz32onE/kube-state-graph) Go backend via Grafana Infinity datasource — this repo is **panel-only** (no embedded backend code).

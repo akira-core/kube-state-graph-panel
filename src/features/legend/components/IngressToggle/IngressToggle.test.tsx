@@ -1,8 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
-import { INGRESS_DASH_COLOR, INGRESS_DASH_PATTERN } from '../../../../shared/constants/colorByEdgeType';
-
 import { IngressToggle } from './IngressToggle';
 
 describe('IngressToggle', () => {
@@ -24,13 +22,8 @@ describe('IngressToggle', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it('renders a dashed-line key matching the on-canvas ingress stroke', () => {
+  it('carries no dash key — the gateway is not the only source of dashed strokes', () => {
     render(<IngressToggle visible={true} onToggle={jest.fn()} />);
-    const glyph = screen.getByTestId('edge-glyph');
-    expect(screen.getByText('dashed = via gateway')).toBeInTheDocument();
-    // Colour + dash rhythm come from the same constants the stylesheet's
-    // `edge[?ingressPath]` rule uses, so the key describes strokes that really appear.
-    expect(glyph.querySelector('line')?.getAttribute('stroke')).toBe(INGRESS_DASH_COLOR);
-    expect(glyph.querySelector('line')?.getAttribute('stroke-dasharray')).toBe(INGRESS_DASH_PATTERN.join(' '));
+    expect(screen.queryByTestId('edge-glyph')).not.toBeInTheDocument();
   });
 });
