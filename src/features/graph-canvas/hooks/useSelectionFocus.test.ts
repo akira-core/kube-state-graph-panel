@@ -86,6 +86,23 @@ describe('applySelectionFocus', () => {
     cy.destroy();
   });
 
+  it('suppressed: clears any FADED_CLASS and applies no new fade, even with a live selection', () => {
+    const cy = makeCy();
+    applySelectionFocus(cy, 'sw/x'); // sw/x now faded (outside pod/a's... wait, no selection yet)
+    applySelectionFocus(cy, 'pod/a'); // sw/x faded, pod/a lit
+    expect(faded(cy)).toContain('sw/x');
+    applySelectionFocus(cy, 'pod/a', true);
+    expect(faded(cy)).toEqual([]);
+    cy.destroy();
+  });
+
+  it('suppressed: a null selection stays a no-op (nothing to clear, nothing to apply)', () => {
+    const cy = makeCy();
+    applySelectionFocus(cy, null, true);
+    expect(faded(cy)).toEqual([]);
+    cy.destroy();
+  });
+
   it('fades nothing when the selected node is hidden via a filtered-out ancestor', () => {
     // cytoscape's effective visibility is the AND over ancestors, so a node whose
     // container was filtered out is off-canvas despite its own style being 'visible'.

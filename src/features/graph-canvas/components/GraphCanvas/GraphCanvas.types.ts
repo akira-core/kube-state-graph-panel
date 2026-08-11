@@ -30,4 +30,12 @@ export interface GraphCanvasProps {
   // KsgPanel). Forwarded to HoverTooltip → docks top-right + suppresses hover. Not
   // a useCytoscape dep, so it never re-inits the instance. null → floating hover.
   pinned?: PinnedTooltip | null;
+  // True while the search query is non-empty (design D3). Suppresses the selection-focus
+  // fade (miss fade becomes the sole fade authority) — the selection ring itself is
+  // untouched. Omitted/false → focus fade behaves exactly as before search existed.
+  searchActive?: boolean;
+  // Hit nodes with proxy-hit substitution already applied (KsgPanel's resolveSearchHits) —
+  // fed to useSearchFade, which adds their incident edges + ancestors. Ignored when
+  // searchActive is false/omitted.
+  searchLitNodeIds?: ReadonlySet<string>;
 }

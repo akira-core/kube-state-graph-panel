@@ -746,9 +746,21 @@ describe('KsgPanel', () => {
               provisioner: 'ebs.csi.aws.com',
             },
           },
-          { data: { id: 'demo/pvc-0', type: 'pvc', name: 'data-0', parent: 'cluster:demo', labels: { cluster: 'demo' } } },
+          {
+            data: {
+              id: 'demo/pvc-0',
+              type: 'pvc',
+              name: 'data-0',
+              parent: 'cluster:demo',
+              labels: { cluster: 'demo' },
+            },
+          },
         ],
-        edges: [{ data: { id: 'e0', type: 'pvc-to-storageclass', source: 'demo/pvc-0', target: 'demo/storageclass/fast-ssd' } }],
+        edges: [
+          {
+            data: { id: 'e0', type: 'pvc-to-storageclass', source: 'demo/pvc-0', target: 'demo/storageclass/fast-ssd' },
+          },
+        ],
       },
     };
     const frame: DataFrame = {
@@ -1597,6 +1609,135 @@ describe('KsgPanel', () => {
         lastCanvasProps().onCollapsedChange?.(new Set([controllerId]));
       });
       expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('detail-open decoupled from selection (close keeps selection)', () => {
+    const controllerId = 'demo/controller/StatefulSet/mongo';
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: controllerId, type: 'controller', name: 'mongo', parent: 'cluster:demo' } },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongo-0',
+              parent: controllerId,
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              application: 'checkout',
+              containers: [{ name: 'app', image: 'repo/app:1.2' }],
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+          { data: { id: 'demo/svc', type: 'service', name: 'mongo-svc', parent: 'cluster:demo' } },
+        ],
+        edges: [{ data: { id: 'e1', type: 'service-selects-pod', source: 'demo/svc', target: 'demo/p1' } }],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    type CanvasHandlers = {
+      onSelect?: (id: string | null) => void;
+      onCollapsedChange?: (next: Set<string>) => void;
+      selectedId?: string | null;
+      pinned?: { label?: string } | null;
+    };
+    const lastCanvasProps = (): CanvasHandlers => (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
+    const changeReportCalls = (): unknown[][] =>
+      (detailGetMock.mock.calls as unknown[][]).filter((c) => /\/(config|code)_changes$/.test(String(c[0])));
+    const selectedPodCalls = (): Array<Record<string, unknown>> =>
+      (locationPartialMock.mock.calls as Array<[Record<string, unknown>]>)
+        .map((c) => c[0])
+        .filter((q) => 'var-selected_pod' in q);
+    const expandAll = (): void => {
+      act(() => {
+        lastCanvasProps().onCollapsedChange?.(new Set());
+      });
+    };
+    function renderPanel(): void {
+      render(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+            options: {
+              ...defaultOptions,
+              detailEndpoint: '/proxy',
+              selectedPodVariable: 'selected_pod',
+              clusterVariable: 'cluster_sel',
+            },
+          })}
+        />
+      );
+    }
+    const closeButton = (): HTMLElement => screen.getByRole('button', { name: 'Close detail panel' });
+
+    beforeEach(() => {
+      detailGetMock.mockReset();
+      detailGetMock.mockResolvedValue({});
+      getInstanceSettingsMock.mockReset();
+      getInstanceSettingsMock.mockReturnValue(undefined);
+    });
+
+    it('the close button hides the panel but keeps the cy highlight, pinned tooltip, and variable export', async () => {
+      renderPanel();
+      expandAll();
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      await waitFor(() => expect(changeReportCalls()).toHaveLength(2));
+
+      fireEvent.click(closeButton());
+
+      expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
+      // Selection itself — the cy highlight prop, the pinned tooltip, and the
+      // exported dashboard variables — all survive the close.
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
+      expect(lastCanvasProps().pinned?.label).toBe('mongo-0');
+      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['mongo-0'] });
+    });
+
+    it('a background/edge tap (onSelect(null)) still clears both detail-open and selection', () => {
+      renderPanel();
+      expandAll();
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+
+      act(() => {
+        lastCanvasProps().onSelect?.(null);
+      });
+
+      expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
+      expect(lastCanvasProps().selectedId).toBeNull();
+      expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['$__empty'] });
+    });
+
+    it('tapping the already-selected node after close reopens the panel and does not refetch (stable detailRequest)', async () => {
+      renderPanel();
+      expandAll();
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+      await waitFor(() => expect(changeReportCalls()).toHaveLength(2));
+
+      fireEvent.click(closeButton());
+      expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
+
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p1');
+      });
+
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      // Reopen reuses the original detailRequest (same nodeId/time) — no new
+      // change-report query fires, so the count stays exactly at 2.
+      expect(changeReportCalls()).toHaveLength(2);
     });
   });
 

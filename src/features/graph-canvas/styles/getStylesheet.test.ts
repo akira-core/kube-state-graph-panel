@@ -11,7 +11,7 @@ import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation'
 import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
-import { getStylesheet } from './getStylesheet';
+import { FADED_CLASS, getStylesheet, SEARCH_FADE_CLASS } from './getStylesheet';
 
 type FakeData = Record<string, unknown>;
 type StyleRecord = Record<string, unknown>;
@@ -623,9 +623,18 @@ describe('getStylesheet', () => {
       style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
       elements: [
         { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
-        { group: 'nodes', data: { id: 'nsbox', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', parent: 'cluster/prod' } },
-        { group: 'nodes', data: { id: 'appbox', label: 'checkout', isApplication: true, applicationColor: '#0ea5e9', parent: 'nsbox' } },
-        { group: 'nodes', data: { id: 'ctrl', label: 'mongo', kind: 'statefulset', isController: true, parent: 'appbox' } },
+        {
+          group: 'nodes',
+          data: { id: 'nsbox', label: 'shop', isNamespace: true, namespaceColor: '#e8833a', parent: 'cluster/prod' },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'appbox', label: 'checkout', isApplication: true, applicationColor: '#0ea5e9', parent: 'nsbox' },
+        },
+        {
+          group: 'nodes',
+          data: { id: 'ctrl', label: 'mongo', kind: 'statefulset', isController: true, parent: 'appbox' },
+        },
         { group: 'nodes', data: { id: 'p1', label: 'web', kind: 'pod', parent: 'ctrl' } },
       ],
     });
@@ -646,5 +655,16 @@ describe('getStylesheet', () => {
     // revert to their kind icon on real collapse (children removed → loses :parent).
     expect(ctrl.style('background-image')).not.toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
     cy.destroy();
+  });
+
+  it('pins the search miss-fade class to the SAME opacity declaration as the focus fade (one visual fade, two reasons)', () => {
+    const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
+      selector: string;
+      style?: StyleRecord;
+    }>;
+    const nodeRule = sheet.find((s) => s.selector === `node.${FADED_CLASS}, node.${SEARCH_FADE_CLASS}`);
+    const edgeRule = sheet.find((s) => s.selector === `edge.${FADED_CLASS}, edge.${SEARCH_FADE_CLASS}`);
+    expect(nodeRule?.style?.opacity).toBe(0.2);
+    expect(edgeRule?.style?.opacity).toBe(0.12);
   });
 });

@@ -31,6 +31,8 @@ jest.mock('../../hooks/useExpandCollapse', () => ({
   },
 }));
 
+import { FADED_CLASS, SEARCH_FADE_CLASS } from '../../styles/getStylesheet';
+
 import { GraphCanvas } from './GraphCanvas';
 
 const elements: cytoscape.ElementDefinition[] = [
@@ -133,5 +135,40 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
     const tip = screen.getByTestId('hover-tooltip');
     expect(tip).toHaveAttribute('data-pinned', 'true');
     expect(screen.getByText('mongo')).toBeInTheDocument();
+  });
+
+  it('searchActive suppresses the selection-focus fade (miss fade is the sole authority while searching)', () => {
+    render(
+      <GraphCanvas
+        elements={elements}
+        stylesheet={[]}
+        layout="fcose"
+        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
+        selectedId="ctrl"
+        searchActive
+      />
+    );
+    // A live selection would normally fade everything outside its focus (see
+    // useSelectionFocus tests) — suppressed while searching, so nothing carries FADED_CLASS.
+    expect(mockCyRef.current!.elements(`.${FADED_CLASS}`).length).toBe(0);
+  });
+
+  it('wires searchLitNodeIds into useSearchFade: non-lit elements carry SEARCH_FADE_CLASS while searchActive', () => {
+    render(
+      <GraphCanvas
+        elements={elements}
+        stylesheet={[]}
+        layout="fcose"
+        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
+        selectedId={null}
+        searchActive
+        searchLitNodeIds={new Set(['p1'])}
+      />
+    );
+    const faded = mockCyRef
+      .current!.elements(`.${SEARCH_FADE_CLASS}`)
+      .map((e) => e.id())
+      .sort();
+    expect(faded).toEqual(['cl', 'ctrl', 'ns']);
   });
 });

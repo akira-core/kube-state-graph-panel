@@ -43,6 +43,7 @@ import {
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { EDGE_RELATION_TRANSPORT } from '../../shared/constants/edgeRelation';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
+import { buildParentIndex, hasCollapsedAncestor } from '../../shared/graph/collapsedAncestors';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
@@ -129,35 +130,6 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-// True when any ancestor (via data.parent) of `id` is collapsed — such a node is
-// folded off the canvas even though it stays in `elements`.
-function hasCollapsedAncestor(
-  elements: cytoscape.ElementDefinition[],
-  id: string,
-  collapsedIds: ReadonlySet<string>
-): boolean {
-  const parentById = new Map<string, string>();
-  for (const el of elements) {
-    if (el.group !== 'nodes') {
-      continue;
-    }
-    const d = el.data as cytoscape.NodeDataDefinition;
-    if (typeof d.id === 'string' && typeof d.parent === 'string') {
-      parentById.set(d.id, d.parent);
-    }
-  }
-  let ancestor = parentById.get(id);
-  let hops = 0;
-  while (ancestor !== undefined && hops < parentById.size + 1) {
-    if (collapsedIds.has(ancestor)) {
-      return true;
-    }
-    ancestor = parentById.get(ancestor);
-    hops += 1;
-  }
-  return false;
-}
-
 // Resolves the selected node's detail data (exported for unit testing). A node
 // not in `visibleNodeIds` or folded inside a collapsed container resolves to null
 // so the panel never describes an off-canvas node (a collapsed container itself
@@ -171,7 +143,7 @@ export function resolveSelectedNode(
   if (selectedNodeId === null || !visibleNodeIds.has(selectedNodeId)) {
     return null;
   }
-  if (collapsedIds.size > 0 && hasCollapsedAncestor(elements, selectedNodeId, collapsedIds)) {
+  if (collapsedIds.size > 0 && hasCollapsedAncestor(buildParentIndex(elements), selectedNodeId, collapsedIds)) {
     return null;
   }
   for (const el of elements) {
@@ -299,18 +271,37 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [baseElements, podParentMode]
   );
 
-  // Selected node id drives the detail panel and the (controlled) cy selection
-  // highlight. GraphCanvas reports taps via onSelect.
+  // Selected node id drives the cy selection highlight, focus fade, pinned card and
+  // variable export — independent of the detail panel's visibility (detailOpen below).
+  // GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // Detail intent: which node the detail-URL queries were requested for, and when (Unix
-  // seconds, captured once at selection so re-renders never refetch). LEFT-click selection
-  // drives it now (the unified panel); background tap / close clear it.
+  // seconds, captured once at selection so re-renders — including a close/reopen — never
+  // refetch). Background tap / edge tap clear it; closing the panel does NOT (selection is
+  // selection-bound, not detail-open-bound).
   const [detailRequest, setDetailRequest] = useState<{ nodeId: string; time: number } | null>(null);
+
+  // Pure UI state: whether the detail panel is visible. Decoupled from selectedNodeId so
+  // closing the panel (the × button) never clears the selection — see panel-rendering's
+  // "互動與選取狀態" delta. handleSelect (a canvas tap) always opens it; locate (search
+  // feature) selects WITHOUT opening it (sets selectedNodeId directly, bypassing this).
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const handleSelect = useCallback((id: string | null) => {
     setSelectedNodeId(id);
-    setDetailRequest(id !== null ? { nodeId: id, time: Math.floor(Date.now() / 1000) } : null);
+    if (id === null) {
+      // Background / edge / decorative-cluster tap: deselect entirely.
+      setDetailRequest(null);
+      setDetailOpen(false);
+      return;
+    }
+    setDetailOpen(true);
+    // Reuse the existing request (same nodeId → same time) when this is a re-tap of the
+    // already-selected node (e.g. reopening after a close) — a NEW node gets a fresh one.
+    setDetailRequest((prev) =>
+      prev !== null && prev.nodeId === id ? prev : { nodeId: id, time: Math.floor(Date.now() / 1000) }
+    );
   }, []);
 
   // Rewind to a ±5m window around the clicked alert (seconds → ms for AbsoluteTimeRange).
@@ -348,8 +339,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     () =>
       ingressNodeIds.size > 0 ||
       baseElements.some(
-        (el) =>
-          el.group === 'edges' && (el.data as cytoscape.EdgeDataDefinition).relation === EDGE_RELATION_TRANSPORT
+        (el) => el.group === 'edges' && (el.data as cytoscape.EdgeDataDefinition).relation === EDGE_RELATION_TRANSPORT
       ),
     [ingressNodeIds, baseElements]
   );
@@ -402,11 +392,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
-  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, set by
-  // left-click selection — the sole selection path now). Params = selected node + children
-  // (compound merge); undefined idles the hook. The dashboard time range rides as
-  // from_time/to_time (Unix seconds) and is a memo dep, so a range change rebuilds params
-  // and the hook refetches.
+  // Per-node Dashboard URL prefetch. Driven by SELECTION (selectedNodeId), independent of
+  // the detail panel's open/closed state — the prefetch stays warm across a close/reopen so
+  // reopening never re-fires it. Params = selected node + children (compound merge);
+  // undefined idles the hook. The dashboard time range rides as from_time/to_time (Unix
+  // seconds) and is a memo dep, so a range change rebuilds params and the hook refetches.
   const dashboardParams = useMemo(
     () => assembleDashboardParams(elements, selectedNodeId, data.timeRange),
     [elements, selectedNodeId, data.timeRange]
@@ -755,8 +745,8 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           pinned={pinnedTooltip}
         />
         <NodeDetailPanel
-          node={selectedNode}
-          onClose={() => handleSelect(null)}
+          node={detailOpen ? selectedNode : null}
+          onClose={() => setDetailOpen(false)}
           onAlertTimeClick={handleAlertTimeClick}
           timeZone={timeZone}
           lookups={detailLookups}

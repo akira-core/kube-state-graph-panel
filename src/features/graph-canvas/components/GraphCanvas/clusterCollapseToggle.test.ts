@@ -19,7 +19,9 @@ function makeApi(overrides: Partial<Record<keyof FakeApi, boolean>> = {}): FakeA
 }
 
 function makeNode(isCluster: boolean): cytoscape.NodeSingular {
-  return { data: (key: string): unknown => (key === 'isCluster' ? isCluster : undefined) } as unknown as cytoscape.NodeSingular;
+  return {
+    data: (key: string): unknown => (key === 'isCluster' ? isCluster : undefined),
+  } as unknown as cytoscape.NodeSingular;
 }
 
 describe('clusterCollapseToggle', () => {

@@ -14,6 +14,10 @@ export interface UseSelectionFocusProps {
   // SELECTED node decides whether a focus is applied at all and hiding it changes no other
   // input here. Never read — useElementFilter owns applying these sets.
   visibility?: unknown;
+  // True while a search query is active (design D3): miss fade is the sole fade authority
+  // then — this hook clears FADED_CLASS and applies nothing, regardless of selectedId. The
+  // selection ring (`:selected`) is untouched (a separate style, not this class).
+  suppressed?: boolean;
 }
 
 // Dim everything outside the selected node's focus set so the selection reads
@@ -21,10 +25,11 @@ export interface UseSelectionFocusProps {
 // neighbour nodes (closedNeighborhood), its own descendants (so selecting a
 // container keeps its children lit), and the ancestor containers of all of those
 // (so a lit node never sits inside a dimmed box). Selecting nothing clears it.
-export function applySelectionFocus(cy: cytoscape.Core, selectedId: string | null): void {
+// `suppressed` (search miss-fade is active) yields the fade authority: clear-only.
+export function applySelectionFocus(cy: cytoscape.Core, selectedId: string | null, suppressed = false): void {
   cy.batch(() => {
     cy.elements().removeClass(FADED_CLASS);
-    if (selectedId === null) {
+    if (suppressed || selectedId === null) {
       return;
     }
     const selected = cy.getElementById(selectedId);
@@ -49,14 +54,16 @@ export function useSelectionFocus({
   isReady,
   elements,
   visibility,
+  suppressed = false,
 }: UseSelectionFocusProps): void {
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {
       return;
     }
-    applySelectionFocus(cy, selectedId);
+    applySelectionFocus(cy, selectedId, suppressed);
     // isReady/elements re-run this once the instance exists and after rebuilds; `visibility`
-    // re-runs it when a filter hides or restores the selected node.
-  }, [cyRef, selectedId, isReady, elements, visibility]);
+    // re-runs it when a filter hides or restores the selected node; `suppressed` re-runs it
+    // on the search-active hand-off (design D3).
+  }, [cyRef, selectedId, isReady, elements, visibility, suppressed]);
 }

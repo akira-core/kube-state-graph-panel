@@ -25,6 +25,10 @@ const NODE_SIZE = 40;
 // Faded class for focus dimming — applied/removed imperatively by GraphCanvas;
 // opacity rules live in the stylesheet below.
 export const FADED_CLASS = 'ksg-faded';
+// Miss-fade class for search (design D3): a second, orthogonal reason to dim an
+// element. Shares the SAME opacity declaration as FADED_CLASS (comma-joined selector
+// below) — one visual fade, two mutually-exclusive reasons never applied together.
+export const SEARCH_FADE_CLASS = 'ksg-search-miss';
 
 function resolveIconUri(kind: string | undefined, iconColor: string): string {
   return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
@@ -92,10 +96,7 @@ function taxiEdgeSelector(map: Record<string, EdgeStyle>): string {
     .join(', ');
 }
 
-export function getStylesheet({
-  theme,
-  colorMap = EDGE_STYLE_BY_TYPE,
-}: GetStylesheetInput): CyStylesheet[] {
+export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStylesheetInput): CyStylesheet[] {
   const colors = themeColors(theme);
   const textColor = colors.text.primary;
   // Icons tint with primary (not secondary/muted) text colour — muted is too
@@ -304,19 +305,16 @@ export function getStylesheet({
     // sibling keeps the treatment when a node-layout box is folded (children removed →
     // no longer `:parent`) — a controller-layout leaf is never a compound, so it never
     // carries the collapsed class and is unaffected. Both declared after node:parent.
-    ...(
-      [
-        "node[kind='node']:parent",
-        "node[kind='node'].cy-expand-collapse-collapsed-node",
-      ] as const
-    ).map((selector) => ({
-      selector,
-      style: {
-        label: prefixedLabel('Node'),
-        'font-size': 18,
-        'font-weight': 600,
-      },
-    })),
+    ...(["node[kind='node']:parent", "node[kind='node'].cy-expand-collapse-collapsed-node"] as const).map(
+      (selector) => ({
+        selector,
+        style: {
+          label: prefixedLabel('Node'),
+          'font-size': 18,
+          'font-weight': 600,
+        },
+      })
+    ),
     {
       // Collapsed compound node. Heavier border signals it can be expanded; the +/-
       // cue is drawn by the expand-collapse extension independently.
@@ -345,8 +343,11 @@ export function getStylesheet({
       },
     },
     {
-      // Focus dimming: nodes outside the selected node's neighbourhood/ancestry fade.
-      selector: `node.${FADED_CLASS}`,
+      // Focus dimming: nodes outside the selected node's neighbourhood/ancestry fade
+      // (FADED_CLASS), OR non-hit nodes while a search query is active (SEARCH_FADE_CLASS)
+      // — mutually exclusive at the class-application layer (useSelectionFocus's
+      // `suppressed` prop / useSearchFade), so one declaration serves both.
+      selector: `node.${FADED_CLASS}, node.${SEARCH_FADE_CLASS}`,
       style: { opacity: 0.2 },
     },
     {
@@ -409,9 +410,9 @@ export function getStylesheet({
       },
     },
     {
-      // Focus dimming for edges (see node.FADED_CLASS); lower than nodes so faded
-      // connections recede further than faded glyphs.
-      selector: `edge.${FADED_CLASS}`,
+      // Focus dimming for edges (see node.FADED_CLASS/SEARCH_FADE_CLASS above); lower
+      // than nodes so faded connections recede further than faded glyphs.
+      selector: `edge.${FADED_CLASS}, edge.${SEARCH_FADE_CLASS}`,
       style: { opacity: 0.12 },
     },
     {
