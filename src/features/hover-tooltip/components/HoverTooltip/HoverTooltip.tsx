@@ -139,15 +139,17 @@ const EDGE_MARGIN = 4;
 // Fallback when no rendered position is available.
 const FALLBACK_COORDS = { left: EDGE_MARGIN, top: EDGE_MARGIN };
 
-// Pinned mode overrides (left-click selection): dock top-right, persistent and
-// scrollable. zIndex 1000 is load-bearing — it must clear cytoscape's transparent
-// expand-collapse input canvas (z 999) so a pointer-events:auto card receives
-// scroll/clicks (styles.root's z 10 only works because hover is pointer-events:none).
+// Pinned mode overrides (left-click selection): dock top-right *below* the always-visible
+// SearchBar (design D7 / graph-search). Keep top in sync with SearchBar's
+// PINNED_TOOLTIP_TOP_BELOW_SEARCH_PX (8 + 36 + 8). zIndex 1000 clears cytoscape's
+// transparent expand-collapse input canvas (z 999) so a pointer-events:auto card
+// receives scroll/clicks (styles.root's z 10 only works because hover is
+// pointer-events:none). SearchBar uses z 1001 so the input stays above this card.
 const PINNED_STYLE: React.CSSProperties = {
   left: 'auto',
   right: 8,
-  top: 8,
-  maxHeight: 'calc(50% - 16px)',
+  top: 52,
+  maxHeight: 'calc(50% - 60px)',
   pointerEvents: 'auto',
   zIndex: 1000,
 };

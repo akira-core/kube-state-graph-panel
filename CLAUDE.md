@@ -10,6 +10,8 @@ Keep in **English** everything that becomes part of the codebase's own record: c
 
 The split is by audience, not by file type: a PR description argues a change to reviewers here and now, so it goes in the reviewers' language; a commit message or a spec is read later by whoever touches the code, so it matches the code.
 
+**Domain vocabulary lives in `CONTEXT.md`** (node kind, edge type, container, collapse, selection, hit, locate, …) — use those exact terms in code, specs, and tests.
+
 ## Project
 
 Grafana 12.x panel plugin (`marz32one-ksg-panel`) that visualizes Kubernetes resource topology with cytoscape.js. Data is sourced from the upstream [kube-state-graph](https://github.com/Marz32onE/kube-state-graph) Go backend via Grafana Infinity datasource — this repo is **panel-only** (no embedded backend code).
@@ -77,7 +79,7 @@ The synthetic fixture spans two clusters with one stateful pattern each (design 
 - **`prod`** — a MongoDB 3-replica StatefulSet behind a **headless** Service (`cluster_ip="None"`): a `<pod>.<svc>.<ns>.svc…` connection string resolves to the **real backing pod** (no Service node). Plus per-replica PVCs and the `gateway` client.
 - **`dr`** — a NATS 3-replica workload behind a **ClusterIP** Service: a `<svc>.<ns>.svc…` connection string resolves to a **Service node** with `service-selects-pod` fan-out to every backing pod. Plus the `consumer` client.
 
-Together they cover all 6 node kinds (`pod`/`node`/`pvc`/`service`/`others`/`external`) and all 4 edge types, including one cross-cluster `pod-calls-pod` (`prod/gateway → dr/consumer`). **The backend emits compound nodes**: a synthetic `type:"cluster"` group per cluster, with pods nested under their K8s node and node/service/PVC under their cluster (`data.parent`). `pod-runs-on-node` is therefore expressed as nesting and is **not drawn as an edge** in the Cytoscape view the panel consumes (design D31) — the panel legend reflects this. To point the demo at a real VictoriaMetrics instead, set `KSG_PROM_URL` on the `kube-state-graph` service and drop `ksg-seeder`. Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`. The kube-state-graph backend already supports scope query params (`cluster=`, `namespace=`, `name=`, `edge_type=`) and the discovery endpoints `GET /v1/clusters` + `GET /v1/edge-types` — no image change is required for variable filtering.
+Together they cover every node kind and edge type the fixture was designed for (full wire contract enumerated in `CONTEXT.md`), including one cross-cluster `pod-calls-pod` (`prod/gateway → dr/consumer`). **The backend emits compound nodes**: a synthetic `type:"cluster"` group per cluster, with children nested via `data.parent` (see `CONTEXT.md` "Container" for nesting vs drawn-edge semantics per mode); the panel legend reflects this. To point the demo at a real VictoriaMetrics instead, set `KSG_PROM_URL` on the `kube-state-graph` service and drop `ksg-seeder`. Image tags are overridable via `KSG_BACKEND_TAG` / `VM_TAG` / `CURL_TAG`. The kube-state-graph backend already supports scope query params (`cluster=`, `namespace=`, `name=`, `edge_type=`) and the discovery endpoints `GET /v1/clusters` + `GET /v1/edge-types` — no image change is required for variable filtering.
 
 ## Architecture
 

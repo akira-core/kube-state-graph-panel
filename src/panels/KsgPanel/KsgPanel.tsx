@@ -5,8 +5,14 @@ import type cytoscape from 'cytoscape';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { computeVisibility, isFilterableKind } from '../../features/element-filter';
-import { EmptyState, GraphCanvas, LoadingOverlay } from '../../features/graph-canvas';
+import { EmptyState, GraphCanvas, LoadingOverlay, type GraphViewportApi } from '../../features/graph-canvas';
 import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
+import {
+  computeHits,
+  resolveSearchHits,
+  SearchBar,
+  type SearchResult,
+} from '../../features/graph-search';
 import {
   ApplicationLegend,
   ClusterLegend,
@@ -43,6 +49,11 @@ import {
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { EDGE_RELATION_TRANSPORT } from '../../shared/constants/edgeRelation';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
+import {
+  buildParentIndex,
+  collapsedAncestorChain,
+  hasCollapsedAncestor,
+} from '../../shared/graph/collapsedAncestors';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
@@ -89,12 +100,14 @@ function getStyles(theme: GrafanaTheme2): {
       justifyContent: 'center',
       pointerEvents: 'none',
     }),
-    // Non-blocking partial-parse warning — graph-data-integration spec.
+    // Non-blocking partial-parse warning — graph-data-integration spec. Top-left so it
+    // never overlaps the top-right search bar (graph-search / design D7).
     partialWarning: css({
       position: 'absolute',
       top: 8,
       left: 8,
-      right: 8,
+      // Leave the top-right free for SearchBar + pinned attributes (~360px + inset).
+      right: 380,
       zIndex: 3,
       pointerEvents: 'none',
     }),
@@ -129,35 +142,6 @@ function getStyles(theme: GrafanaTheme2): {
   };
 }
 
-// True when any ancestor (via data.parent) of `id` is collapsed — such a node is
-// folded off the canvas even though it stays in `elements`.
-function hasCollapsedAncestor(
-  elements: cytoscape.ElementDefinition[],
-  id: string,
-  collapsedIds: ReadonlySet<string>
-): boolean {
-  const parentById = new Map<string, string>();
-  for (const el of elements) {
-    if (el.group !== 'nodes') {
-      continue;
-    }
-    const d = el.data as cytoscape.NodeDataDefinition;
-    if (typeof d.id === 'string' && typeof d.parent === 'string') {
-      parentById.set(d.id, d.parent);
-    }
-  }
-  let ancestor = parentById.get(id);
-  let hops = 0;
-  while (ancestor !== undefined && hops < parentById.size + 1) {
-    if (collapsedIds.has(ancestor)) {
-      return true;
-    }
-    ancestor = parentById.get(ancestor);
-    hops += 1;
-  }
-  return false;
-}
-
 // Resolves the selected node's detail data (exported for unit testing). A node
 // not in `visibleNodeIds` or folded inside a collapsed container resolves to null
 // so the panel never describes an off-canvas node (a collapsed container itself
@@ -171,7 +155,7 @@ export function resolveSelectedNode(
   if (selectedNodeId === null || !visibleNodeIds.has(selectedNodeId)) {
     return null;
   }
-  if (collapsedIds.size > 0 && hasCollapsedAncestor(elements, selectedNodeId, collapsedIds)) {
+  if (collapsedIds.size > 0 && hasCollapsedAncestor(buildParentIndex(elements), selectedNodeId, collapsedIds)) {
     return null;
   }
   for (const el of elements) {
@@ -299,19 +283,62 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [baseElements, podParentMode]
   );
 
-  // Selected node id drives the detail panel and the (controlled) cy selection
-  // highlight. GraphCanvas reports taps via onSelect.
+  // Selected node id drives the cy selection highlight, focus fade, pinned card and
+  // variable export — independent of the detail panel's visibility (detailOpen below).
+  // GraphCanvas reports taps via onSelect.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // Detail intent: which node the detail-URL queries were requested for, and when (Unix
-  // seconds, captured once at selection so re-renders never refetch). LEFT-click selection
-  // drives it now (the unified panel); background tap / close clear it.
+  // seconds, captured once at selection so re-renders — including a close/reopen — never
+  // refetch). Background tap / edge tap clear it; closing the panel does NOT (selection is
+  // selection-bound, not detail-open-bound).
   const [detailRequest, setDetailRequest] = useState<{ nodeId: string; time: number } | null>(null);
 
+  // Pure UI state: whether the detail panel is visible. Decoupled from selectedNodeId so
+  // closing the panel (the × button) never clears the selection — see panel-rendering's
+  // "互動與選取狀態" delta. handleSelect (core) and locate both open it for detail-eligible
+  // nodes; onClose only sets detailOpen false. Canvas taps go through handleCanvasSelect.
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // Ephemeral search query (design D1 / graph-search lifecycle). Never written to panel
+  // options — survives data refresh as plain React state, resets on full remount only.
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Imperative viewport bridge from GraphCanvas (design D5). SearchBar / locate call fit
+  // through this ref — never lift the cy instance out of graph-canvas.
+  const viewportApiRef = useRef<GraphViewportApi | null>(null);
+  const handleViewportApi = useCallback((api: GraphViewportApi | null) => {
+    viewportApiRef.current = api;
+  }, []);
+
+  // Core selection path — used by locate and (via handleCanvasSelect) by GraphCanvas.
+  // Does NOT clear search; canvas-clear is only on handleCanvasSelect.
   const handleSelect = useCallback((id: string | null) => {
     setSelectedNodeId(id);
-    setDetailRequest(id !== null ? { nodeId: id, time: Math.floor(Date.now() / 1000) } : null);
+    if (id === null) {
+      // Background / edge / decorative-cluster tap: deselect entirely.
+      setDetailRequest(null);
+      setDetailOpen(false);
+      return;
+    }
+    setDetailOpen(true);
+    // Reuse the existing request (same nodeId → same time) when this is a re-tap of the
+    // already-selected node (e.g. reopening after a close) — a NEW node gets a fresh one.
+    setDetailRequest((prev) =>
+      prev !== null && prev.nodeId === id ? prev : { nodeId: id, time: Math.floor(Date.now() / 1000) }
+    );
   }, []);
+
+  // GraphCanvas onSelect: clear active search (same effects as Esc-clear — miss fade off,
+  // list closes via empty query, viewport stays put), then apply selection. Locate must
+  // NOT use this path or the SearchBar's commit-label would race a forced empty clear.
+  const handleCanvasSelect = useCallback(
+    (id: string | null) => {
+      setSearchQuery((prev) => (prev.trim().length > 0 ? '' : prev));
+      handleSelect(id);
+    },
+    [handleSelect]
+  );
 
   // Rewind to a ±5m window around the clicked alert (seconds → ms for AbsoluteTimeRange).
   const handleAlertTimeClick = useCallback(
@@ -348,8 +375,7 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     () =>
       ingressNodeIds.size > 0 ||
       baseElements.some(
-        (el) =>
-          el.group === 'edges' && (el.data as cytoscape.EdgeDataDefinition).relation === EDGE_RELATION_TRANSPORT
+        (el) => el.group === 'edges' && (el.data as cytoscape.EdgeDataDefinition).relation === EDGE_RELATION_TRANSPORT
       ),
     [ingressNodeIds, baseElements]
   );
@@ -362,6 +388,69 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
     [elements, visibleKinds, visibleEdgeTypes, showIngress, ingressNodeIds]
   );
   const { visibleNodeIds } = visibility;
+
+  // Parent index for resolveSelectedNode + search proxy-hit / locate chain expansion.
+  const parentById = useMemo(() => buildParentIndex(elements), [elements]);
+
+  // Node id → display label (search result annotations + ResultList collapsed subline).
+  const labelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const el of elements) {
+      if (el.group !== 'nodes') {
+        continue;
+      }
+      const d = el.data as cytoscape.NodeDataDefinition;
+      if (typeof d.id === 'string') {
+        map.set(d.id, typeof d.label === 'string' ? d.label : d.id);
+      }
+    }
+    return map;
+  }, [elements]);
+
+  // Derived search hits (design D1/D2/D4): never stored — recomputed from elements +
+  // query + collapse + visibility so a data refresh or filter flip stays consistent.
+  const searchActive = searchQuery.trim().length > 0;
+  const resolvedSearch = useMemo(() => {
+    const computed = computeHits(elements, searchQuery);
+    return resolveSearchHits(computed, parentById, collapsedIds, visibleNodeIds);
+  }, [elements, searchQuery, parentById, collapsedIds, visibleNodeIds]);
+  const searchFitNodeIds = useMemo(() => [...resolvedSearch.litNodeIds], [resolvedSearch.litNodeIds]);
+
+  // Locate a result (design D6): expand only that hit's collapsed ancestor chain, then
+  // select + open detail like a canvas tap (handleSelect), then fit to its closed
+  // neighborhood after the collapse reconciler has a frame to apply.
+  const handleLocate = useCallback(
+    (result: SearchResult) => {
+      if (result.filterHidden === true) {
+        return;
+      }
+      const chain = collapsedAncestorChain(parentById, result.id, collapsedIds);
+      if (chain.length > 0) {
+        setCollapsedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of chain) {
+            next.delete(id);
+          }
+          return next;
+        });
+      }
+      // Same selection path as canvas left-click: detailOpen true for detail-eligible
+      // nodes (resolveSelectedNode still gates what the panel actually shows).
+      handleSelect(result.id);
+      // rAF chain: give the collapse-set effect + expand-collapse reconciler one frame
+      // to unfold before fitting the neighborhood (design D6 — accepts one-frame latency).
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          viewportApiRef.current?.fitToNeighborhood(result.id);
+        });
+      });
+    },
+    [parentById, collapsedIds, handleSelect]
+  );
+
+  const handleFitToIds = useCallback((ids: readonly string[]) => {
+    viewportApiRef.current?.fitToIds(ids);
+  }, []);
 
   // Resolve the selected node's display data; a missing id (data refresh) closes the panel.
   const selectedNode = useMemo(
@@ -402,11 +491,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   );
   const detailLookups = useNodeDetailUrls(detailQueryInput, detailEndpoint);
 
-  // Per-node Dashboard URL prefetch. Driven by the panel OPENING (selectedNodeId, set by
-  // left-click selection — the sole selection path now). Params = selected node + children
-  // (compound merge); undefined idles the hook. The dashboard time range rides as
-  // from_time/to_time (Unix seconds) and is a memo dep, so a range change rebuilds params
-  // and the hook refetches.
+  // Per-node Dashboard URL prefetch. Driven by SELECTION (selectedNodeId), independent of
+  // the detail panel's open/closed state — the prefetch stays warm across a close/reopen so
+  // reopening never re-fires it. Params = selected node + children (compound merge);
+  // undefined idles the hook. The dashboard time range rides as from_time/to_time (Unix
+  // seconds) and is a memo dep, so a range change rebuilds params and the hook refetches.
   const dashboardParams = useMemo(
     () => assembleDashboardParams(elements, selectedNodeId, data.timeRange),
     [elements, selectedNodeId, data.timeRange]
@@ -696,13 +785,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onToggleCollapseAll={toggleClusters}
             allCollapsed={allClustersCollapsed}
           />
-          <NodeContainerLegend
-            nodes={containerEntries}
-            onToggleCollapseAll={toggleNodes}
-            allCollapsed={allNodesCollapsed}
-            title={containerTitle}
-            collapseNoun={collapseNoun}
-          />
           {podParentMode === 'controller' && (
             <NamespaceLegend
               namespaces={namespaceEntries}
@@ -717,6 +799,14 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
               allCollapsed={allApplicationsCollapsed}
             />
           )}
+          {/* Controllers | Nodes last in the legend rail (panel-rendering legend order). */}
+          <NodeContainerLegend
+            nodes={containerEntries}
+            onToggleCollapseAll={toggleNodes}
+            allCollapsed={allNodesCollapsed}
+            title={containerTitle}
+            collapseNoun={collapseNoun}
+          />
         </aside>
       )}
       <div className={styles.canvasArea}>
@@ -730,6 +820,15 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
             onClick={() => setLegendCollapsed(false)}
           />
         )}
+        <SearchBar
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          results={resolvedSearch.results}
+          fitNodeIds={searchFitNodeIds}
+          labelById={labelById}
+          onLocate={handleLocate}
+          onFitToIds={handleFitToIds}
+        />
         {normalizeError !== undefined && (
           <div className={styles.partialWarning}>
             <Alert severity="warning" title="Some graph entries were skipped">
@@ -747,16 +846,19 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           stylesheet={stylesheet}
           layout={options.layout}
           visibility={visibility}
-          onSelect={handleSelect}
+          onSelect={handleCanvasSelect}
           selectedId={selectedNodeId}
           collapsedIds={collapsedIds}
           onCollapsedChange={setCollapsedIds}
           podParentMode={podParentMode}
           pinned={pinnedTooltip}
+          searchActive={searchActive}
+          searchLitNodeIds={resolvedSearch.litNodeIds}
+          onViewportApi={handleViewportApi}
         />
         <NodeDetailPanel
-          node={selectedNode}
-          onClose={() => handleSelect(null)}
+          node={detailOpen ? selectedNode : null}
+          onClose={() => setDetailOpen(false)}
           onAlertTimeClick={handleAlertTimeClick}
           timeZone={timeZone}
           lookups={detailLookups}

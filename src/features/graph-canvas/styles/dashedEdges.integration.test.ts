@@ -44,10 +44,7 @@ describe('dashed edges end-to-end (normalize → stylesheet → cytoscape)', () 
   describe('the provisioned showcase fixture', () => {
     // The demo dashboard IS the fixture: reading it here means the committed showcase and
     // the code cannot drift apart, and a corrupted inline payload fails loudly right here.
-    const dashboardPath = path.join(
-      __dirname,
-      '../../../../provisioning/dashboards/ksg-switch-demo.json'
-    );
+    const dashboardPath = path.join(__dirname, '../../../../provisioning/dashboards/ksg-switch-demo.json');
     const dashboard = JSON.parse(readFileSync(dashboardPath, 'utf8')) as {
       panels: Array<{ targets: Array<{ data: string }> }>;
     };

@@ -389,9 +389,9 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
     );
     const tip = screen.getByTestId('hover-tooltip');
     expect(tip).toHaveAttribute('data-pinned', 'true');
-    // top-right, not anchored: left auto + right/top 8, pointer-events auto so it scrolls,
-    // and z-index 1000 to clear cytoscape's expand-collapse input canvas (z999).
-    expect(tip).toHaveStyle({ left: 'auto', right: '8px', top: '8px', pointerEvents: 'auto', zIndex: 1000 });
+    // top-right below SearchBar: left auto + right 8, top 52 (under search), pointer-events
+    // auto so it scrolls, and z-index 1000 to clear cytoscape's expand-collapse canvas (z999).
+    expect(tip).toHaveStyle({ left: 'auto', right: '8px', top: '52px', pointerEvents: 'auto', zIndex: 1000 });
   });
 
   it('renders even when nothing is hovered (useHoverElement returns null)', () => {

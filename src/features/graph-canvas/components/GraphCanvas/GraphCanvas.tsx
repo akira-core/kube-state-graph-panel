@@ -11,7 +11,9 @@ import { useExpandCollapse } from '../../hooks/useExpandCollapse';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
 import { useGraphResize } from '../../hooks/useGraphResize';
 import { useLayoutRunToken } from '../../hooks/useLayoutRunToken';
+import { useSearchFade } from '../../hooks/useSearchFade';
 import { useSelectionFocus } from '../../hooks/useSelectionFocus';
+import { useViewportApi } from '../../hooks/useViewportApi';
 
 import { clusterCollapseToggle } from './clusterCollapseToggle';
 import type { GraphCanvasProps } from './GraphCanvas.types';
@@ -36,6 +38,10 @@ function noop(): void {
   // collapsed-change sink for the no-collapse path
 }
 
+// Stable empty-set identity for the omitted searchLitNodeIds case, so useSearchFade's
+// effect deps don't churn on every render when the caller doesn't pass one.
+const EMPTY_LIT_NODE_IDS: ReadonlySet<string> = new Set();
+
 export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Element {
   const {
     elements,
@@ -48,6 +54,9 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     onCollapsedChange,
     podParentMode,
     pinned,
+    searchActive,
+    searchLitNodeIds,
+    onViewportApi,
   } = props;
   const styles = useStyles2(getStyles);
 
@@ -183,8 +192,35 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
   // dense graph). `elements` re-applies after a rebuild, which drops the imperative classes;
   // `visibility` re-applies when a filter hides/restores the selected node (the hook skips
   // the focus entirely for an off-canvas selection). Declared AFTER useElementFilter so the
-  // visibility styles it reads are current.
-  useSelectionFocus({ cyRef, selectedId: selectedId ?? null, isReady, elements, visibility });
+  // visibility styles it reads are current. Suppressed while searching (design D3) — miss
+  // fade below becomes the sole fade authority.
+  useSelectionFocus({
+    cyRef,
+    selectedId: selectedId ?? null,
+    isReady,
+    elements,
+    visibility,
+    suppressed: searchActive ?? false,
+  });
+
+  // Miss fade (design D3): dims every non-hit element while a search query is active,
+  // mutually exclusive with the focus fade above.
+  useSearchFade({
+    cyRef,
+    isReady,
+    elements,
+    active: searchActive ?? false,
+    litNodeIds: searchLitNodeIds ?? EMPTY_LIT_NODE_IDS,
+  });
+
+  // Imperative viewport commands for search fit / locate (design D5). Callback-ref style —
+  // never lifts the cy instance out of graph-canvas. Conditional spread keeps
+  // exactOptionalPropertyTypes happy when the prop is omitted.
+  useViewportApi({
+    cyRef,
+    isReady,
+    ...(onViewportApi !== undefined ? { onViewportApi } : {}),
+  });
 
   return (
     <div className={styles.root} data-testid="graph-canvas-root">

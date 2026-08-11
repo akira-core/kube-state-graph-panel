@@ -5,3 +5,4 @@ export type { EmptyStateProps } from './components/EmptyState';
 export { LoadingOverlay } from './components/LoadingOverlay';
 export type { CyStylesheet } from './hooks/useCytoscape';
 export type { LayoutName } from './hooks/useGraphLayout';
+export type { GraphViewportApi } from './hooks/useViewportApi';
