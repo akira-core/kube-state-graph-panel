@@ -111,6 +111,8 @@ Panel SHALL 使用 `ResizeObserver` 監聽 cytoscape 容器尺寸變化,並以 d
 
 Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selected` style 視覺化,且可選地透過 `onSelect` callback 將被選節點 id 傳出供其他元件消費。
 
+**選取(selection)與 detail 面板的可見性(detail open)MUST 為兩個獨立狀態**:selection 驅動 cytoscape 單選高亮、selection-focus 淡化、右上角釘選 tooltip(位於 search bar 下方,見 `graph-search`)與變數輸出(selected-pod-export);detail 面板的開/關為純 UI 狀態,關閉面板 MUST NOT 清除 selection(見「Node Detail 面板」)。取消選取的途徑**僅有**:點擊背景、點擊邊、點擊不可選取的 `cluster` 背板(三者皆觸發 `onSelect(null)`)。點擊**已選取**的節點 MUST 重新開啟其 detail 面板(而非取消選取)。除畫布 tap 外,graph-search 的 **locate** 亦建立 selection,且對 detail-eligible 節點 MUST 開啟 detail 面板(等同畫布左鍵點該節點,見 `graph-search` capability)。**畫布**上的選取/取消選取(GraphCanvas `onSelect`)在 search query 非空時 MUST 清除 search(見 `graph-search`「Canvas interaction clears search」);locate 路徑 MUST NOT 走此清除。
+
 **`controller` / K8s `node` / `storageclass`,以及裝飾性 `namespace` / `application` 群組 MUST 為可選取(`selectable`)。裝飾性 `cluster` 群組 MUST NOT 可選取(`selectable: false`)。** 此可選取性的唯一目的,是讓 `cytoscape-expand-collapse` 既已啟用(`cueEnabled: true`)的 **`+/-` 摺疊 cue** 能浮現:該 cue 為 selection-driven,僅於**單一被選取**且為 `:parent`(或已收合)的節點上繪製。故使用者點選任一可選取的 compound parent → 該 parent 浮現其 `+/-` cue → 點 cue 切換該 parent 的收合 / 展開(沿用既有 expand-collapse plumbing,無新元件、無新收合機制)。
 
 `cluster` 群組因不可選取,點擊(`tap`)它一律視同點擊背景(觸發 `onSelect(null)`,不顯示選取環、不浮現摺疊 cue)。其收合 / 展開改由**雙擊(`dbltap`)**觸發:GraphCanvas MUST 於偵測到對 `isCluster` 節點的 `dbltap` 時,直接呼叫既有 `ExpandCollapseApi`(`api.expand(node)` 或 `api.collapse(node)`,依 `isExpandable`/`isCollapsible` 判斷)切換該節點收合狀態——此路徑觸發與 cue 相同的 `expandcollapse.aftercollapse`/`afterexpand` 事件,`collapsedIds` 更新沿用既有 `onCollapsedChange` 路徑,無新收合狀態機制。
@@ -121,6 +123,11 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 
 - **WHEN** 使用者點擊任一可選取節點
 - **THEN** 該節點被 cytoscape 標記為 `:selected` 並套用對應樣式,若提供 `onSelect` prop 則以節點 id 呼叫之
+
+#### Scenario: 點擊已選取節點重開面板而非取消選取
+
+- **WHEN** 某節點已被選取且其 detail 面板已被關閉鈕關閉,使用者再次點擊該節點
+- **THEN** detail 面板重新開啟;selection 維持不變(不經歷「取消再選取」,高亮、釘選 tooltip、變數輸出全程存續)
 
 #### Scenario: cluster 群組不可選取,點擊如同背景點擊
 
@@ -194,11 +201,11 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 
 Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod-calls-pod` 的 `pod ↔ pod/service` 雙向列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。kind 列的文字標籤預設為 kind 字串本身,惟 MUST 支援 display-name 覆寫(`NodeLegend` 內的查表):`network` MUST 顯示為 `physical network`。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。例外:`pod-calls-pod` 列 MUST 渲染為 `pod ↔ pod/service`(雙向箭頭 glyph,兩端皆有箭頭),代表被省略的服務邊對。
 
-legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → **`Ingress Gateway`** → `Edge Types` → `Status` → swatch 區段(`Clusters` → `Nodes`|`Controllers` → `Namespaces` → `Applications`);亦即 swatch 區段置於 `Status` **之後**(legend 底部)。
+legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → **`Ingress Gateway`** → `Edge Types` → `Status` → swatch 區段(`Clusters` → `Namespaces` → `Applications` → **`Nodes`|`Controllers`**);亦即 swatch 區段置於 `Status` **之後**,且 **`Nodes`|`Controllers`(`NodeContainerLegend`)MUST 為 legend 最底區段**(在 `Applications` 之後;在 `node` 模式下 `Namespaces` / `Applications` 不渲染時,仍接在 `Clusters` 之後作為最底)。
 
 其中 `Ingress Gateway`(`IngressToggle`,見 ingress-visibility-toggle capability)為 **presence-gated**:僅在圖中確實存在 ingress-gateway 節點集合(非空)時渲染,否則 MUST NOT 渲染——與本 requirement「對應集合為空時 `return null`」的既有慣例一致。它緊接 `Node Kinds` **之後**、`Edge Types` **之前**,因其與 `NodeLegend` 同屬**節點可見性控制**(眼睛 / eye-slash 切換語彙),而非邊或狀態的說明列;它 MUST NOT 併入 `NodeLegend` 的 kind-based row(那些列嚴格以 kind 為 key)。該區段除標題與 eye 切換外,MUST 另附一條虛線 `EdgeGlyph` 樣本說明畫布上的 ingress 虛線語意——`EdgeLegend` 省略了服務型別列且其樣本一律實線,故若無此樣本,畫布虛線在 legend 中無任何對應說明。
 
-`Namespaces`(`NamespaceLegend`)與 `Applications`(`ApplicationLegend`,標題 `Applications` / 應用程式)為 **mode-gated**:僅在 `controller` 模式渲染(`node` 模式剝除 namespace / application 群組,故兩區段 MUST `return null`);`NamespaceLegend` 由後端 `isNamespace` 群組節點餵入(以 `namespaceColor` accent 上色)、`ApplicationLegend` 由後端 `isApplication` 群組節點餵入(以 `applicationColor` accent 上色,`applicationPalette` 衍生)。舊有的 `StorageClassLegend`(`Storage Classes` swatch 區段)MUST **移除**——`storageclass` 於後端 D6 階層改為 cluster 下的一般 leaf,故 MUST 改以其 `storageclass` glyph 列於 `NodeLegend` 的 `Storage` 大類(經既有 `categoryByKind` wiring),不再有獨立 swatch 區段。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Ingress Gateway` / `Edge Types` / `Status` / `Clusters` / `Namespaces` / `Applications`)。
+`Namespaces`(`NamespaceLegend`)與 `Applications`(`ApplicationLegend`,標題 `Applications` / 應用程式)為 **mode-gated**:僅在 `controller` 模式渲染(`node` 模式剝除 namespace / application 群組,故兩區段 MUST `return null`);`NamespaceLegend` 由後端 `isNamespace` 群組節點餵入(以 `namespaceColor` accent 上色)、`ApplicationLegend` 由後端 `isApplication` 群組節點餵入(以 `applicationColor` accent 上色,`applicationPalette` 衍生)。舊有的 `StorageClassLegend`(`Storage Classes` swatch 區段)MUST **移除**——`storageclass` 於後端 D6 階層改為 cluster 下的一般 leaf,故 MUST 改以其 `storageclass` glyph 列於 `NodeLegend` 的 `Storage` 大類(經既有 `categoryByKind` wiring),不再有獨立 swatch 區段。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Ingress Gateway` / `Edge Types` / `Status` / `Clusters` / `Namespaces` / `Applications` / `Nodes`|`Controllers`)。
 
 #### Scenario: Node legend 只列出以 glyph 呈現的 kind,依大類分組
 
@@ -230,6 +237,13 @@ legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→
 
 - **WHEN** `controller` 模式下圖中含後端 `isApplication` 群組節點
 - **THEN** `ApplicationLegend`(標題 `Applications`)以各 application 名稱列出 swatch,顏色取自 `applicationColor`(`applicationPalette` accent);切換為 `node` 模式時 application 群組被剝除,該區段 `return null`(與 `Namespaces` 區段一致 mode-gated)
+
+#### Scenario: Controllers/Nodes swatch 位於 legend 最底
+
+- **WHEN** `controller` 模式下 legend 同時渲染 `Clusters`、`Namespaces`、`Applications` 與 `Controllers`
+- **THEN** 垂直順序 MUST 為 `Clusters` → `Namespaces` → `Applications` → `Controllers`(`Controllers` 為 legend 最後一區)
+- **WHEN** `node` 模式下 legend 渲染 `Clusters` 與 `Nodes`(無 Namespaces / Applications)
+- **THEN** 垂直順序 MUST 為 `Clusters` → `Nodes`(`Nodes` 為 legend 最後一區)
 
 #### Scenario: storageclass 以 NodeLegend glyph 呈現、無獨立 swatch 區段
 
@@ -452,13 +466,13 @@ Panel SHALL 依節點 `data.status` 渲染狀態外框,顏色取自單一資料�
 
 ### Requirement: Node Detail 面板
 
-Panel SHALL 在**左鍵**點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,header 顯示節點 name、kind、status 三項;並在點擊背景 / 邊、切換到另一節點、或按關閉鈕時關閉。cytoscape 單選的藍色高亮 MUST 與面板開關同步。裝飾性 **cluster** 群組**不可被選取**(見「互動與選取狀態」:tap 視同背景點擊、無選取環、無摺疊 cue,收合改由 dbltap 觸發),裝飾性 **namespace** 群組**可被選取**(顯示選取環與摺疊 cue,見「互動與選取狀態」)——兩者 `resolveSelectedNode` 皆回 `null`,故 MUST NOT 開啟此 detail 面板、亦 MUST NOT 釘選 tooltip。**`application` 群組為例外**:它現為 detail-eligible(kind-less,以合成 `kind: application` 解析),選取時**開啟面板**渲染該 ArgoCD application 的 Application config_changes 區塊(見「Node Detail Application 與 Containers 區塊」)並**釘選 tooltip**,同時仍浮現其摺疊 cue。
+Panel SHALL 在**左鍵**點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,header 顯示節點 name、kind、status 三項。面板的關閉途徑分**兩類、語意不同**:(1)點擊背景 / 邊(= 取消選取)時面板關閉且 selection 一併清除;(2)按**關閉鈕**時 MUST **僅關閉面板**(detail open → false)——selection 及其衍生視覺(cytoscape 單選高亮、selection-focus 淡化、右上角釘選 tooltip)與變數輸出 MUST 全數存續。切換到另一節點時面板切換至新節點。cytoscape 單選的藍色高亮 MUST 與 **selection** 同步(而非與面板開關同步)。關閉後**再次點擊該已選取節點** MUST 重新開啟面板,且 MUST 沿用原選取當下的查詢時間戳(不重發 change-report 查詢——關/開面板為 UI 動作,非資料動作;查詢時間戳的生命週期繫於 selection,選取**另一**節點時才取新時間戳)。裝飾性 **cluster** 群組**不可被選取**(見「互動與選取狀態」:tap 視同背景點擊、無選取環、無摺疊 cue,收合改由 dbltap 觸發),裝飾性 **namespace** 群組**可被選取**(顯示選取環與摺疊 cue,見「互動與選取狀態」)——兩者 `resolveSelectedNode` 皆回 `null`,故 MUST NOT 開啟此 detail 面板、亦 MUST NOT 釘選 tooltip。**`application` 群組為例外**:它現為 detail-eligible(kind-less,以合成 `kind: application` 解析),選取時**開啟面板**渲染該 ArgoCD application 的 Application config_changes 區塊(見「Node Detail Application 與 Containers 區塊」)並**釘選 tooltip**,同時仍浮現其摺疊 cue。
 
 header 除節點 name / kind / status 外,當該節點(任一 detail-eligible 節點:**leaf 含 storageclass / k8s-node / controller**;**僅裝飾性 cluster / namespace / application 除外**)的 `/dashboard` 查詢回傳可用 URL 時,MUST 於 name 旁顯示一顆 **Dashboard 按鈕**;按鈕的查詢時機、參數組裝、200-gated 可用性與新分頁開啟行為見 `node-dashboard-url` capability。
 
-面板 body 一律以**資料有無**閘控,依序為——(1)**Application change-report 區塊**:帶 `data.application` 的節點即顯示(**含 `service` / `pvc`**——見「Node Detail Application 與 Containers 區塊」需求);**Containers change-report 區塊**僅 workload kind 且帶 `data.containers` 時顯示;(2)**Alerts 區塊**(`node-detail-section-alerts`):節點帶非空 `data.alerts` 時渲染告警表,**無告警時整段不渲染**。**面板不再有恆顯的屬性(Properties)區塊**——節點的 promoted attributes(合成 kind、`namespace`、`application`、`ipAddress`、`provisioner`、storageclass `parameters`)改由**右上角釘選 tooltip** 呈現(見「Hover Tooltip」pinned 模式,與 hover 同源)。
+面板 body 一律以**資料有無**閘控,依序為——(1)**Application change-report 區塊**:帶 `data.application` 的節點即顯示(**含 `service` / `pvc`**——見「Node Detail Application 與 Containers 區塊」需求);**Containers change-report 區塊**僅 workload kind 且帶 `data.containers` 時顯示;(2)**Alerts 區塊**(`node-detail-section-alerts`):節點帶非空 `data.alerts` 時渲染告警表,**無告警時整段不渲染**。**面板不再有恆顯的屬性(Properties)區塊**——節點的 promoted attributes(合成 kind、`namespace`、`application`、`ipAddress`、`provisioner`、storageclass `parameters`)改由**右上角釘選 tooltip** 呈現(見「Hover Tooltip」pinned 模式,與 hover 同源);釘選卡 MUST 排在 **search bar 下方**(search 在上、屬性卡在下,見 `graph-search`)。
 
-**面板 ALWAYS 渲染**(只要左鍵選取一個 detail-eligible 節點):**header**(節點 name + kind / status badge + 關閉鈕,以及 `/dashboard` 查詢回 `ready` + 非空 `urls` 時的 Dashboard 按鈕)為最小渲染;body 區塊(Application / Containers / Alerts)各自以資料有無閘控。無任何 body 內容的節點(如純 `storageclass`、無 `application` 的 `service` / `pvc`)左鍵選取後**仍渲染 header-only 面板**;其 promoted attributes 由右上角釘選 tooltip 承載(不重複於面板)。釘選卡片本身**不含** Dashboard 按鈕,故 header 是 dashboard 入口的唯一處——因 header 恆顯,入口必然可達。
+**面板 ALWAYS 渲染**(當左鍵選取一個 detail-eligible 節點**且面板未被關閉鈕關閉**——即 selection 存在且 detail open 為 true):**header**(節點 name + kind / status badge + 關閉鈕,以及 `/dashboard` 查詢回 `ready` + 非空 `urls` 時的 Dashboard 按鈕)為最小渲染;body 區塊(Application / Containers / Alerts)各自以資料有無閘控。無任何 body 內容的節點(如純 `storageclass`、無 `application` 的 `service` / `pvc`)左鍵選取後**仍渲染 header-only 面板**;其 promoted attributes 由右上角釘選 tooltip 承載(不重複於面板)。釘選卡片本身**不含** Dashboard 按鈕,故 header 是 dashboard 入口的唯一處——因 header 恆顯,入口必然可達。**graph-search 的 locate 對 detail-eligible 節點 MUST 建立 selection 並開啟面板**(detail open → true,等同畫布左鍵,見 `graph-search` capability);釘選 tooltip 照常呈現於 search bar 下方。
 
 面板高度 MUST 隨內容增長,僅在超過上限(canvas 高度的 `50%`)時才捲動(header 釘住);內容短於上限時 MUST NOT 出現捲動。**捲動 MUST 集中於單一容器(面板 body,`node-detail-scroll`):body 為唯一 scroll authority(`overflowY: auto`),各區塊一律為 content-height(`flex: 0 0 auto`)且 MUST NOT 各自擁有內部捲動。**面板可同時堆疊多個區塊(Application + Containers + Alerts),若任一區塊自帶內部捲動,多個 fill 區塊會在受限高度下互相重疊且皆無法捲動——故 single-body-scroll 為唯一可組合的模型。
 
@@ -468,17 +482,24 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 
 - **WHEN** 使用者**左鍵**點擊任一非裝飾 detail-eligible 節點
 - **THEN** 底部浮層渲染 header(節點 label、kind badge、status badge、關閉鈕),覆蓋於 graph 之上且不改變 graph 尺寸;有資料的 body 區塊隨之顯示
-- **AND** 該節點的選取高亮與開啟的面板同步,且其屬性同時釘選於右上角 tooltip
+- **AND** 該節點的選取高亮與 selection 同步,且其屬性同時釘選於右上角 tooltip
 
 #### Scenario: 點外面或關閉鈕關閉
 
-- **WHEN** 使用者點擊 graph 背景或邊,或按下關閉鈕
-- **THEN** detail 面板關閉,且選取高亮清除(右上角釘選 tooltip 一併消失)
+- **WHEN** 使用者點擊 graph 背景或邊
+- **THEN** detail 面板關閉,selection 清除(選取高亮、focus 淡化、右上角釘選 tooltip 一併消失,變數輸出清空)
+- **WHEN** 面板開啟時使用者按下關閉鈕
+- **THEN** detail 面板關閉;selection 維持——選取高亮、selection-focus 淡化與右上角釘選 tooltip 持續顯示,selected-pod-export 變數值不變
+
+#### Scenario: 關閉後再點該節點重開且不重發查詢
+
+- **WHEN** 使用者以關閉鈕關閉面板後,再次左鍵點擊該(仍選取中的)節點
+- **THEN** 面板重新開啟,內容與關閉前一致;change-report 查詢沿用原選取時間戳,MUST NOT 重新發出查詢
 
 #### Scenario: 切換節點
 
 - **WHEN** 面板開啟時使用者點擊另一個節點
-- **THEN** 面板切換為新點擊的節點(釘選 tooltip 同步切換)
+- **THEN** 面板切換為新點擊的節點(釘選 tooltip 同步切換),查詢以新選取當下的時間戳發出
 
 #### Scenario: 裸節點仍渲染 header-only 面板
 

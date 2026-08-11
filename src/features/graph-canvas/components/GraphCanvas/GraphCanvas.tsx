@@ -13,6 +13,7 @@ import { useGraphResize } from '../../hooks/useGraphResize';
 import { useLayoutRunToken } from '../../hooks/useLayoutRunToken';
 import { useSearchFade } from '../../hooks/useSearchFade';
 import { useSelectionFocus } from '../../hooks/useSelectionFocus';
+import { useViewportApi } from '../../hooks/useViewportApi';
 
 import { clusterCollapseToggle } from './clusterCollapseToggle';
 import type { GraphCanvasProps } from './GraphCanvas.types';
@@ -55,6 +56,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     pinned,
     searchActive,
     searchLitNodeIds,
+    onViewportApi,
   } = props;
   const styles = useStyles2(getStyles);
 
@@ -209,6 +211,15 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     elements,
     active: searchActive ?? false,
     litNodeIds: searchLitNodeIds ?? EMPTY_LIT_NODE_IDS,
+  });
+
+  // Imperative viewport commands for search fit / locate (design D5). Callback-ref style —
+  // never lifts the cy instance out of graph-canvas. Conditional spread keeps
+  // exactOptionalPropertyTypes happy when the prop is omitted.
+  useViewportApi({
+    cyRef,
+    isReady,
+    ...(onViewportApi !== undefined ? { onViewportApi } : {}),
   });
 
   return (

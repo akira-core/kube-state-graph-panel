@@ -31,7 +31,15 @@ Current state that shapes the design:
 
 Two new `useState` in `KsgPanel`: `searchQuery: string`, `detailOpen: boolean`. Hits are **derived** (`useMemo`) from `(elements, searchQuery, visibility, collapsedIds)` — never stored. Alternatives: state in `GraphCanvas` (rejected: locate needs `setSelectedNodeId` and collapse state, both live in `KsgPanel`; callbacks would tunnel two layers); a context/store (rejected: repo convention is local state + props).
 
-`handleSelect` (canvas tap) sets both `selectedNodeId` and `detailOpen = true` (tap on the already-selected node just re-opens). `onClose` sets only `detailOpen = false`. Locate sets `selectedNodeId` without touching `detailOpen`. `NodeDetailPanel` renders on `selectedNode !== null && detailOpen`. `detailRequest` keeps its lifecycle tied to selection (unchanged code path) — reopen reuses it, satisfying the no-refetch requirement for free.
+`handleSelect(id)` is the core selection path: sets `selectedNodeId` and `detailOpen = true` when `id !== null` (re-tap of the already-selected node re-opens); `id === null` clears selection + detail. `onClose` sets only `detailOpen = false`.
+
+**Canvas vs locate wiring (search clear):**
+
+- `handleCanvasSelect(id)` — used as GraphCanvas `onSelect`: if `searchQuery` is non-empty, **`setSearchQuery('')` first** (same effects as Esc-clear: miss fade off, list closes via empty query, viewport stays put), then `handleSelect(id)`. Covers node / background / edge / cluster-backplate taps.
+- `handleLocate` — expand chain, then `handleSelect(id)` **without** clearing search; SearchBar still commits `result.label` + closes the list. Locate must not go through `handleCanvasSelect` or the committed label would race a forced empty clear.
+- Detail close button and legend toggles do not clear search.
+
+Non–detail-eligible nodes follow `resolveSelectedNode` rules (e.g. namespace → no panel). `NodeDetailPanel` renders on `selectedNode !== null && detailOpen`. `detailRequest` keeps its lifecycle tied to selection (unchanged code path) — reopen reuses it, satisfying the no-refetch requirement for free.
 
 ### D2 — Match: pure function in `src/features/graph-search/`
 
@@ -53,18 +61,35 @@ Fit must run on the cy instance but is triggered by panel-level state (debounced
 
 ### D6 — Locate: compose existing channels, no new machinery
 
-Locate(result) in `KsgPanel`: (1) walk the parent index for collapsed ancestors of the id, `setCollapsedIds(prev => prev minus chain)` — `useExpandCollapse` reconciliation expands them, exactly like a legend collapse-all toggle would; (2) `setSelectedNodeId(id)` (not `handleSelect` — `detailOpen` stays false); (3) `fitToNeighborhood(id)` after the expand has applied — sequenced by effect on `collapsedIds` application or a `requestAnimationFrame` chain; the design accepts one-frame latency rather than adding an expand-completion callback API.
+Locate(result) in `KsgPanel`: (1) walk the parent index for collapsed ancestors of the id, `setCollapsedIds(prev => prev minus chain)` — `useExpandCollapse` reconciliation expands them, exactly like a legend collapse-all toggle would; (2) **select + open detail like a canvas tap** — call `handleSelect(id)` (or equivalent: `selectedNodeId` + `detailOpen = true`) so detail-eligible nodes open `NodeDetailPanel`; (3) `fitToNeighborhood(id)` after the expand has applied — sequenced by effect on `collapsedIds` application or a `requestAnimationFrame` chain; the design accepts one-frame latency rather than adding an expand-completion callback API. Filter-hidden rows never reach locate. SearchBar still commits `result.label` and closes the list after calling `onLocate`.
 
 ### D7 — Search bar UI: new feature folder, Grafana primitives
 
-`src/features/graph-search/components/SearchBar/` (+ `ResultList/`): `@grafana/ui` `Input` with search icon, absolutely positioned top-center (`zIndex` above the expand-collapse overlay canvas at 999, below Grafana chrome ≥ 1030 — same band as the legend expand button). Dropdown is a plain scrollable list (`maxHeight: 40%` of canvas), rows per spec (label + kind badge + context subline; disabled rows with `eye-slash` `Icon`). Keyboard handling on the input's `onKeyDown` with `stopPropagation`; `highlightedIndex` state skips disabled rows. The partial-parse warning banner moves down (`top` offset) when present so the two never overlap — warning yields to search, both remain visible.
+`src/features/graph-search/components/SearchBar/` (+ `ResultList/`): `@grafana/ui` `Input` with search icon, absolutely positioned at the **canvas top-right** — same inset as the pinned hover card (`right: 8`, top near/flush with the panel edge; **no** horizontal center). `zIndex` above the expand-collapse overlay canvas at 999, below Grafana chrome ≥ 1030 — same band as the legend expand button / pinned tooltip (search may sit at the same band or slightly above pinned so the input stays clickable). Dropdown is a plain scrollable list (`maxHeight: 40%` of canvas), rows per spec (label + kind badge + context subline; disabled rows with `eye-slash` `Icon`).
+
+**Stacking with pinned attributes:** the search bar is always visible; the pinned hover-tooltip card docks **below** it (`top` = search bar height + gap, `right: 8`). Implement by adjusting `PINNED_STYLE` in `HoverTooltip` and/or a small top offset constant shared/documented with SearchBar height — search on top, attributes under it, never overlapping. Floating (non-pinned) hover placement is unchanged.
+
+**Result-list open state (`listOpen`)** lives in `SearchBar` as local UI state, independent of `searchQuery`:
+
+| Event | Effect on `listOpen` |
+| --- | --- |
+| User changes query to non-empty | `true` |
+| Input focus while query non-empty | `true` |
+| Input blur | `false` (query / miss fade / selection unchanged) |
+| Successful locate (click or Enter on a non-disabled row) | `false`; also `onQueryChange(result.label)` — **label only** |
+| Query becomes empty (Esc clear / clear control) | `false` |
+
+List renders only when `query.trim() !== '' && listOpen`. Locate still runs expand → select/open-detail → fit (D6); committing the label may recompute hits for that string, but the list stays closed until the user types again or re-focuses.
+
+**Blur vs. row click:** result rows MUST `preventDefault` on `mousedown` (or equivalent) so the input does not blur before `click`/`locate` fires. Keyboard handling stays on the input's `onKeyDown` with `stopPropagation`; `highlightedIndex` skips disabled rows. The partial-parse warning banner stays **top-left** (search is top-right) so the two do not compete for the same corner.
 
 ### D8 — Testing strategy
 
 - `computeHits`, proxy-hit resolution, disabled-row skip logic: pure Jest.
 - `useSearchFade`, fit clamp, suppressed `useSelectionFocus`: headless cytoscape + `renderHook` (layout stubbed per repo convention).
-- `SearchBar`/`ResultList`: RTL component tests (typing, keyboard nav, Esc stages).
-- `KsgPanel` integration: close-keeps-selection, reopen-no-refetch (assert stable `detailQueryInput` identity), locate-does-not-open-panel.
+- `SearchBar`/`ResultList`: RTL component tests (typing, keyboard nav, Esc stages, locate commits label + closes list, blur hides list / focus reopens).
+- `KsgPanel` integration: close-keeps-selection, reopen-no-refetch (assert stable `detailQueryInput` identity), **locate-opens-detail-panel** for detail-eligible nodes, canvas tap clears search while locate still commits label.
+
 
 ## Risks / Trade-offs
 

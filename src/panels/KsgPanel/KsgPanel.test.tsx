@@ -782,7 +782,7 @@ describe('KsgPanel', () => {
     expect(screen.getByTestId('node-legend-row-storageclass')).toBeInTheDocument();
   });
 
-  it('orders legend sections with the swatch sections (Clusters → Controllers → Namespaces → Applications) AFTER Status', () => {
+  it('orders legend sections with the swatch sections (Clusters → Namespaces → Applications → Controllers) AFTER Status', () => {
     const frame: DataFrame = {
       name: 'graph',
       length: 1,
@@ -802,12 +802,11 @@ describe('KsgPanel', () => {
     expect(idx(/node kinds/i)).toBeGreaterThanOrEqual(0);
     expect(idx(/node kinds/i)).toBeLessThan(idx(/edge types/i));
     expect(idx(/edge types/i)).toBeLessThan(idx(/status/i));
-    // … then the swatch sections, moved BELOW Status, in
-    // Clusters → Nodes|Controllers → Namespaces → Applications order.
+    // … then the swatch sections BELOW Status, Controllers last (legend bottom).
     expect(idx(/status/i)).toBeLessThan(idx(/clusters/i));
-    expect(idx(/clusters/i)).toBeLessThan(idx(/controllers/i));
-    expect(idx(/controllers/i)).toBeLessThan(idx(/namespaces/i));
+    expect(idx(/clusters/i)).toBeLessThan(idx(/namespaces/i));
     expect(idx(/namespaces/i)).toBeLessThan(idx(/applications/i));
+    expect(idx(/applications/i)).toBeLessThan(idx(/controllers/i));
     // This payload carries no ingress label, so the presence-gated section is absent
     // and Node Kinds runs straight into Edge Types.
     expect(idx(/ingress gateway/i)).toBe(-1);
@@ -1859,6 +1858,300 @@ describe('KsgPanel', () => {
       });
       expect(selectedPodCalls().at(-1)).toEqual({ 'var-selected_pod': ['mongo-0'] });
       expect(clusterCalls()).toHaveLength(0);
+    });
+  });
+
+  describe('graph search + locate', () => {
+    const appId = 'demo/application/checkout';
+    const controllerId = 'demo/controller/StatefulSet/mongo';
+    const otherControllerId = 'demo/controller/Deployment/web';
+    const payload = {
+      elements: {
+        nodes: [
+          { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          {
+            data: {
+              id: appId,
+              type: 'application',
+              name: 'checkout',
+              parent: 'cluster:demo',
+            },
+          },
+          {
+            data: {
+              id: controllerId,
+              type: 'controller',
+              name: 'mongo',
+              parent: appId,
+            },
+          },
+          {
+            data: {
+              id: otherControllerId,
+              type: 'controller',
+              name: 'web',
+              parent: 'cluster:demo',
+            },
+          },
+          {
+            data: {
+              id: 'demo/p1',
+              type: 'pod',
+              name: 'mongodb-replica-0',
+              parent: controllerId,
+              owner: { kind: 'StatefulSet', name: 'mongo' },
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+          {
+            data: {
+              id: 'demo/p2',
+              type: 'pod',
+              name: 'web-0',
+              parent: otherControllerId,
+              labels: { cluster: 'demo', namespace: 'shop' },
+            },
+          },
+        ],
+        // A drawn edge keeps both pods (and their compound ancestors) out of the
+        // orphan cascade — without it, computeVisibility empties visibleNodeIds and
+        // every hit would render filter-hidden / non-locatable.
+        edges: [
+          {
+            data: {
+              id: 'e-call',
+              type: 'pod-calls-pod',
+              source: 'demo/p1',
+              target: 'demo/p2',
+            },
+          },
+        ],
+      },
+    };
+    const frame: DataFrame = {
+      name: 'graph',
+      length: 1,
+      fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+    };
+    type CanvasHandlers = {
+      onSelect?: (id: string | null) => void;
+      onCollapsedChange?: (next: Set<string>) => void;
+      collapsedIds?: Set<string>;
+      selectedId?: string | null;
+      searchActive?: boolean;
+      searchLitNodeIds?: ReadonlySet<string>;
+      pinned?: { label?: string } | null;
+      onViewportApi?: (api: { fitToIds: jest.Mock; fitToNeighborhood: jest.Mock } | null) => void;
+    };
+    const lastCanvasProps = (): CanvasHandlers => (graphCanvasSpy.mock.calls as Array<[CanvasHandlers]>).at(-1)![0];
+
+    function renderPanel(options: Partial<KsgPanelOptions> = {}): void {
+      render(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+            options: { ...defaultOptions, ...options },
+          })}
+        />
+      );
+    }
+
+    it('search bar is always visible; typing lights hits via searchLitNodeIds without opening the list empty-state overlay', () => {
+      renderPanel();
+      expect(screen.getByTestId('graph-search-bar')).toBeInTheDocument();
+      expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+
+      expect(screen.getByTestId('search-result-list')).toBeInTheDocument();
+      expect(screen.getByText('mongodb-replica-0')).toBeInTheDocument();
+      // Controllers default-collapse on entry → lit set uses the proxy container, not the
+      // folded pod itself.
+      expect(lastCanvasProps().searchActive).toBe(true);
+      expect(lastCanvasProps().searchLitNodeIds?.has(controllerId)).toBe(true);
+      // Zero-hit-style empty overlay must NOT appear just because search filtered visually.
+      expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+    });
+
+    it('data refresh preserves the query and recomputes hits', () => {
+      const { rerender } = render(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [frame], timeRange: stubTimeRange },
+            options: defaultOptions,
+          })}
+        />
+      );
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb');
+
+      // Same query, refreshed PanelData identity — query must stick.
+      const frame2: DataFrame = {
+        name: 'graph',
+        length: 1,
+        fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(payload)] }],
+      };
+      rerender(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [frame2], timeRange: stubTimeRange },
+            options: defaultOptions,
+          })}
+        />
+      );
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb');
+      expect(screen.getByText('mongodb-replica-0')).toBeInTheDocument();
+    });
+
+    it('locate expands only the hit collapsed ancestor chain, opens detail like a canvas tap, and fits neighborhood', async () => {
+      const fitToNeighborhood = jest.fn();
+      const fitToIds = jest.fn();
+      renderPanel();
+      // Prime the viewport-api ref the way a ready GraphCanvas would (mock never mounts cy).
+      act(() => {
+        lastCanvasProps().onViewportApi?.({ fitToIds, fitToNeighborhood });
+      });
+      // Default-collapse has seeded both controllers into collapsedIds.
+      expect(lastCanvasProps().collapsedIds?.has(controllerId)).toBe(true);
+      expect(lastCanvasProps().collapsedIds?.has(otherControllerId)).toBe(true);
+
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+
+      // Only the mongo controller chain expands — web stays collapsed.
+      const collapsed = lastCanvasProps().collapsedIds ?? new Set();
+      expect(collapsed.has(controllerId)).toBe(false);
+      expect(collapsed.has(otherControllerId)).toBe(true);
+
+      // Selection + detail panel (same as canvas left-click on a detail-eligible pod).
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      // Pinned tooltip still appears for the selection.
+      expect(lastCanvasProps().pinned?.label).toBe('mongodb-replica-0');
+      // Input commits the result label (SearchBar activateLocate).
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb-replica-0');
+
+      // fitToNeighborhood after the rAF chain.
+      await act(async () => {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+      });
+      expect(fitToNeighborhood).toHaveBeenCalledWith('demo/p1');
+    });
+
+    it('locate multi-level chain expands application + controller when both are collapsed', async () => {
+      const fitToNeighborhood = jest.fn();
+      renderPanel();
+      act(() => {
+        lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood });
+      });
+      // Collapse the application group on top of the default controller collapse.
+      act(() => {
+        const current = lastCanvasProps().collapsedIds ?? new Set();
+        lastCanvasProps().onCollapsedChange?.(new Set([...current, appId]));
+      });
+      expect(lastCanvasProps().collapsedIds?.has(appId)).toBe(true);
+      expect(lastCanvasProps().collapsedIds?.has(controllerId)).toBe(true);
+
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+
+      const collapsed = lastCanvasProps().collapsedIds ?? new Set();
+      expect(collapsed.has(appId)).toBe(false);
+      expect(collapsed.has(controllerId)).toBe(false);
+      // Untouched controller stays collapsed.
+      expect(collapsed.has(otherControllerId)).toBe(true);
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+
+      await act(async () => {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+      });
+      expect(fitToNeighborhood).toHaveBeenCalledWith('demo/p1');
+    });
+
+    it('containers expanded by locate stay expanded after the query clears', () => {
+      renderPanel();
+      act(() => {
+        lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
+      });
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+      expect(lastCanvasProps().collapsedIds?.has(controllerId)).toBe(false);
+
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: '' } });
+      expect(lastCanvasProps().searchActive).toBe(false);
+      // Expansion survives clear — only the fade is removed.
+      expect(lastCanvasProps().collapsedIds?.has(controllerId)).toBe(false);
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
+    });
+
+    it('canvas node tap clears the search query and miss fade, then selects', () => {
+      renderPanel();
+      act(() => {
+        lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
+      });
+      // Expand so the tapped pod is detail-resolvable (controllers default-collapse).
+      act(() => {
+        lastCanvasProps().onCollapsedChange?.(new Set());
+      });
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      expect(lastCanvasProps().searchActive).toBe(true);
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb');
+
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p2');
+      });
+
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().searchActive).toBe(false);
+      expect(lastCanvasProps().selectedId).toBe('demo/p2');
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
+    });
+
+    it('canvas background tap clears search and deselects', () => {
+      renderPanel();
+      act(() => {
+        lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
+      });
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+      // Locate commits label — search still active with that label.
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb-replica-0');
+      expect(lastCanvasProps().searchActive).toBe(true);
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
+
+      act(() => {
+        lastCanvasProps().onSelect?.(null);
+      });
+
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().searchActive).toBe(false);
+      expect(lastCanvasProps().selectedId).toBeNull();
+      expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
+    });
+
+    it('locate still commits label (does not force-empty search via canvas-clear path)', () => {
+      renderPanel();
+      act(() => {
+        lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
+      });
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+
+      // Locate uses handleSelect, not handleCanvasSelect — input keeps the result label.
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb-replica-0');
+      expect(lastCanvasProps().searchActive).toBe(true);
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
+      expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
     });
   });
 });

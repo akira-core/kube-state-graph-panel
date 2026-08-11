@@ -5,6 +5,7 @@ import type { VisibilitySets } from '../../../element-filter';
 import type { PinnedTooltip } from '../../../hover-tooltip';
 import type { CyStylesheet } from '../../hooks/useCytoscape';
 import type { LayoutName } from '../../hooks/useGraphLayout';
+import type { GraphViewportApi } from '../../hooks/useViewportApi';
 
 export interface GraphCanvasProps {
   elements: cytoscape.ElementDefinition[];
@@ -38,4 +39,8 @@ export interface GraphCanvasProps {
   // fed to useSearchFade, which adds their incident edges + ancestors. Ignored when
   // searchActive is false/omitted.
   searchLitNodeIds?: ReadonlySet<string>;
+  // Callback-ref for the imperative viewport API (design D5). Fired with the live
+  // fitToIds/fitToNeighborhood handle once the cy instance is ready, and with null on
+  // unmount. Search drives fit through this bridge without lifting the cy ref.
+  onViewportApi?: (api: GraphViewportApi | null) => void;
 }

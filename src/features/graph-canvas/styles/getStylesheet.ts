@@ -355,6 +355,8 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       style: {
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
+        // Slightly larger heads so direction reads at dense zoom levels (visual polish only).
+        'arrow-scale': 1.4,
         width: 1.5,
         'line-color': ((ele: cytoscape.EdgeSingular): string =>
           resolveEdgeStyle(ele.data('edgeType') as EdgeType | undefined, colorMap).color) as unknown as string,
