@@ -8,11 +8,10 @@ import { HoverTooltip } from '../../../hover-tooltip';
 import { buildSwitchConstraints, readSwitchLevels } from '../../../switch-topology';
 import { useCytoscape } from '../../hooks/useCytoscape';
 import { useExpandCollapse } from '../../hooks/useExpandCollapse';
+import { useGraphFade } from '../../hooks/useGraphFade';
 import { useGraphLayout } from '../../hooks/useGraphLayout';
 import { useGraphResize } from '../../hooks/useGraphResize';
 import { useLayoutRunToken } from '../../hooks/useLayoutRunToken';
-import { useSearchFade } from '../../hooks/useSearchFade';
-import { useSelectionFocus } from '../../hooks/useSelectionFocus';
 import { useViewportApi } from '../../hooks/useViewportApi';
 
 import { clusterCollapseToggle } from './clusterCollapseToggle';
@@ -38,7 +37,7 @@ function noop(): void {
   // collapsed-change sink for the no-collapse path
 }
 
-// Stable empty-set identity for the omitted searchLitNodeIds case, so useSearchFade's
+// Stable empty-set identity for the omitted searchLitNodeIds case, so useGraphFade's
 // effect deps don't churn on every render when the caller doesn't pass one.
 const EMPTY_LIT_NODE_IDS: ReadonlySet<string> = new Set();
 
@@ -56,6 +55,7 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     pinned,
     searchActive,
     searchLitNodeIds,
+    searchFocusNodeId,
     onViewportApi,
   } = props;
   const styles = useStyles2(getStyles);
@@ -188,29 +188,21 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     selectSingle(cy, selectedId ?? null);
   }, [cyRef, selectedId, isReady, elements]);
 
-  // Dim everything outside the selected node's focus set (colour alone is too subtle on a
-  // dense graph). `elements` re-applies after a rebuild, which drops the imperative classes;
-  // `visibility` re-applies when a filter hides/restores the selected node (the hook skips
-  // the focus entirely for an off-canvas selection). Declared AFTER useElementFilter so the
-  // visibility styles it reads are current. Suppressed while searching (design D3) — miss
-  // fade below becomes the sole fade authority.
-  useSelectionFocus({
+  // Dim everything outside the lit set — colour alone is too subtle on a dense graph. One
+  // hook decides the reason (design D3): focus fade around the selection while no query is
+  // active, miss fade around the hits while one is. `elements` re-applies after a rebuild,
+  // which drops the imperative classes; `visibility` re-applies when a filter hides or
+  // restores the selected / located node. Declared AFTER useElementFilter so the visibility
+  // styles it reads are current.
+  useGraphFade({
     cyRef,
-    selectedId: selectedId ?? null,
     isReady,
     elements,
     visibility,
-    suppressed: searchActive ?? false,
-  });
-
-  // Miss fade (design D3): dims every non-hit element while a search query is active,
-  // mutually exclusive with the focus fade above.
-  useSearchFade({
-    cyRef,
-    isReady,
-    elements,
-    active: searchActive ?? false,
-    litNodeIds: searchLitNodeIds ?? EMPTY_LIT_NODE_IDS,
+    selectedId: selectedId ?? null,
+    searchActive: searchActive ?? false,
+    searchLitNodeIds: searchLitNodeIds ?? EMPTY_LIT_NODE_IDS,
+    searchFocusNodeId: searchFocusNodeId ?? null,
   });
 
   // Imperative viewport commands for search fit / locate (design D5). Callback-ref style —

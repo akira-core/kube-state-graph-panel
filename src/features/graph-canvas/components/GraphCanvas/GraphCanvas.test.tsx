@@ -31,7 +31,7 @@ jest.mock('../../hooks/useExpandCollapse', () => ({
   },
 }));
 
-import { FADED_CLASS, SEARCH_FADE_CLASS } from '../../styles/getStylesheet';
+import { FADED_CLASS } from '../../styles/getStylesheet';
 
 import { GraphCanvas } from './GraphCanvas';
 
@@ -137,7 +137,13 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
     expect(screen.getByText('mongo')).toBeInTheDocument();
   });
 
-  it('searchActive suppresses the selection-focus fade (miss fade is the sole authority while searching)', () => {
+  const fadedIds = (): string[] =>
+    mockCyRef
+      .current!.elements(`.${FADED_CLASS}`)
+      .map((e) => e.id())
+      .sort();
+
+  it('searchActive hands the fade over to the hit set: a zero-hit query fades even the selection', () => {
     render(
       <GraphCanvas
         elements={elements}
@@ -148,12 +154,12 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
         searchActive
       />
     );
-    // A live selection would normally fade everything outside its focus (see
-    // useSelectionFocus tests) — suppressed while searching, so nothing carries FADED_CLASS.
-    expect(mockCyRef.current!.elements(`.${FADED_CLASS}`).length).toBe(0);
+    // Without a query the selection would keep its own focus lit. While searching the hits
+    // own the lit set, and there are none — "no results" must read as no results.
+    expect(fadedIds()).toEqual(['cl', 'ctrl', 'ns', 'p1']);
   });
 
-  it('wires searchLitNodeIds into useSearchFade: non-lit elements carry SEARCH_FADE_CLASS while searchActive', () => {
+  it('wires searchLitNodeIds into the fade: non-hit elements carry FADED_CLASS while searchActive', () => {
     render(
       <GraphCanvas
         elements={elements}
@@ -165,10 +171,39 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
         searchLitNodeIds={new Set(['p1'])}
       />
     );
-    const faded = mockCyRef
-      .current!.elements(`.${SEARCH_FADE_CLASS}`)
-      .map((e) => e.id())
-      .sort();
-    expect(faded).toEqual(['cl', 'ctrl', 'ns']);
+    expect(fadedIds()).toEqual(['cl', 'ctrl', 'ns']);
+  });
+
+  it('a selection carried in from before the query does NOT survive as a lit island', () => {
+    render(
+      <GraphCanvas
+        elements={elements}
+        stylesheet={[]}
+        layout="fcose"
+        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
+        selectedId="ctrl"
+        searchActive
+        searchLitNodeIds={new Set(['p1'])}
+      />
+    );
+    // ctrl is still selected (the detail panel's × does not deselect) but it is not a hit,
+    // so it fades with everything else outside p1.
+    expect(fadedIds()).toEqual(['cl', 'ctrl', 'ns']);
+  });
+
+  it('wires searchFocusNodeId into the fade: the LOCATED node stays lit alongside the hits', () => {
+    render(
+      <GraphCanvas
+        elements={elements}
+        stylesheet={[]}
+        layout="fcose"
+        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
+        selectedId="ctrl"
+        searchActive
+        searchLitNodeIds={new Set(['p1'])}
+        searchFocusNodeId="ctrl"
+      />
+    );
+    expect(fadedIds()).toEqual(['cl', 'ns']);
   });
 });
