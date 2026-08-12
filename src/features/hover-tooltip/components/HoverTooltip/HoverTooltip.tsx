@@ -5,6 +5,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 
 import { buildNodeAttributes } from '../../../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../../../shared/theme/themeColors';
+import { formatDurationMs, formatErrorRate, formatRate } from '../../formatEdgeMetrics';
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
 import { type HoverTooltipProps } from './HoverTooltip.types';
@@ -113,6 +114,39 @@ function toLabelRows(labels: unknown, promoted: ReadonlySet<string>): TooltipRow
 const NODE_PROMOTED_LABELS: ReadonlySet<string> = new Set(['namespace']);
 const EDGE_PROMOTED_LABELS: ReadonlySet<string> = new Set<string>();
 
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+// RED rows for an edge the backend measured (`data.metrics`), in R-E-D order. They sit
+// among the promoted attrs — NOT under the `labels` divider, which is reserved for what
+// the backend sent verbatim as labels (and the backend forbids these values as label keys).
+//
+// Each optional field is rendered only when present. An absent `errorRate` means the
+// failure counter could not be read, which is NOT the measured-and-clean `0` the backend
+// also emits — so it MUST render as no row at all rather than as `0%`.
+//
+// `HoveredElement.data` is a bare `Record<string, unknown>`, so this narrows at its own
+// boundary the way `toLabelRows` does, rather than trusting a cast. normalize has already
+// validated the shape; this is the same belt-and-braces the labels path uses.
+function buildMetricRows(metrics: unknown): TooltipRow[] {
+  if (metrics === null || typeof metrics !== 'object') {
+    return [];
+  }
+  const { rate, errorRate, p90ServerMs } = metrics as Partial<cytoscape.EdgeMetrics>;
+  if (!isFiniteNumber(rate)) {
+    return [];
+  }
+  const rows: TooltipRow[] = [{ key: 'rate', value: formatRate(rate) }];
+  if (isFiniteNumber(errorRate)) {
+    rows.push({ key: 'errorRate', value: formatErrorRate(errorRate) });
+  }
+  if (isFiniteNumber(p90ServerMs)) {
+    rows.push({ key: 'p90', value: formatDurationMs(p90ServerMs) });
+  }
+  return rows;
+}
+
 function buildContent(hovered: HoveredElement): TooltipContent {
   const { data, group } = hovered;
   if (group === 'nodes') {
@@ -130,6 +164,7 @@ function buildContent(hovered: HoveredElement): TooltipContent {
   if (typeof data.edgeType === 'string') {
     attrs.push({ key: 'edgeType', value: data.edgeType });
   }
+  attrs.push(...buildMetricRows(data.metrics));
   return { title, attrs, labels: toLabelRows(data.labels, EDGE_PROMOTED_LABELS) };
 }
 

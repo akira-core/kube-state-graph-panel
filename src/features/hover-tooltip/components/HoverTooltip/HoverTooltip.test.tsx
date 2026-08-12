@@ -453,4 +453,102 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
     expect(tip).not.toHaveAttribute('data-pinned');
     expect(screen.getByText('web')).toBeInTheDocument();
   });
+
+  describe('edge RED metrics', () => {
+    type EdgeExtras = Partial<Omit<cytoscape.EdgeDataDefinition, 'id' | 'source' | 'target'>>;
+
+    const hoverEdgeWith = (extras: EdgeExtras): void => {
+      useHoverElement.mockReturnValue({
+        id: 'e-red',
+        group: 'edges',
+        data: { id: 'e-red', source: 'a', target: 'b', edgeType: 'pod-calls-service', ...extras },
+        sourceLabel: 'gateway',
+        targetLabel: 'mongo-svc',
+      });
+    };
+
+    // Row keys in DOM order — lets the order/position assertions read the rendered
+    // sequence rather than just membership.
+    const renderedKeys = (): string[] =>
+      Array.from(screen.getByTestId('hover-tooltip').querySelectorAll('span'))
+        .map((el) => el.textContent ?? '')
+        .filter((text) => text.endsWith(':'))
+        .map((text) => text.slice(0, -1));
+
+    it('renders rate, errorRate and p90 after edgeType and before the labels divider', () => {
+      hoverEdgeWith({ metrics: { rate: 5, errorRate: 0.2, p90ServerMs: 45 }, labels: { namespace: 'shop' } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('5 req/s')).toBeInTheDocument();
+      expect(screen.getByText('20%')).toBeInTheDocument();
+      expect(screen.getByText('45 ms')).toBeInTheDocument();
+      // edgeType first, then RED in R-E-D order, then the labels block.
+      expect(renderedKeys()).toEqual(['edgeType', 'rate', 'errorRate', 'p90', 'namespace']);
+    });
+
+    it('leaves an edge without metrics exactly as it renders today', () => {
+      hoverEdgeWith({ labels: { namespace: 'shop' } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(renderedKeys()).toEqual(['edgeType', 'namespace']);
+      // No placeholder — the absence of the rows is the signal.
+      expect(screen.queryByText(/req\/s/)).not.toBeInTheDocument();
+      expect(screen.queryByText('N/A')).not.toBeInTheDocument();
+    });
+
+    it('renders no errorRate row when the failure counter was unreadable', () => {
+      hoverEdgeWith({ metrics: { rate: 3 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('3 req/s')).toBeInTheDocument();
+      expect(renderedKeys()).toEqual(['edgeType', 'rate']);
+      // The load-bearing assertion: an omitted errorRate means "could not measure", and
+      // rendering it as 0% would claim the opposite.
+      expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    });
+
+    it('renders 0% for a measured-and-clean edge', () => {
+      hoverEdgeWith({ metrics: { rate: 1, errorRate: 0 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('0%')).toBeInTheDocument();
+      expect(renderedKeys()).toEqual(['edgeType', 'rate', 'errorRate']);
+    });
+
+    it('renders no p90 row when there was no usable histogram', () => {
+      hoverEdgeWith({ metrics: { rate: 5, errorRate: 0.2 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(renderedKeys()).toEqual(['edgeType', 'rate', 'errorRate']);
+      expect(screen.queryByText(/ ms$/)).not.toBeInTheDocument();
+    });
+
+    it('keeps tiny magnitudes visible instead of collapsing them to zero', () => {
+      hoverEdgeWith({ metrics: { rate: 3.86e-7, errorRate: 6.7e-8 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('3.86e-7 req/s')).toBeInTheDocument();
+      expect(screen.getByText('0.0000067%')).toBeInTheDocument();
+      expect(screen.queryByText('0 req/s')).not.toBeInTheDocument();
+      expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    });
+
+    it('renders a long duration in seconds', () => {
+      hoverEdgeWith({ metrics: { rate: 5, p90ServerMs: 2500 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('2.5 s')).toBeInTheDocument();
+    });
+
+    it('never renders RED values inside the labels block', () => {
+      hoverEdgeWith({ metrics: { rate: 5, errorRate: 0.2, p90ServerMs: 45 }, labels: { namespace: 'shop' } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      // The backend forbids these values as label keys; showing them under the labels
+      // divider would misrepresent what the payload actually carried.
+      const keys = renderedKeys();
+      const dividerIndex = keys.indexOf('namespace');
+      expect(keys.slice(dividerIndex)).toEqual(['namespace']);
+    });
+  });
 });

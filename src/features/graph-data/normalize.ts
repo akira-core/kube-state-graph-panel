@@ -49,6 +49,37 @@ function isNonEmptyStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string');
 }
 
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+// Backend RED measurements (`data.metrics`) → the panel's camelCase `EdgeMetrics`.
+// Validation only: no unit conversion, no rounding, no defaults — magnitudes reach the
+// tooltip untouched so the formatter alone decides how a value reads (design D1).
+//
+// Degradation is per-field, and the edge NEVER pays for a bad metric (D2): an unusable
+// `errorRate` / `p90ServerMs` drops just that field, while an unusable `rate` drops the
+// whole object — `rate` is guaranteed present whenever the backend sends `metrics`, so
+// without it this is not a metrics object we understand, and the remaining fields have no
+// denominator to be read against.
+//
+// Failures are deliberately NOT reported through normalizeGraph's `errors` (D3): that
+// channel drives a "topology may be incomplete" banner, and RED is decorative — an
+// upstream regression would fire it on every edge at once and drown the real warnings.
+function parseEdgeMetrics(v: unknown): cytoscape.EdgeMetrics | undefined {
+  if (!isPlainObject(v) || !isFiniteNumber(v.rate)) {
+    return undefined;
+  }
+  const { error_rate: errorRate, p90_server_ms: p90ServerMs } = v;
+  return {
+    rate: v.rate,
+    // Absent stays absent: an omitted `errorRate` means the failure counter was
+    // unreadable, which is NOT the same as the measured `0` the backend also emits.
+    ...(isFiniteNumber(errorRate) ? { errorRate } : {}),
+    ...(isFiniteNumber(p90ServerMs) ? { p90ServerMs } : {}),
+  };
+}
+
 function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
@@ -378,6 +409,7 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
     // one passes through to the solid default. `labels.relation` stays in place for the
     // hover tooltip; the duplication is deliberate.
     const relation = labels?.[RELATION_LABEL_KEY];
+    const metrics = parseEdgeMetrics(d.metrics);
     elements.push({
       group: 'edges',
       data: {
@@ -387,6 +419,7 @@ function parseEdges(rawEdges: unknown[], nodeIds: ReadonlySet<string>): ParsedEd
         edgeType: d.type,
         ...(labels !== undefined ? { labels } : {}),
         ...(relation !== undefined ? { relation } : {}),
+        ...(metrics !== undefined ? { metrics } : {}),
       },
     });
   }

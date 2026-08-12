@@ -14,6 +14,12 @@ _Avoid_: node type, category
 The classification of a graph edge; the 8-type backend wire contract: `pod-to-node`, `pod-mounts-pvc`, `pod-calls-pod`, `pod-calls-service`, `service-selects-pod`, `pvc-to-storageclass`, `switch-to-switch`, `node-to-switch`. Which subset is drawn depends on the pod-parent mode.
 _Avoid_: relation, link type
 
+**Edge metrics** (RED):
+The rate / error / duration measurements the backend attaches to an edge it derived from trace data (`data.metrics`, normalized to `{ rate, errorRate?, p90ServerMs? }`). `rate` is **requests per second**, `errorRate` is a **fraction in [0,1]** (not a percentage), `p90ServerMs` is **milliseconds**. Carried only on edges whose both endpoints resolve to a pod or service — in practice `pod-calls-pod` and `pod-calls-service`; never on `service-selects-pod`, the storage/topology edges, or any edge touching an `external` node.
+
+Three states that must stay distinct: **`metrics` absent** = no measurement exists; **`errorRate` absent** = the failure counter could not be read; **`errorRate: 0`** = read successfully with no failures. Never default an absent field to `0`. Values arrive rounded to 6 significant digits, so a wide query window legitimately yields `3.86e-7` — format defensively, never `toFixed`.
+_Avoid_: golden signals, edge stats, latency (alone — say `p90ServerMs`)
+
 **Container** (compound):
 A node that holds children via cytoscape nesting (`data.parent`): cluster, namespace, application, K8s node, synthesized controller, or the virtual `network` wrapper. In `node` mode pod→node is expressed as nesting; in `controller` mode it is drawn as a `pod-to-node` edge.
 _Avoid_: group, box, parent node (in prose)
