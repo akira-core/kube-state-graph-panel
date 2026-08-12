@@ -11,7 +11,7 @@ import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation'
 import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
-import { FADED_CLASS, getStylesheet, SEARCH_FADE_CLASS } from './getStylesheet';
+import { FADED_CLASS, getStylesheet } from './getStylesheet';
 
 type FakeData = Record<string, unknown>;
 type StyleRecord = Record<string, unknown>;
@@ -657,13 +657,13 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
-  it('pins the search miss-fade class to the SAME opacity declaration as the focus fade (one visual fade, two reasons)', () => {
+  it('dims faded edges further than faded nodes (one class, both fade reasons)', () => {
     const sheet = getStylesheet({ theme: createTheme() }) as unknown as Array<{
       selector: string;
       style?: StyleRecord;
     }>;
-    const nodeRule = sheet.find((s) => s.selector === `node.${FADED_CLASS}, node.${SEARCH_FADE_CLASS}`);
-    const edgeRule = sheet.find((s) => s.selector === `edge.${FADED_CLASS}, edge.${SEARCH_FADE_CLASS}`);
+    const nodeRule = sheet.find((s) => s.selector === `node.${FADED_CLASS}`);
+    const edgeRule = sheet.find((s) => s.selector === `edge.${FADED_CLASS}`);
     expect(nodeRule?.style?.opacity).toBe(0.2);
     expect(edgeRule?.style?.opacity).toBe(0.12);
   });

@@ -33,7 +33,7 @@ An element hidden by the kind / edge-type / ingress visibility filter (`computeV
 _Avoid_: excluded, filtered out (in code identifiers)
 
 **Focus fade**:
-The dimming applied to everything outside the selection's neighborhood (selected node + incident edges + neighbors + descendants + their ancestors).
+The dimming applied to everything outside the selection's neighborhood (selected node + incident edges + neighbors + descendants + their ancestors). Same visual dimming as **miss fade** and the same style class — the two differ only in which lit set they compute, and never apply at once.
 _Avoid_: dim, ghost
 
 ### Selection & detail
@@ -57,8 +57,12 @@ A node matching the search query: case-insensitive substring over `label`, `kind
 _Avoid_: match, found node
 
 **Miss fade**:
-The dimming of non-hit elements while the search query is non-empty. Mutually exclusive with focus fade: while searching, miss fade alone applies; clearing the query restores focus fade.
+The dimming of non-hit elements while the search query is non-empty. Lit set = hits + their incident edges + ancestors (+ proxy-hit containers), plus the **locate focus** neighborhood when one is set. A zero-hit query fades the whole graph. Mutually exclusive with focus fade: while searching, miss fade alone applies; clearing the query restores focus fade.
 _Avoid_: search dim
+
+**Locate focus**:
+The node the user located for the *current* query — the only selection that expands the miss-fade lit set (by its focus neighborhood, so locating reads like a canvas left-click). Editing the query drops it. A selection carried in from before the search is **not** a locate focus: it stays dimmed with the other misses.
+_Avoid_: search selection, active hit
 
 **Proxy hit**:
 The outermost collapsed ancestor container standing in visually for a hit folded inside it: it stays lit and joins the fit set; the collapsed hit itself has no canvas position. Typing never auto-expands anything.

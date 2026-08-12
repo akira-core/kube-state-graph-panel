@@ -220,7 +220,7 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
-    "selector": "node.ksg-faded, node.ksg-search-miss",
+    "selector": "node.ksg-faded",
     "style": {
       "opacity": 0.2,
     },
@@ -267,7 +267,7 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
-    "selector": "edge.ksg-faded, edge.ksg-search-miss",
+    "selector": "edge.ksg-faded",
     "style": {
       "opacity": 0.12,
     },

@@ -1940,6 +1940,7 @@ describe('KsgPanel', () => {
       selectedId?: string | null;
       searchActive?: boolean;
       searchLitNodeIds?: ReadonlySet<string>;
+      searchFocusNodeId?: string | null;
       pinned?: { label?: string } | null;
       onViewportApi?: (api: { fitToIds: jest.Mock; fitToNeighborhood: jest.Mock } | null) => void;
     };
@@ -2040,6 +2041,42 @@ describe('KsgPanel', () => {
         });
       });
       expect(fitToNeighborhood).toHaveBeenCalledWith('demo/p1');
+    });
+
+    it('only locate feeds searchFocusNodeId — typing alone leaves it null', () => {
+      renderPanel();
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      expect(lastCanvasProps().searchFocusNodeId).toBeNull();
+
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+      expect(lastCanvasProps().searchFocusNodeId).toBe('demo/p1');
+    });
+
+    it('editing the query after a locate drops the locate focus', () => {
+      renderPanel();
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
+      expect(lastCanvasProps().searchFocusNodeId).toBe('demo/p1');
+
+      // Typing past the committed label is a new query — the located node stops lighting
+      // its neighbourhood, so a zero-hit query fades everything.
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb-replica-0x' } });
+      expect(lastCanvasProps().searchFocusNodeId).toBeNull();
+    });
+
+    it('a selection carried in from before the query never becomes the locate focus', () => {
+      renderPanel();
+      // Canvas tap selects and (per the detail-panel decoupling) the selection outlives the
+      // panel close, so it is still set when the user starts typing.
+      act(() => {
+        lastCanvasProps().onSelect?.('demo/p2');
+      });
+      expect(lastCanvasProps().selectedId).toBe('demo/p2');
+
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
+      expect(lastCanvasProps().searchActive).toBe(true);
+      expect(lastCanvasProps().selectedId).toBe('demo/p2');
+      expect(lastCanvasProps().searchFocusNodeId).toBeNull();
     });
 
     it('locate multi-level chain expands application + controller when both are collapsed', async () => {

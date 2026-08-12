@@ -22,13 +22,11 @@ export interface GetStylesheetInput {
 
 const NODE_SIZE = 40;
 
-// Faded class for focus dimming — applied/removed imperatively by GraphCanvas;
-// opacity rules live in the stylesheet below.
+// Dimming class — applied/removed imperatively by useGraphFade; opacity rules live in the
+// stylesheet below. One class for both dimming reasons (CONTEXT.md "focus fade" while a
+// node is selected, "miss fade" while a search query is active): they are mutually
+// exclusive by construction, since a single hook decides which lit set applies.
 export const FADED_CLASS = 'ksg-faded';
-// Miss-fade class for search (design D3): a second, orthogonal reason to dim an
-// element. Shares the SAME opacity declaration as FADED_CLASS (comma-joined selector
-// below) — one visual fade, two mutually-exclusive reasons never applied together.
-export const SEARCH_FADE_CLASS = 'ksg-search-miss';
 
 function resolveIconUri(kind: string | undefined, iconColor: string): string {
   return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
@@ -343,11 +341,10 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       },
     },
     {
-      // Focus dimming: nodes outside the selected node's neighbourhood/ancestry fade
-      // (FADED_CLASS), OR non-hit nodes while a search query is active (SEARCH_FADE_CLASS)
-      // — mutually exclusive at the class-application layer (useSelectionFocus's
-      // `suppressed` prop / useSearchFade), so one declaration serves both.
-      selector: `node.${FADED_CLASS}, node.${SEARCH_FADE_CLASS}`,
+      // Dimming: nodes outside the selected node's neighbourhood/ancestry (focus fade), or
+      // non-hit nodes while a search query is active (miss fade). useGraphFade picks the
+      // lit set for whichever reason applies; one declaration serves both.
+      selector: `node.${FADED_CLASS}`,
       style: { opacity: 0.2 },
     },
     {
@@ -412,9 +409,9 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       },
     },
     {
-      // Focus dimming for edges (see node.FADED_CLASS/SEARCH_FADE_CLASS above); lower
-      // than nodes so faded connections recede further than faded glyphs.
-      selector: `edge.${FADED_CLASS}, edge.${SEARCH_FADE_CLASS}`,
+      // Dimming for edges (see node.FADED_CLASS above); lower than nodes so faded
+      // connections recede further than faded glyphs.
+      selector: `edge.${FADED_CLASS}`,
       style: { opacity: 0.12 },
     },
     {
