@@ -1,7 +1,9 @@
+import { createTheme } from '@grafana/data';
 import { render, screen } from '@testing-library/react';
 import type cytoscape from 'cytoscape';
 import React from 'react';
 
+import { themeColors } from '../../../../shared/theme/themeColors';
 import type { HoveredElement } from '../../hooks/useHoverElement';
 
 jest.mock('../../hooks/useHoverElement', () => ({
@@ -16,6 +18,11 @@ const { useHoverElement } = require('../../hooks/useHoverElement') as {
 import { HoverTooltip } from './HoverTooltip';
 
 const cyRefStub = { current: null as cytoscape.Core | null };
+
+// The colour the component reads for a failing errorRate. Sourced from the same default
+// theme `useStyles2` falls back to without a provider, so the assertion tracks the theme
+// instead of pinning a literal hex the theme is free to change.
+const errorTextColor = themeColors(createTheme()).error.text;
 
 describe('HoverTooltip', () => {
   // jsdom does no layout (offsetWidth/Height === 0), which would make the
@@ -475,7 +482,7 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
         .filter((text) => text.endsWith(':'))
         .map((text) => text.slice(0, -1));
 
-    it('renders rate, errorRate and p90 after edgeType and before the labels divider', () => {
+    it('renders rate, errorRate and duration(p90) after edgeType and before the labels divider', () => {
       hoverEdgeWith({ metrics: { rate: 5, errorRate: 0.2, p90ServerMs: 45 }, labels: { namespace: 'shop' } });
       render(<HoverTooltip cyRef={cyRefStub} />);
 
@@ -483,7 +490,7 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
       expect(screen.getByText('20%')).toBeInTheDocument();
       expect(screen.getByText('45 ms')).toBeInTheDocument();
       // edgeType first, then RED in R-E-D order, then the labels block.
-      expect(renderedKeys()).toEqual(['edgeType', 'rate', 'errorRate', 'p90', 'namespace']);
+      expect(renderedKeys()).toEqual(['edgeType', 'rate', 'errorRate', 'duration(p90)', 'namespace']);
     });
 
     it('leaves an edge without metrics exactly as it renders today', () => {
@@ -515,7 +522,32 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
       expect(renderedKeys()).toEqual(['edgeType', 'rate', 'errorRate']);
     });
 
-    it('renders no p90 row when there was no usable histogram', () => {
+    it('tints a non-zero errorRate value with the theme error colour', () => {
+      hoverEdgeWith({ metrics: { rate: 5, errorRate: 0.2 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      // The value carries the colour, not the key — the key stays part of the neutral list.
+      expect(screen.getByText('20%')).toHaveStyle({ color: errorTextColor });
+      expect(screen.getByText('errorRate:')).not.toHaveStyle({ color: errorTextColor });
+    });
+
+    it('tints a non-zero errorRate however small it formats', () => {
+      // 6.7e-8 is nowhere near 0% visually but is still a measured failure fraction, so the
+      // tint must key off the number rather than the rendered string.
+      hoverEdgeWith({ metrics: { rate: 1, errorRate: 6.7e-8 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('0.0000067%')).toHaveStyle({ color: errorTextColor });
+    });
+
+    it('leaves a measured-and-clean 0% uncoloured', () => {
+      hoverEdgeWith({ metrics: { rate: 1, errorRate: 0 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('0%')).not.toHaveStyle({ color: errorTextColor });
+    });
+
+    it('renders no duration(p90) row when there was no usable histogram', () => {
       hoverEdgeWith({ metrics: { rate: 5, errorRate: 0.2 } });
       render(<HoverTooltip cyRef={cyRefStub} />);
 

@@ -15,6 +15,9 @@ interface TooltipRow {
   value: string;
   // Wrap instead of clip — for long synthesized values like a storageclass's grouped PVC list.
   wrap?: boolean;
+  // Renders the value in the theme's error colour. Only the value is tinted (the key stays
+  // secondary) so the row still scans as part of the same list.
+  danger?: boolean;
 }
 
 // Promoted attrs (kind/namespace/ipAddress, or edgeType) + raw backend `labels`
@@ -30,6 +33,7 @@ function getStyles(theme: GrafanaTheme2): {
   title: string;
   row: string;
   rowKey: string;
+  dangerValue: string;
   labelRow: string;
   labelsHint: string;
 } {
@@ -73,6 +77,12 @@ function getStyles(theme: GrafanaTheme2): {
     rowKey: css({
       color: colors.text.secondary,
       flexShrink: 0,
+    }),
+    // A measured non-zero error rate — the one value in the tooltip that is a problem
+    // rather than a fact. Theme-sourced so it stays legible in both light and dark.
+    dangerValue: css({
+      color: colors.error.text,
+      fontWeight: 600,
     }),
     // k8s label values can be long — wrap instead of clip.
     labelRow: css({
@@ -139,10 +149,13 @@ function buildMetricRows(metrics: unknown): TooltipRow[] {
   }
   const rows: TooltipRow[] = [{ key: 'rate', value: formatRate(rate) }];
   if (isFiniteNumber(errorRate)) {
-    rows.push({ key: 'errorRate', value: formatErrorRate(errorRate) });
+    // A measured `0` is the clean case and stays neutral; anything above it is a real
+    // failure fraction, so the value is tinted. `danger` keys off the number, not the
+    // formatted string — a tiny rate renders as `0.0000067%` but is still non-zero.
+    rows.push({ key: 'errorRate', value: formatErrorRate(errorRate), danger: errorRate !== 0 });
   }
   if (isFiniteNumber(p90ServerMs)) {
-    rows.push({ key: 'p90', value: formatDurationMs(p90ServerMs) });
+    rows.push({ key: 'duration(p90)', value: formatDurationMs(p90ServerMs) });
   }
   return rows;
 }
@@ -198,7 +211,7 @@ function renderRows(content: TooltipContent, styles: ReturnType<typeof getStyles
       {attrs.map((row) => (
         <div key={row.key} className={row.wrap === true ? styles.labelRow : styles.row}>
           <span className={styles.rowKey}>{row.key}:</span>
-          <span>{row.value}</span>
+          <span className={row.danger === true ? styles.dangerValue : undefined}>{row.value}</span>
         </div>
       ))}
       {labels.length > 0 && (
