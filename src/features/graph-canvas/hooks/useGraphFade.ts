@@ -5,17 +5,19 @@ import { FADED_CLASS } from '../styles/getStylesheet';
 
 export interface GraphFadeInput {
   // Current selection (canvas tap or locate). Drives FOCUS fade while no query is active.
+  // Locate always leaves the query empty (locate-ends-search), so by the time a locate's
+  // selection is visible here `searchActive` is already false — locate reads through this
+  // same field, with no separate "locate focus" concept.
   selectedId: string | null;
   // True while the search query is non-empty (design D3) — distinct from an empty
   // `searchLitNodeIds`, which under an active zero-hit query fades the WHOLE graph.
   searchActive: boolean;
   // Hit nodes with proxy-hit substitution already applied (resolveSearchHits). Only read
-  // while `searchActive`; this hook adds their incident edges + ancestors.
+  // while `searchActive`; each hit lights its focus neighborhood (focusSetOf — the same
+  // set a canvas click would light). `selectedId` never alters this — a selection carried
+  // in from before the query (the detail panel's × leaves it set) must not light an
+  // unrelated island next to the hits.
   searchLitNodeIds: ReadonlySet<string>;
-  // The node the user LOCATED from the result list for the current query — NOT simply
-  // "the selection while searching". A selection carried in from before the query (the
-  // detail panel's × leaves it set) must not light an unrelated island next to the hits.
-  searchFocusNodeId: string | null;
 }
 
 export interface UseGraphFadeProps extends GraphFadeInput {
@@ -30,10 +32,19 @@ export interface UseGraphFadeProps extends GraphFadeInput {
   visibility?: unknown;
 }
 
-// The focus set of a node: the node itself, its incident edges and neighbour nodes
-// (closedNeighborhood), its own descendants (so a selected container keeps its children
-// lit), and the ancestor containers of all of those (so a lit node never sits inside a
-// dimmed box).
+// The ONE definition of "what lights up around a node" (design D6), over a whole node
+// collection: the nodes themselves, their incident edges and neighbour nodes
+// (closedNeighborhood), their own descendants (so a container keeps its children lit),
+// and the ancestor containers of all of those (so a lit node never sits inside a dimmed
+// box). Focus fade feeds it the single selection; miss fade feeds it the hit collection —
+// sharing it is what makes "lit = what a click would light" hold everywhere, and makes a
+// lit edge ending in a faded node structurally impossible.
+function focusSetOf(nodes: cytoscape.NodeCollection): cytoscape.Collection {
+  const core = nodes.closedNeighborhood().union(nodes.descendants());
+  return core.union(core.ancestors());
+}
+
+// Single-selection wrapper around focusSetOf.
 //
 // Returns null when the node is not on canvas — REMOVED (empty) or merely HIDDEN by the
 // kind / edge-type / ingress filter. `.visible()` (not `.style(...)`) is the right
@@ -45,31 +56,26 @@ export function focusSetFor(cy: cytoscape.Core, nodeId: string): cytoscape.Colle
   if (node.empty() || !node.visible()) {
     return null;
   }
-  const core = node.closedNeighborhood().union(node.descendants());
-  return core.union(core.ancestors());
+  return focusSetOf(node);
 }
 
 // The elements that stay lit, or null when nothing fades at all (no selection, or a
 // selection that is off canvas).
 function litSet(cy: cytoscape.Core, input: GraphFadeInput): cytoscape.Collection | null {
-  const { selectedId, searchActive, searchLitNodeIds, searchFocusNodeId } = input;
+  const { selectedId, searchActive, searchLitNodeIds } = input;
 
-  // Focus fade — no query: dim everything outside the selected node's focus set.
+  // Focus fade — no query: dim everything outside the selected node's focus set. This is
+  // also what a just-completed locate renders through, since locate clears the query.
   if (!searchActive) {
     return selectedId === null ? null : focusSetFor(cy, selectedId);
   }
 
-  // Miss fade — query active: hits ∪ their incident edges ∪ their ancestors. An empty hit
-  // set yields an empty (not absent) lit set, so a zero-hit query fades the whole graph.
+  // Miss fade — query active: every hit lights its focus neighborhood, exactly like a
+  // canvas click on it would (`selectedId` never alters this — see the field doc on
+  // `searchLitNodeIds`). An empty hit collection yields an empty (not absent) lit set,
+  // so a zero-hit query fades the whole graph.
   const hits = cy.nodes().filter((node) => searchLitNodeIds.has(node.id()));
-  const lit = hits.union(hits.connectedEdges()).union(hits.ancestors());
-  if (hits.empty() || searchFocusNodeId === null) {
-    return lit;
-  }
-  // A LOCATED node also lights its focus neighborhood, so locating reads like a canvas
-  // left-click on that node. Skipped for a zero-hit query, which must fade everything.
-  const focus = focusSetFor(cy, searchFocusNodeId);
-  return focus === null ? lit : lit.union(focus);
+  return focusSetOf(hits);
 }
 
 // One fade, two mutually exclusive reasons (CONTEXT.md "focus fade" / "miss fade"): dim
@@ -101,15 +107,14 @@ export function useGraphFade({
   selectedId,
   searchActive,
   searchLitNodeIds,
-  searchFocusNodeId,
 }: UseGraphFadeProps): void {
   useEffect(() => {
     const cy = cyRef.current;
     if (cy === null) {
       return;
     }
-    applyGraphFade(cy, { selectedId, searchActive, searchLitNodeIds, searchFocusNodeId });
+    applyGraphFade(cy, { selectedId, searchActive, searchLitNodeIds });
     // isReady/elements re-run this once the instance exists and after rebuilds; `visibility`
     // re-runs it when a filter hides or restores the selected / located node.
-  }, [cyRef, isReady, elements, visibility, selectedId, searchActive, searchLitNodeIds, searchFocusNodeId]);
+  }, [cyRef, isReady, elements, visibility, selectedId, searchActive, searchLitNodeIds]);
 }

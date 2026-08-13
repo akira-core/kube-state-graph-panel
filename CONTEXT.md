@@ -59,16 +59,12 @@ _Avoid_: pinned tooltip (in prose)
 ### Search
 
 **Hit**:
-A node matching the search query: case-insensitive substring over `label`, `kind`, `namespace`, `cluster`, `application`, `ipAddress`; whitespace-separated tokens AND-combined. Nodes only — a hit's incident edges light up with it, edges are never hits themselves.
+A node matching the search query: case-insensitive substring over `label`, `kind`, `namespace`, `cluster`, `application`, `ipAddress`; whitespace-separated tokens AND-combined. Nodes only — a hit lights its focus neighborhood with it (see **Miss fade**), but edges are never hits themselves.
 _Avoid_: match, found node
 
 **Miss fade**:
-The dimming of non-hit elements while the search query is non-empty. Lit set = hits + their incident edges + ancestors (+ proxy-hit containers), plus the **locate focus** neighborhood when one is set. A zero-hit query fades the whole graph. Mutually exclusive with focus fade: while searching, miss fade alone applies; clearing the query restores focus fade.
+The dimming of non-hit elements while the search query is non-empty. Lit set = the union of each hit's **focus neighborhood** — exactly what a canvas left-click on that hit would light: the hit, its incident edges, its 1-hop neighbour nodes, its descendants, and the ancestors of all of those (+ proxy-hit containers lighting theirs the same way). One shared definition with focus fade, so a lit edge can never end in a faded node. Never widened by a selection: a stale selection carried in from before the search (the detail panel's × leaves it set) stays dimmed with the other misses, and **locate** cannot widen it either, because locate ends the search outright (see **Locate**). A zero-hit query fades the whole graph. Mutually exclusive with focus fade: while searching, miss fade alone applies; clearing the query restores focus fade.
 _Avoid_: search dim
-
-**Locate focus**:
-The node the user located for the *current* query — the only selection that expands the miss-fade lit set (by its focus neighborhood, so locating reads like a canvas left-click). Editing the query drops it. A selection carried in from before the search is **not** a locate focus: it stays dimmed with the other misses.
-_Avoid_: search selection, active hit
 
 **Proxy hit**:
 The outermost collapsed ancestor container standing in visually for a hit folded inside it: it stays lit and joins the fit set; the collapsed hit itself has no canvas position. Typing never auto-expands anything.
@@ -79,5 +75,5 @@ One row of the search dropdown list: a hit (or a filter-hidden hit, rendered dis
 _Avoid_: suggestion, option
 
 **Locate**:
-The composite action of activating a result: expand the collapsed ancestor chain (if any), select the node, and fit the viewport to its closed neighborhood. The only search action that mutates collapse state; expanded containers stay expanded after the query clears.
+The composite action of activating a result: expand the collapsed ancestor chain (if any), select the node, fit the viewport to its closed neighborhood, and **clear the search query** — the input never holds the result label. Locate therefore ends the search state outright: it reads exactly like a canvas left-click on that node (focus fade on the selection, nothing else lit), plus the fit. The only search action that mutates collapse state; expanded containers stay expanded after locate clears the query.
 _Avoid_: jump, goto, navigate

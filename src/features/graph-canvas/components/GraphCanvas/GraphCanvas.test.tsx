@@ -191,19 +191,4 @@ describe('GraphCanvas selection wiring (left-click only; right-click detail remo
     expect(fadedIds()).toEqual(['cl', 'ctrl', 'ns']);
   });
 
-  it('wires searchFocusNodeId into the fade: the LOCATED node stays lit alongside the hits', () => {
-    render(
-      <GraphCanvas
-        elements={elements}
-        stylesheet={[]}
-        layout="fcose"
-        visibility={{ visibleNodeIds: new Set(['p1', 'cl', 'ns', 'ctrl']), visibleEdgeIds: new Set() }}
-        selectedId="ctrl"
-        searchActive
-        searchLitNodeIds={new Set(['p1'])}
-        searchFocusNodeId="ctrl"
-      />
-    );
-    expect(fadedIds()).toEqual(['cl', 'ns']);
-  });
 });

@@ -304,13 +304,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   // options — survives data refresh as plain React state, resets on full remount only.
   const [searchQuery, setSearchQuery] = useState('');
 
-  // The node LOCATED from the result list, together with the query locate committed for it.
-  // Only this node — never a selection carried in from before the search — expands the miss
-  // fade's lit set, so an old selection can't light an unrelated island next to the hits.
-  // Pairing it with the query is what makes editing the query invalidate the focus without
-  // depending on the order in which SearchBar fires onLocate / onQueryChange.
-  const [locateFocus, setLocateFocus] = useState<{ nodeId: string; query: string } | null>(null);
-
   // Imperative viewport bridge from GraphCanvas (design D5). SearchBar / locate call fit
   // through this ref — never lift the cy instance out of graph-canvas.
   const viewportApiRef = useRef<GraphViewportApi | null>(null);
@@ -337,24 +330,18 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
   }, []);
 
   // GraphCanvas onSelect: clear active search (same effects as Esc-clear — miss fade off,
-  // list closes via empty query, viewport stays put), then apply selection. Locate must
-  // NOT use this path or the SearchBar's commit-label would race a forced empty clear.
+  // list closes via empty query, viewport stays put), then apply selection. Locate clears
+  // the query itself (via SearchBar's onQueryChange('')), so the two paths agree without
+  // needing to coordinate ordering.
   const handleCanvasSelect = useCallback(
     (id: string | null) => {
       setSearchQuery((prev) => (prev.trim().length > 0 ? '' : prev));
-      setLocateFocus(null);
       handleSelect(id);
     },
     [handleSelect]
   );
 
-  // Every query edit that is not locate's own label commit drops the locate focus: typing
-  // past the located label, clearing with Esc, or replacing the query outright all end the
-  // "this query is showing that located node" state.
-  const handleQueryChange = useCallback((next: string) => {
-    setSearchQuery(next);
-    setLocateFocus((prev) => (prev !== null && prev.query === next ? prev : null));
-  }, []);
+  const handleQueryChange = setSearchQuery;
 
   // Rewind to a ±5m window around the clicked alert (seconds → ms for AbsoluteTimeRange).
   const handleAlertTimeClick = useCallback(
@@ -451,11 +438,11 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
         });
       }
       // Same selection path as canvas left-click: detailOpen true for detail-eligible
-      // nodes (resolveSelectedNode still gates what the panel actually shows).
+      // nodes (resolveSelectedNode still gates what the panel actually shows). SearchBar
+      // clears the query right after this callback returns, ending the search state, so
+      // the selection above falls through to ordinary focus fade — no separate locate
+      // focus to track.
       handleSelect(result.id);
-      // Light this node's 1-hop neighborhood through the miss fade, keyed by the label
-      // SearchBar commits into the input right after this callback returns.
-      setLocateFocus({ nodeId: result.id, query: result.label });
       // rAF chain: give the collapse-set effect + expand-collapse reconciler one frame
       // to unfold before fitting the neighborhood (design D6 — accepts one-frame latency).
       requestAnimationFrame(() => {
@@ -873,7 +860,6 @@ export function KsgPanel(props: Readonly<KsgPanelProps>): React.JSX.Element {
           pinned={pinnedTooltip}
           searchActive={searchActive}
           searchLitNodeIds={resolvedSearch.litNodeIds}
-          searchFocusNodeId={locateFocus?.nodeId ?? null}
           onViewportApi={handleViewportApi}
         />
         <NodeDetailPanel

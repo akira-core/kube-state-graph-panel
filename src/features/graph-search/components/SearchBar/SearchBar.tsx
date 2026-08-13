@@ -124,8 +124,9 @@ export function SearchBar({
     onQueryChange(value);
   };
 
-  // Locate + commit result label into the field + dismiss the list (does not re-open list
-  // on the committed label — call onQueryChange directly, not handleQueryChange).
+  // Locate + clear the query + dismiss the list (locate ends the search state — call
+  // onQueryChange directly with '', not handleQueryChange, so clearing never re-opens the
+  // list the way a typed-empty query would leave it).
   const activateLocate = (result: SearchResult): void => {
     if (result.filterHidden === true) {
       return;
@@ -133,7 +134,7 @@ export function SearchBar({
     onLocate(result);
     setListOpen(false);
     setHighlightedIndex(-1);
-    onQueryChange(result.label);
+    onQueryChange('');
   };
 
   const handleFocus = (): void => {

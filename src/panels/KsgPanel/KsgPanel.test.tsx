@@ -1940,7 +1940,6 @@ describe('KsgPanel', () => {
       selectedId?: string | null;
       searchActive?: boolean;
       searchLitNodeIds?: ReadonlySet<string>;
-      searchFocusNodeId?: string | null;
       pinned?: { label?: string } | null;
       onViewportApi?: (api: { fitToIds: jest.Mock; fitToNeighborhood: jest.Mock } | null) => void;
     };
@@ -2029,8 +2028,9 @@ describe('KsgPanel', () => {
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
       // Pinned tooltip still appears for the selection.
       expect(lastCanvasProps().pinned?.label).toBe('mongodb-replica-0');
-      // Input commits the result label (SearchBar activateLocate).
-      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb-replica-0');
+      // Locate ends the search state: the input is left empty, not committed to the label.
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().searchActive).toBe(false);
 
       // fitToNeighborhood after the rAF chain.
       await act(async () => {
@@ -2043,28 +2043,18 @@ describe('KsgPanel', () => {
       expect(fitToNeighborhood).toHaveBeenCalledWith('demo/p1');
     });
 
-    it('only locate feeds searchFocusNodeId — typing alone leaves it null', () => {
+    it('locate ends the search: searchActive drops to false and the input is empty', () => {
       renderPanel();
       fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
-      expect(lastCanvasProps().searchFocusNodeId).toBeNull();
+      expect(lastCanvasProps().searchActive).toBe(true);
 
       fireEvent.click(screen.getByTestId('search-result-demo/p1'));
-      expect(lastCanvasProps().searchFocusNodeId).toBe('demo/p1');
+      expect(lastCanvasProps().searchActive).toBe(false);
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().selectedId).toBe('demo/p1');
     });
 
-    it('editing the query after a locate drops the locate focus', () => {
-      renderPanel();
-      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
-      fireEvent.click(screen.getByTestId('search-result-demo/p1'));
-      expect(lastCanvasProps().searchFocusNodeId).toBe('demo/p1');
-
-      // Typing past the committed label is a new query — the located node stops lighting
-      // its neighbourhood, so a zero-hit query fades everything.
-      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb-replica-0x' } });
-      expect(lastCanvasProps().searchFocusNodeId).toBeNull();
-    });
-
-    it('a selection carried in from before the query never becomes the locate focus', () => {
+    it('a selection carried in from before the query stays a plain miss, never a lit island', () => {
       renderPanel();
       // Canvas tap selects and (per the detail-panel decoupling) the selection outlives the
       // panel close, so it is still set when the user starts typing.
@@ -2075,8 +2065,9 @@ describe('KsgPanel', () => {
 
       fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
       expect(lastCanvasProps().searchActive).toBe(true);
+      // The stale selection is still passed through as selectedId (useGraphFade's own
+      // contract is what keeps it from expanding the lit set — see useGraphFade.test.ts).
       expect(lastCanvasProps().selectedId).toBe('demo/p2');
-      expect(lastCanvasProps().searchFocusNodeId).toBeNull();
     });
 
     it('locate multi-level chain expands application + controller when both are collapsed', async () => {
@@ -2114,18 +2105,16 @@ describe('KsgPanel', () => {
       expect(fitToNeighborhood).toHaveBeenCalledWith('demo/p1');
     });
 
-    it('containers expanded by locate stay expanded after the query clears', () => {
+    it('containers expanded by locate stay expanded after locate clears the query', () => {
       renderPanel();
       act(() => {
         lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
       });
       fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
       fireEvent.click(screen.getByTestId('search-result-demo/p1'));
-      expect(lastCanvasProps().collapsedIds?.has(controllerId)).toBe(false);
 
-      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: '' } });
+      // Locate itself already cleared the query (no auto-refold on that clear).
       expect(lastCanvasProps().searchActive).toBe(false);
-      // Expansion survives clear — only the fade is removed.
       expect(lastCanvasProps().collapsedIds?.has(controllerId)).toBe(false);
       expect(lastCanvasProps().selectedId).toBe('demo/p1');
     });
@@ -2154,16 +2143,16 @@ describe('KsgPanel', () => {
       expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
     });
 
-    it('canvas background tap clears search and deselects', () => {
+    it('canvas background tap after a locate deselects (query already empty from locate)', () => {
       renderPanel();
       act(() => {
         lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
       });
       fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
       fireEvent.click(screen.getByTestId('search-result-demo/p1'));
-      // Locate commits label — search still active with that label.
-      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb-replica-0');
-      expect(lastCanvasProps().searchActive).toBe(true);
+      // Locate already cleared the query and ended the search.
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().searchActive).toBe(false);
       expect(lastCanvasProps().selectedId).toBe('demo/p1');
 
       act(() => {
@@ -2176,7 +2165,7 @@ describe('KsgPanel', () => {
       expect(screen.queryByTestId('node-detail-panel')).not.toBeInTheDocument();
     });
 
-    it('locate still commits label (does not force-empty search via canvas-clear path)', () => {
+    it('locate clears the query — the input never holds the result label', () => {
       renderPanel();
       act(() => {
         lastCanvasProps().onViewportApi?.({ fitToIds: jest.fn(), fitToNeighborhood: jest.fn() });
@@ -2184,11 +2173,103 @@ describe('KsgPanel', () => {
       fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'mongodb' } });
       fireEvent.click(screen.getByTestId('search-result-demo/p1'));
 
-      // Locate uses handleSelect, not handleCanvasSelect — input keeps the result label.
-      expect(screen.getByTestId('graph-search-input')).toHaveValue('mongodb-replica-0');
-      expect(lastCanvasProps().searchActive).toBe(true);
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().searchActive).toBe(false);
       expect(lastCanvasProps().selectedId).toBe('demo/p1');
       expect(screen.getByTestId('node-detail-panel')).toBeInTheDocument();
+    });
+
+    // Reproduces the reported bug: a query whose label substring-matches an unrelated
+    // node too (`gateway` also matches `mesh-gateway`). GraphCanvas is mocked in this
+    // suite (KsgPanel never renders real cytoscape), so the FADED_CLASS assertion for
+    // "only the located node's neighborhood stays lit" lives in useGraphFade.test.ts
+    // ("after locate, an unrelated former hit is just another miss"). What KsgPanel owns
+    // — and what this test proves — is that BEFORE the fix it fed useGraphFade a
+    // still-active query plus a locate focus (widening the lit set); after the fix it
+    // feeds searchActive: false and a plain selectedId, which is the input shape that
+    // unit test already proves narrows correctly.
+    it('locating a node whose label overlaps another hit narrows down to just that selection', () => {
+      const overlapPayload = {
+        elements: {
+          nodes: [
+            { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+            {
+              data: {
+                id: 'demo/app/mesh-gateway',
+                type: 'application',
+                name: 'mesh-gateway',
+                parent: 'cluster:demo',
+              },
+            },
+            {
+              data: {
+                id: 'demo/ctrl/mesh-gateway',
+                type: 'controller',
+                name: 'mesh-gateway',
+                parent: 'demo/app/mesh-gateway',
+              },
+            },
+            {
+              data: {
+                id: 'demo/pod/mesh-gateway-0',
+                type: 'pod',
+                name: 'mesh-gateway-0',
+                parent: 'demo/ctrl/mesh-gateway',
+                labels: { cluster: 'demo', namespace: 'shop' },
+              },
+            },
+            {
+              data: {
+                id: 'demo/pod/gateway',
+                type: 'pod',
+                name: 'gateway',
+                labels: { cluster: 'demo', namespace: 'shop' },
+              },
+            },
+          ],
+          // Keeps both pods (and mesh-gateway's compound ancestors) out of the orphan
+          // cascade — see the identical note on the shared `payload` fixture above.
+          edges: [
+            {
+              data: {
+                id: 'e-gw',
+                type: 'pod-calls-pod',
+                source: 'demo/pod/gateway',
+                target: 'demo/pod/mesh-gateway-0',
+              },
+            },
+          ],
+        },
+      };
+      const overlapFrame: DataFrame = {
+        name: 'graph',
+        length: 1,
+        fields: [{ name: 'payload', type: FieldType.string, config: {}, values: [JSON.stringify(overlapPayload)] }],
+      };
+      render(
+        <KsgPanel
+          {...buildProps({
+            data: { state: LoadingState.Done, series: [overlapFrame], timeRange: stubTimeRange },
+            options: defaultOptions,
+          })}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId('graph-search-input'), { target: { value: 'gateway' } });
+      expect(lastCanvasProps().searchActive).toBe(true);
+      const hits = lastCanvasProps().searchLitNodeIds ?? new Set();
+      // Precondition for the bug: MORE than the one node the user is about to locate is lit
+      // (the `gateway` pod plus the whole `mesh-gateway` application/controller/pod chain).
+      expect(hits.has('demo/pod/gateway')).toBe(true);
+      expect(hits.size).toBeGreaterThan(1);
+
+      fireEvent.click(screen.getByTestId('search-result-demo/pod/gateway'));
+
+      // The fix: locate ends the search outright, so useGraphFade receives no hit set to
+      // widen from at all — only the plain selection.
+      expect(lastCanvasProps().searchActive).toBe(false);
+      expect(screen.getByTestId('graph-search-input')).toHaveValue('');
+      expect(lastCanvasProps().selectedId).toBe('demo/pod/gateway');
     });
   });
 });
