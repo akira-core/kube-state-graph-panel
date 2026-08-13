@@ -4,7 +4,7 @@ import React from 'react';
 import {
   EDGE_ENDPOINTS_BY_TYPE,
   EDGE_STYLE_BY_TYPE,
-  NETWORK_HOP_DASH_PATTERN,
+  NETWORK_HOP_LEGEND_DASH_PATTERN,
 } from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
 
@@ -157,10 +157,12 @@ describe('EdgeLegend', () => {
       expect(within(row).getByText('pod/service')).toBeInTheDocument();
       expect(within(row).getByText('via gateway / broker')).toBeInTheDocument();
       const line = within(row).getByTestId('edge-glyph').querySelector('line');
-      // Same colour as pod-calls-pod on canvas; the dash rhythm is the one the stylesheet's
-      // ingressPath / transport rules set, so the key describes strokes that really appear.
+      // Same colour as pod-calls-pod on canvas, so the key describes strokes that really
+      // appear. The rhythm is the legend-scaled one: this row's glyph is bidirectional, so
+      // its line is 14 units and the canvas pattern would fit a single dash — a key for
+      // "dashed" that renders as a solid stub.
       expect(line?.getAttribute('stroke')).toBe(EDGE_STYLE_BY_TYPE['pod-calls-pod'].color);
-      expect(line?.getAttribute('stroke-dasharray')).toBe(NETWORK_HOP_DASH_PATTERN.join(' '));
+      expect(line?.getAttribute('stroke-dasharray')).toBe(NETWORK_HOP_LEGEND_DASH_PATTERN.join(' '));
     });
 
     it('falls back to appending when the solid row is absent (only omitted svc types drawn)', () => {

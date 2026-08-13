@@ -275,7 +275,7 @@ describe('SearchBar', () => {
       expect(screen.getByTestId('search-result-a')).toHaveAttribute('aria-selected', 'true');
     });
 
-    it('Enter locates the highlighted row, commits label, and closes the list', () => {
+    it('Enter locates the highlighted row, clears the query, and closes the list', () => {
       const onLocate = jest.fn();
       const onQueryChange = jest.fn();
       renderBar({ query: 'a', results, fitNodeIds: ['a', 'c'], onLocate, onQueryChange });
@@ -283,7 +283,9 @@ describe('SearchBar', () => {
       fireEvent.keyDown(input, { key: 'ArrowDown' });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onLocate).toHaveBeenCalledWith(results[0]);
-      expect(onQueryChange).toHaveBeenCalledWith('alpha');
+      expect(onQueryChange).toHaveBeenCalledWith('');
+      // Locate must fire before the clear, not after — the callback reads the still-current query.
+      expect(onLocate.mock.invocationCallOrder[0]).toBeLessThan(onQueryChange.mock.invocationCallOrder[0]!);
       expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
     });
 
@@ -343,7 +345,7 @@ describe('SearchBar', () => {
     });
   });
 
-  it('clicking a result row locates it, commits label, and closes the list', () => {
+  it('clicking a result row locates it, clears the query, and closes the list', () => {
     const onLocate = jest.fn();
     const onQueryChange = jest.fn();
     const r = result({ id: 'p1', label: 'mongodb-0', kind: 'pod' });
@@ -351,7 +353,40 @@ describe('SearchBar', () => {
     focusInput();
     fireEvent.click(screen.getByTestId('search-result-p1'));
     expect(onLocate).toHaveBeenCalledWith(r);
-    expect(onQueryChange).toHaveBeenCalledWith('mongodb-0');
+    expect(onQueryChange).toHaveBeenCalledWith('');
+    // Locate must fire before the clear, not after — the callback reads the still-current query.
+    expect(onLocate.mock.invocationCallOrder[0]).toBeLessThan(onQueryChange.mock.invocationCallOrder[0]!);
+    expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
+  });
+
+  it('the result list stays closed after locate even once the parent re-renders with an empty query', () => {
+    const r = result({ id: 'p1', label: 'mongodb-0', kind: 'pod' });
+    const { rerender } = render(
+      <SearchBar
+        query="mongo"
+        onQueryChange={jest.fn()}
+        results={[r]}
+        fitNodeIds={['p1']}
+        labelById={labelById}
+        onLocate={jest.fn()}
+        onFitToIds={jest.fn()}
+      />
+    );
+    focusInput();
+    fireEvent.click(screen.getByTestId('search-result-p1'));
+    expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
+    // Simulate the parent applying the onQueryChange('') the click just fired.
+    rerender(
+      <SearchBar
+        query=""
+        onQueryChange={jest.fn()}
+        results={[]}
+        fitNodeIds={[]}
+        labelById={labelById}
+        onLocate={jest.fn()}
+        onFitToIds={jest.fn()}
+      />
+    );
     expect(screen.queryByTestId('search-result-list')).not.toBeInTheDocument();
   });
 

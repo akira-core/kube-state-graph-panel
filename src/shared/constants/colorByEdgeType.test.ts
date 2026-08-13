@@ -3,6 +3,7 @@ import {
   EDGE_ENDPOINTS_BY_TYPE,
   EDGE_IS_TRAFFIC_BY_TYPE,
   NETWORK_HOP_DASH_PATTERN,
+  NETWORK_HOP_LEGEND_DASH_PATTERN,
   isTrafficEdgeType,
 } from './colorByEdgeType';
 import { STATUS_COLOR } from './colorByStatus';
@@ -87,6 +88,19 @@ describe('colorByEdgeType', () => {
 
   it('gives the network-hop dash a two-part rhythm cytoscape can consume', () => {
     expect(NETWORK_HOP_DASH_PATTERN).toHaveLength(2);
+  });
+
+  it('scales the legend rhythm to several dashes inside the 14-unit bidirectional glyph', () => {
+    expect(NETWORK_HOP_LEGEND_DASH_PATTERN).toHaveLength(2);
+    const [dash, gap] = NETWORK_HOP_LEGEND_DASH_PATTERN;
+    // The network-hop row's line runs x=8 to x=22. Three or more full cycles must fit, or
+    // the key degenerates towards the single-dash stub this constant exists to fix — which
+    // is exactly what the canvas rhythm does here.
+    expect(Math.floor(14 / (dash + gap))).toBeGreaterThanOrEqual(3);
+    expect(Math.floor(14 / (NETWORK_HOP_DASH_PATTERN[0] + NETWORK_HOP_DASH_PATTERN[1]))).toBeLessThan(3);
+    // Dash and gap stay comparable, so the marks read as dashes rather than as the round
+    // dots the `dotted` line style renders.
+    expect(dash).toBeGreaterThanOrEqual(gap);
   });
 
   it('includes the backend edges + switch fabric edges as known wire types', () => {

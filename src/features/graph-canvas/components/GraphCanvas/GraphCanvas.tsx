@@ -55,7 +55,6 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     pinned,
     searchActive,
     searchLitNodeIds,
-    searchFocusNodeId,
     onViewportApi,
   } = props;
   const styles = useStyles2(getStyles);
@@ -202,7 +201,6 @@ export function GraphCanvas(props: Readonly<GraphCanvasProps>): React.JSX.Elemen
     selectedId: selectedId ?? null,
     searchActive: searchActive ?? false,
     searchLitNodeIds: searchLitNodeIds ?? EMPTY_LIT_NODE_IDS,
-    searchFocusNodeId: searchFocusNodeId ?? null,
   });
 
   // Imperative viewport commands for search fit / locate (design D5). Callback-ref style —

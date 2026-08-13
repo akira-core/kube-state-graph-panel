@@ -31,7 +31,6 @@ const fade = (cy: cytoscape.Core, over: Partial<GraphFadeInput> = {}): void =>
     selectedId: null,
     searchActive: false,
     searchLitNodeIds: NO_HITS,
-    searchFocusNodeId: null,
     ...over,
   });
 
@@ -136,25 +135,36 @@ describe('applyGraphFade — miss fade (query active)', () => {
     cy.destroy();
   });
 
-  it('keeps a hit, its incident edges and its ancestors lit; fades the rest INCLUDING a non-hit neighbour', () => {
+  it('a hit lights its full focus neighborhood — 1-hop neighbour NODES included, same as a click', () => {
     const cy = makeCy();
     fade(cy, { searchActive: true, searchLitNodeIds: new Set(['pod/a']) });
-    // pod/a (hit) + e-mount (its incident edge) stay lit; node/w0 + cluster/prod are
-    // ancestors (a lit node must never sit inside a faded box). Unlike focus fade, miss
-    // fade pulls in no neighbour NODE: pvc/a is not itself a hit, so it fades even though
-    // its edge to pod/a stays lit.
-    expect(faded(cy)).toEqual(['e-far', 'pvc/a', 'sw/x']);
+    // pod/a (hit) lights exactly what clicking it would: e-mount + pvc/a (closed
+    // neighborhood — the neighbour NODE stays lit, not just the edge into it), plus
+    // node/w0 + cluster/prod as ancestors. Only the far switch + its edge fade.
+    expect(faded(cy)).toEqual(['e-far', 'sw/x']);
     cy.destroy();
   });
 
-  it('lights a PROXY container directly (no incident-edge/ancestor walk needed for the container itself)', () => {
+  it('no lit edge ends in a faded node', () => {
     const cy = makeCy();
-    // node/w0 stands in as the proxy for a collapsed pod — its own ancestor (cluster)
-    // stays lit too.
+    fade(cy, { searchActive: true, searchLitNodeIds: new Set(['pod/a']) });
+    const litEdges = cy.edges().filter((e) => !e.hasClass(FADED_CLASS));
+    expect(litEdges.length).toBeGreaterThan(0);
+    for (const edge of litEdges) {
+      expect(edge.source().hasClass(FADED_CLASS)).toBe(false);
+      expect(edge.target().hasClass(FADED_CLASS)).toBe(false);
+    }
+    cy.destroy();
+  });
+
+  it('a PROXY container lights its neighbourhood AND its descendants, same as clicking it', () => {
+    const cy = makeCy();
+    // node/w0 stands in as the proxy for a collapsed pod. Clicking node/w0 lights its own
+    // incident edge e-far + neighbour sw/x, its descendant pod/a, and its ancestor
+    // cluster/prod. pvc/a is a descendant's neighbour, not the container's → faded, with
+    // e-mount faded alongside it (matching the focus-fade container test above).
     fade(cy, { searchActive: true, searchLitNodeIds: new Set(['node/w0']) });
-    expect(faded(cy)).not.toContain('node/w0');
-    expect(faded(cy)).not.toContain('cluster/prod');
-    expect(faded(cy)).toContain('sw/x');
+    expect(faded(cy)).toEqual(['e-mount', 'pvc/a']);
     cy.destroy();
   });
 
@@ -173,37 +183,25 @@ describe('applyGraphFade — miss fade (query active)', () => {
     cy.destroy();
   });
 
-  it('fades EVERYTHING on a zero-hit query even when a node was located earlier', () => {
-    const cy = makeCy();
-    fade(cy, { searchActive: true, searchFocusNodeId: 'pod/a' });
-    expect(faded(cy)).toEqual(allIds(cy));
-    cy.destroy();
-  });
-
   it('a selection carried in from before the query does NOT light its neighborhood', () => {
     const cy = makeCy();
     // pod/a was selected before the user typed; the detail panel's × leaves the selection
-    // set. Only sw/x matches, so pod/a and its neighbours must read as misses.
+    // set. Only sw/x matches, so pod/a and its own neighbourhood must read as misses —
+    // sw/x's focus set (e-far + neighbour node/w0 + its ancestor) is all that lights.
     fade(cy, { searchActive: true, searchLitNodeIds: new Set(['sw/x']), selectedId: 'pod/a' });
-    expect(faded(cy)).toEqual(['cluster/prod', 'e-mount', 'node/w0', 'pod/a', 'pvc/a']);
+    expect(faded(cy)).toEqual(['e-mount', 'pod/a', 'pvc/a']);
     cy.destroy();
   });
 
-  it('a LOCATED node lights its closed neighborhood (1-hop), matching canvas-click focus', () => {
+  it('a selection that is ALSO a hit reads identically to the hit alone (selectedId adds nothing)', () => {
     const cy = makeCy();
-    // Locate commits the node's label as the query, so it is a hit as well as the focus.
-    fade(cy, { searchActive: true, searchLitNodeIds: new Set(['pod/a']), searchFocusNodeId: 'pod/a' });
-    // pvc/a (neighbour) now stays lit; only the far switch + its edge fade.
+    // There is no locate focus anymore: locate clears the query, so this state (query
+    // active AND a selection) only arises from a stale pre-search selection, never from
+    // locate itself. selectedId must never alter miss fade — pod/a being both the hit and
+    // the selection must produce byte-identical output to the hit alone (see the "full
+    // focus neighborhood" test above).
+    fade(cy, { searchActive: true, searchLitNodeIds: new Set(['pod/a']), selectedId: 'pod/a' });
     expect(faded(cy)).toEqual(['e-far', 'sw/x']);
-    cy.destroy();
-  });
-
-  it('a located node hidden by the filter does not expand the lit set', () => {
-    const cy = makeCy();
-    cy.getElementById('pod/a').style('visibility', 'hidden');
-    fade(cy, { searchActive: true, searchLitNodeIds: new Set(['sw/x']), searchFocusNodeId: 'pod/a' });
-    // Same result as no focus at all: only sw/x and its edge stay lit.
-    expect(faded(cy)).toEqual(['cluster/prod', 'e-mount', 'node/w0', 'pod/a', 'pvc/a']);
     cy.destroy();
   });
 
@@ -223,6 +221,49 @@ describe('applyGraphFade — miss fade (query active)', () => {
     fade(cy, { selectedId: 'pod/a' });
     // Focus fade is back: pod/a's neighborhood is lit, the far switch fades.
     expect(faded(cy)).toEqual(['e-far', 'sw/x']);
+    cy.destroy();
+  });
+});
+
+// Reproduces the reported bug shape: two nodes whose LABELS overlap (e.g. `gateway` /
+// `mesh-gateway`) so a single query would hit both, but they are not graph neighbours.
+// After locate, the query is cleared (searchActive: false) — this is pure focus fade,
+// exercising that the OTHER former hit gets no special treatment: it fades like any
+// unrelated node, exactly as if it had never matched anything.
+describe('applyGraphFade — after locate, an unrelated former hit is just another miss', () => {
+  function makeOverlappingLabelsCy(): cytoscape.Core {
+    return cytoscape({
+      headless: true,
+      styleEnabled: true,
+      elements: [
+        { group: 'nodes', data: { id: 'pod/gateway', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'node/w0', kind: 'node' } },
+        { group: 'nodes', data: { id: 'pod/mesh-gateway', kind: 'pod' } },
+        { group: 'nodes', data: { id: 'node/w1', kind: 'node' } },
+        { group: 'edges', data: { id: 'e-gw', source: 'pod/gateway', target: 'node/w0', edgeType: 'pod-to-node' } },
+        {
+          group: 'edges',
+          data: { id: 'e-mesh', source: 'pod/mesh-gateway', target: 'node/w1', edgeType: 'pod-to-node' },
+        },
+      ],
+    });
+  }
+
+  it('lights only the located node’s own neighborhood; the other former hit and its edge fade', () => {
+    const cy = makeOverlappingLabelsCy();
+    // Locate ended the search: searchActive is false, selectedId is the located node.
+    fade(cy, { selectedId: 'pod/gateway' });
+    expect(faded(cy)).toEqual(['e-mesh', 'node/w1', 'pod/mesh-gateway']);
+    cy.destroy();
+  });
+
+  it('WHILE TYPING, every hit lights its 1-hop neighbours — the reported multi-hit bug shape', () => {
+    const cy = makeOverlappingLabelsCy();
+    // Query `gateway` hits both pods. The old lit set kept both pod-to-node edges lit but
+    // faded node/w0 and node/w1 at their far ends — lit edges dangling into faded nodes.
+    // Each hit now lights its full focus neighborhood, so nothing here fades at all.
+    fade(cy, { searchActive: true, searchLitNodeIds: new Set(['pod/gateway', 'pod/mesh-gateway']) });
+    expect(faded(cy)).toEqual([]);
     cy.destroy();
   });
 });

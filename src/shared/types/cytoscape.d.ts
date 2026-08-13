@@ -66,9 +66,34 @@ declare module 'cytoscape' {
     applicationColor?: string; // accent assigned in normalize so the stylesheet stays pure
   }
 
+  // RED measurements the backend attaches to trace-derived edges (upstream `data.metrics`),
+  // renamed to the panel's camelCase convention in normalize. Present only on edges whose
+  // BOTH endpoints resolve to a pod or service node — in practice `pod-calls-pod` and
+  // `pod-calls-service`; never on `service-selects-pod` / `pod-to-node` / `pod-mounts-pvc` /
+  // `pvc-to-storageclass` / fabric edges, nor on any edge touching an `external` node.
+  //
+  // Three-valued by design — the states are NOT interchangeable:
+  //   `metrics` absent      → no measurement exists for this edge
+  //   `errorRate` absent    → the failure counter could not be read
+  //   `errorRate: 0`        → read successfully, no failures
+  // Consumers MUST NOT default an absent field to 0.
+  //
+  // Values arrive rounded to 6 significant digits, so a wide query window legitimately
+  // yields exponent notation (`3.86e-7`) — format defensively, never `toFixed`.
+  interface EdgeMetrics {
+    rate: number; // requests per second over the query window; > 0 whenever `metrics` exists
+    errorRate?: number; // failed FRACTION in [0,1], not a percentage
+    p90ServerMs?: number; // server-observed p90 request duration, in milliseconds
+  }
+
   interface EdgeDataDefinition {
     edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)
     labels?: Record<string, string>;
+    // Mapped from upstream `data.metrics` (`error_rate` → `errorRate`, `p90_server_ms` →
+    // `p90ServerMs`). Omitted when the backend sent none, or when what it sent failed
+    // validation — see normalize's parseEdgeMetrics. Purely informational: it never gates
+    // the edge and never reaches the stylesheet.
+    metrics?: EdgeMetrics;
     // true on edges along the ingress-gateway TRAFFIC path — an endpoint is an ingress node
     // AND the type carries traffic (so the ingress pod's own pod-to-node / pod-mounts-pvc
     // edges are excluded). Set by normalize's markIngressEdges → dashed via the

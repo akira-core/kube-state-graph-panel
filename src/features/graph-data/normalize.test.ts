@@ -1339,3 +1339,133 @@ describe('normalizeGraph — controller enrichment', () => {
     });
   });
 });
+
+describe('normalizeGraph — edge RED metrics', () => {
+  // The backend attaches RED (rate / error / duration) to trace-derived edges as
+  // `data.metrics`. normalize renames to the panel's camelCase and validates, but does NOT
+  // convert units, round, or fill defaults — the tooltip formats, this layer only carries.
+  const withMetrics = (metrics: unknown): Record<string, unknown> => ({
+    elements: {
+      nodes: [
+        { data: { id: 'a', type: 'pod' } },
+        { data: { id: 'b', type: 'service' } },
+      ],
+      edges: [
+        {
+          data: {
+            id: 'e',
+            source: 'a',
+            target: 'b',
+            type: 'pod-calls-service',
+            labels: { namespace: 'shop' },
+            ...(metrics === undefined ? {} : { metrics }),
+          },
+        },
+      ],
+    },
+  });
+
+  const edgeData = (raw: unknown): cytoscape.EdgeDataDefinition => {
+    const { elements } = normalizeGraph(raw);
+    return elements.find((e) => e.data.id === 'e')?.data as cytoscape.EdgeDataDefinition;
+  };
+
+  it('carries a full metrics object through under panel field names', () => {
+    const data = edgeData(withMetrics({ rate: 5, error_rate: 0.2, p90_server_ms: 45 }));
+    expect(data.metrics).toEqual({ rate: 5, errorRate: 0.2, p90ServerMs: 45 });
+  });
+
+  it('leaves values unconverted and unrounded', () => {
+    // 0.2 must NOT become 20 here: the ratio→percent conversion belongs to the display
+    // leaf, and 12.345 must survive intact so the formatter (not normalize) decides digits.
+    const data = edgeData(withMetrics({ rate: 12.345, error_rate: 0.2, p90_server_ms: 1234.5 }));
+    expect(data.metrics).toEqual({ rate: 12.345, errorRate: 0.2, p90ServerMs: 1234.5 });
+  });
+
+  it('omits the metrics key entirely for an edge the backend did not measure', () => {
+    const data = edgeData(withMetrics(undefined));
+    // Absent, not `undefined` and not `{}` — "no measurement" must stay distinguishable.
+    expect('metrics' in data).toBe(false);
+  });
+
+  it('omits absent optional fields rather than defaulting them', () => {
+    const data = edgeData(withMetrics({ rate: 3 }));
+    expect(data.metrics).toEqual({ rate: 3 });
+    expect('errorRate' in (data.metrics ?? {})).toBe(false);
+    expect('p90ServerMs' in (data.metrics ?? {})).toBe(false);
+  });
+
+  it('preserves a measured zero error rate', () => {
+    // The load-bearing distinction: 0 means "read, no failures"; absent means "unreadable".
+    const data = edgeData(withMetrics({ rate: 1, error_rate: 0 }));
+    expect(data.metrics).toEqual({ rate: 1, errorRate: 0 });
+  });
+
+  it.each([
+    ['non-numeric', 'high'],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['null', null],
+  ])('drops only an unusable error_rate (%s)', (_label, errorRate) => {
+    const data = edgeData(withMetrics({ rate: 5, error_rate: errorRate, p90_server_ms: 45 }));
+    expect(data.metrics).toEqual({ rate: 5, p90ServerMs: 45 });
+  });
+
+  it.each([
+    ['non-numeric', '45ms'],
+    ['NaN', Number.NaN],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+  ])('drops only an unusable p90_server_ms (%s)', (_label, p90) => {
+    const data = edgeData(withMetrics({ rate: 5, error_rate: 0.2, p90_server_ms: p90 }));
+    expect(data.metrics).toEqual({ rate: 5, errorRate: 0.2 });
+  });
+
+  it.each([
+    ['missing rate', { error_rate: 0.1, p90_server_ms: 45 }],
+    ['null rate', { rate: null, error_rate: 0.1 }],
+    ['non-numeric rate', { rate: '5', error_rate: 0.1 }],
+    ['NaN rate', { rate: Number.NaN, error_rate: 0.1 }],
+    ['Infinite rate', { rate: Number.POSITIVE_INFINITY }],
+    ['non-object metrics', 'rate=5'],
+    ['array metrics', [5]],
+    ['null metrics', null],
+  ])('drops the whole metrics object when rate is unusable (%s)', (_label, metrics) => {
+    const data = edgeData(withMetrics(metrics));
+    // rate is the keystone: without it the remaining fields have no denominator to be
+    // read against, so the object is not a metrics object we understand.
+    expect('metrics' in data).toBe(false);
+  });
+
+  it.each([
+    ['missing rate', { error_rate: 0.1 }],
+    ['bad error_rate', { rate: 5, error_rate: 'high' }],
+    ['non-object metrics', 'rate=5'],
+  ])('keeps the edge itself intact when metrics are unusable (%s)', (_label, metrics) => {
+    const data = edgeData(withMetrics(metrics));
+    // RED is an attribute layer, never a gate — a bad metric must not cost a topology edge.
+    expect(data.id).toBe('e');
+    expect(data.edgeType).toBe('pod-calls-service');
+    expect(data.labels).toEqual({ namespace: 'shop' });
+  });
+
+  it('preserves exponent-notation magnitudes exactly', () => {
+    // The backend rounds to 6 significant digits, so a wide query window legitimately
+    // yields values like these. Collapsing them to 0 would read as "no traffic".
+    const data = edgeData(withMetrics({ rate: 3.86e-7, error_rate: 6.7e-8 }));
+    expect(data.metrics?.rate).toBe(3.86e-7);
+    expect(data.metrics?.errorRate).toBe(6.7e-8);
+  });
+
+  it.each([
+    ['bad error_rate', { rate: 5, error_rate: 'high' }],
+    ['missing rate', { error_rate: 0.1 }],
+    ['non-object metrics', 'rate=5'],
+    ['array metrics', [5]],
+  ])('never reports a RED problem through the errors channel (%s)', (_label, metrics) => {
+    // `errors` drives a user-visible "topology may be incomplete" banner. A malformed
+    // decorative metric does not make the topology incomplete, and an upstream regression
+    // would fire it on every edge at once, drowning the warnings it exists for.
+    const { errors } = normalizeGraph(withMetrics(metrics));
+    expect(errors).toEqual([]);
+  });
+});

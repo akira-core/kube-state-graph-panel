@@ -125,3 +125,16 @@ export const FALLBACK_EDGE_STYLE: EdgeStyle = { color: '#94a3b8', lineStyle: 'so
 // load-bearing. Wider than cytoscape's default 6/3 so the dashing still reads as dashed
 // when zoomed out.
 export const NETWORK_HOP_DASH_PATTERN: readonly [number, number] = [8, 8];
+
+// The same overlay rendered at LEGEND scale. The canvas rhythm is sized for edges that
+// span the viewport; the legend glyph gives it a 14-unit line (the bidirectional row
+// starts at x=8 to clear the second arrowhead), which fits one 8-unit dash and nothing
+// else — the key read as a solid stub. Scaled to four dashes inside the glyph, since what
+// the row has to communicate is "this stroke is dashed", not the on-canvas dash length.
+// Deliberately NOT derived from the canvas pattern: the two answer different questions and
+// a shared value would re-break one of them the next time the other is tuned.
+//
+// Only legible because EdgeGlyph draws dashed lines with a BUTT linecap — under the round
+// cap it uses elsewhere, every dash grows by the stroke width and a 2-unit gap closes to
+// nothing, which is what made the 8/8 rhythm read as one unbroken stub in the first place.
+export const NETWORK_HOP_LEGEND_DASH_PATTERN: readonly [number, number] = [2, 2];
