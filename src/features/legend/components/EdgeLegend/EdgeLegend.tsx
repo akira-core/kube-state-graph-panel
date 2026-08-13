@@ -5,7 +5,7 @@ import React from 'react';
 import {
   EDGE_ENDPOINTS_BY_TYPE,
   EDGE_STYLE_BY_TYPE,
-  NETWORK_HOP_DASH_PATTERN,
+  NETWORK_HOP_LEGEND_DASH_PATTERN,
   type LineStyle,
 } from '../../../../shared/constants/colorByEdgeType';
 import { drawnEdgeTypesForMode } from '../../../../shared/constants/drawnEdgeTypesForMode';
@@ -63,13 +63,15 @@ interface EdgeRow {
 // isTrafficEdgeType; the backend only labels service-graph edges with `relation`) is one of
 // the three traffic types this single row already stands in for. So it belongs here, one
 // line under its solid sibling: the reader gets the solid/dashed contrast structurally
-// instead of having to be told it in prose. Colour and dash rhythm are read from the same
-// sources the canvas rules use, so the key cannot describe a stroke that never appears.
+// instead of having to be told it in prose. Colour is read from the same source the canvas
+// rules use, so the key cannot describe a stroke that never appears; the dash rhythm is the
+// legend-scaled one (NETWORK_HOP_LEGEND_DASH_PATTERN) because the canvas rhythm fits barely
+// one dash inside this row's 14-unit bidirectional glyph.
 const NETWORK_HOP_ROW: EdgeRow = {
   key: 'network-hop',
   color: EDGE_STYLE_BY_TYPE['pod-calls-pod'].color,
   lineStyle: 'dashed',
-  dashPattern: NETWORK_HOP_DASH_PATTERN.join(' '),
+  dashPattern: NETWORK_HOP_LEGEND_DASH_PATTERN.join(' '),
   fromLabel: 'pod',
   toLabel: 'pod/service',
   bidirectional: true,

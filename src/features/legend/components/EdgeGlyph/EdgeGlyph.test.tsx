@@ -28,6 +28,19 @@ describe('EdgeGlyph', () => {
     expect(getByTestId('edge-glyph').querySelector('line')?.getAttribute('stroke-dasharray')).toBeNull();
   });
 
+  it('caps dashed lines butt so the gaps survive, and everything else round', () => {
+    const cap = (el: HTMLElement): string | null | undefined => el.querySelector('line')?.getAttribute('stroke-linecap');
+    // A round cap grows each dash by the full stroke width and shrinks each gap by the
+    // same, which on this ~14-unit glyph closes the gaps entirely.
+    const { getByTestId, rerender } = render(<EdgeGlyph color="#f97316" lineStyle="dashed" />);
+    expect(cap(getByTestId('edge-glyph'))).toBe('butt');
+    // `dotted` needs the round cap — it is what turns its 1.5-unit dashes into dots.
+    rerender(<EdgeGlyph color="#f97316" lineStyle="dotted" />);
+    expect(cap(getByTestId('edge-glyph'))).toBe('round');
+    rerender(<EdgeGlyph color="#f97316" lineStyle="solid" />);
+    expect(cap(getByTestId('edge-glyph'))).toBe('round');
+  });
+
   it('draws a single arrowhead (one polygon)', () => {
     const { getByTestId } = render(<EdgeGlyph color="#10b981" lineStyle="solid" />);
     expect(getByTestId('edge-glyph').querySelectorAll('polygon')).toHaveLength(1);

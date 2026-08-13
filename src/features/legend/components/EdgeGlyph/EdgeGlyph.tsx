@@ -41,6 +41,12 @@ export function EdgeGlyph({
   const dash = lineStyle === 'dashed' && dashPattern !== undefined ? dashPattern : dashArray(lineStyle);
   // Leave room on the left for the second arrowhead when bidirectional.
   const lineStart = bidirectional ? 8 : 1;
+  // A round cap extends every dash by half the stroke width at BOTH ends, so it adds a full
+  // stroke width to each dash and takes the same amount out of each gap. `dotted` depends on
+  // exactly that (it is how 1.5-unit dashes render as round dots), and it costs a solid line
+  // nothing. For `dashed` it is destructive: on the ~14-unit glyph the gaps close up and the
+  // key renders as an unbroken stub, which is the opposite of what the row exists to say.
+  const linecap = lineStyle === 'dashed' ? 'butt' : 'round';
   return (
     <svg
       width={width}
@@ -57,7 +63,7 @@ export function EdgeGlyph({
         y2={6}
         stroke={color}
         strokeWidth={2}
-        strokeLinecap="round"
+        strokeLinecap={linecap}
         {...(dash !== undefined ? { strokeDasharray: dash } : {})}
       />
       {bidirectional ? <polygon points="8,2.5 1,6 8,9.5" fill={color} /> : null}
