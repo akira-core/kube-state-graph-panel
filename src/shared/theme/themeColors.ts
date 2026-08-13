@@ -10,6 +10,7 @@ export interface ThemeColors {
   background: { secondary: string };
   border: { weak: string; medium: string; strong: string };
   primary: { main: string };
+  error: { text: string };
 }
 
 export function themeColors(theme: GrafanaTheme2): ThemeColors {
