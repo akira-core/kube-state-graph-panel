@@ -67,7 +67,9 @@ _Alternative considered:_ Grafana's `@grafana/data` value formatters (`getValueF
 
 ### D5 — Row keys and position
 
-Keys are `rate` / `errorRate` / `p90`, camelCase like the existing `edgeType` / `ipAddress` rows. Units live in the value (`5 req/s`), not the key (`rate (req/s)`), so key column width stays stable across rows.
+Keys are `rate` / `errorRate` / `duration(p90)`, camelCase like the existing `edgeType` / `ipAddress` rows. Units live in the value (`5 req/s`), not the key (`rate (req/s)`), so key column width stays stable across rows. The duration key names what is measured and puts the statistic in parentheses — `p90` alone names a percentile without saying of what.
+
+A measured non-zero `errorRate` renders its **value** in the theme's error colour so a failing edge is distinguishable from a merely factual row; the key stays secondary so the row still scans as part of the list. The tint keys off the number (`errorRate !== 0`), not the formatted string, because `6.7e-8` prints as `0.0000067%` and is still a real failure fraction. A measured `0` stays neutral and an absent `errorRate` renders no row at all — "could not measure" must never read as "measured, no failures".
 
 Position is immediately after `edgeType` and before the `labels` divider: the promoted-attr block is "what the panel knows about this element", the labels block is "what the backend sent verbatim". RED is derived, not a label — and the backend explicitly forbids these values appearing as label keys, so putting them in the labels block would misrepresent the payload.
 
