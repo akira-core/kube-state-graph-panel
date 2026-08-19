@@ -23,13 +23,16 @@
 # Backend design D6 (commit 787573b) owns the WHOLE hierarchy and emits, in the
 # /v1/graph cytoscape payload: `namespace` / `application` / `controller` group nodes,
 # the full parent chain `cluster > namespace > application > controller > pod`, a
-# `storageclass` LEAF under the cluster (from kube_storageclass_info, with provisioner),
-# `pod-to-node` edges (pod → its K8s node — no longer nesting), and `pvc-to-storageclass`
-# edges (pvc → storageclass). The panel consumes this verbatim (no client synthesis).
+# `pod-to-node` edges (pod → its K8s node — no longer nesting), and — from the NetApp
+# remodel — the physical storage chain `storage-cluster > netapp-node > netapp-aggr` with
+# `pvc-to-netapp-aggr` edges carrying storage I/O. The panel consumes this verbatim (no
+# client synthesis).
 #
 #   prod > ns/prod > {app mongodb > [ctrl mongodb > mongo-0/1/2; mongo-svc; data-mongo-0/1/2];
 #                     app gateway > ctrl gateway > gateway}
-#          + worker-0/1 (leaves) + storageclass fast-ssd (leaf)
+#          + worker-0/1 (leaves)
+#   ontap-prod (storage-cluster) > ontap-prod-01 > aggr1 ; ontap-prod-02 > aggr2
+#          (reached from the mongo PVCs via pvc-to-netapp-aggr; belongs to no K8s cluster)
 #   dr   > ns/dr > {app nats > [ctrl nats > nats-0/1/2; nats-svc]; app consumer > ctrl consumer > consumer}
 #          + worker-2 (leaf)
 # pod-to-node IS a drawn edge in controller view; node view re-nests pod under node.
@@ -77,22 +80,24 @@ kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-1",persistentvolumeclaim="data-mongo-1",volume="data"} 1
 kube_pod_spec_volumes_persistentvolumeclaims_info{cluster="prod",namespace="prod",pod="mongo-2",persistentvolumeclaim="data-mongo-2",volume="data"} 1
 
-# --- PVC StorageClass. kube_persistentvolumeclaim_info carries each PVC's `storageclass`
-#     label; the backend (D6) draws a `pvc-to-storageclass` edge from each PVC to the
-#     matching storageclass LEAF. All three mongo replicas share one StorageClass (a
-#     StatefulSet volumeClaimTemplate uses a single storageClassName). ---
-kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-0",storageclass="fast-ssd"} 1
-kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-1",storageclass="fast-ssd"} 1
-kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-2",storageclass="fast-ssd"} 1
+# --- PVC info. `storageclass` becomes the claim's own data.storageclass attribute (the
+#     StorageClass NODE was retired with the backend's NetApp remodel); `volumename` is the
+#     bound PV name and is THE join key into the Harvest volume series below — the two
+#     spellings must match exactly or the claim silently draws no storage edge.
+#     data-mongo-2 deliberately carries NO volumename, so the demo shows an unjoined claim
+#     next to two joined ones. ---
+kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-0",storageclass="netapp-nas",volumename="pvc-9f3a"} 1
+kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-1",storageclass="netapp-nas",volumename="pvc-7c21"} 1
+kube_persistentvolumeclaim_info{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-2",storageclass="netapp-nas"} 1
 
-# --- StorageClass definition. kube_storageclass_info materialises `fast-ssd` as a
-#     cluster-level LEAF carrying its `provisioner` + backing-storage `parameters` (D6).
-#     The backend reads the operator-allowlisted parameter labels (source-label fallback):
-#     storagePools|pool -> pool, fsType|fsName -> fs, ClusterID -> cluster_id, selector ->
-#     selector; reclaim_policy / volume_binding_mode are deliberately ignored. The PVCs
-#     above link to it via pvc-to-storageclass edges; the node-detail Storage Class section
-#     shows the provisioner row + a generic key/value row per parameter. ---
-kube_storageclass_info{cluster="prod",storageclass="fast-ssd",provisioner="rook-ceph.rbd.csi.ceph.com",pool="kube",fsType="ext4",ClusterID="prod",selector="tier=fast",reclaim_policy="Delete",volume_binding_mode="WaitForFirstConsumer"} 1
+# --- PVC usage, from kubelet volume stats. Feeds the PVC's data.usage rows AND the
+#     on-node usage fill (normalize derives usageRatio from the pair). Two contrasting
+#     levels — ~70% and ~20% — so the fill heights are visibly different on canvas; the
+#     third claim gets none, exercising the "absent ratio draws no fill" path. ---
+kubelet_volume_stats_used_bytes{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-0"} 7516192768
+kubelet_volume_stats_capacity_bytes{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-0"} 10737418240
+kubelet_volume_stats_used_bytes{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-1"} 2147483648
+kubelet_volume_stats_capacity_bytes{cluster="prod",namespace="prod",persistentvolumeclaim="data-mongo-1"} 10737418240
 
 # --- PVC ArgoCD application. kube_persistentvolumeclaim_annotations carries the same
 #     annotation_argocd_argoproj_io_tracking_id label -> data.application. The mongodb
@@ -159,3 +164,48 @@ kube_endpointslice_labels{cluster="dr",namespace="dr",endpointslice="nats-svc-7f
 kube_endpointslice_endpoints{cluster="dr",namespace="dr",endpointslice="nats-svc-7f9q",targetref_kind="Pod",targetref_namespace="dr",targetref_name="nats-0"} 1
 kube_endpointslice_endpoints{cluster="dr",namespace="dr",endpointslice="nats-svc-7f9q",targetref_kind="Pod",targetref_namespace="dr",targetref_name="nats-1"} 1
 kube_endpointslice_endpoints{cluster="dr",namespace="dr",endpointslice="nats-svc-7f9q",targetref_kind="Pod",targetref_namespace="dr",targetref_name="nats-2"} 1
+
+# --- NetApp Harvest: the physical storage behind the mongo claims. ---
+#
+# `volume_name` is NOT a stock Harvest label — the deployment's own relabel rule stamps the
+# bound PV name onto each volume series, and that is the ONLY join the backend performs:
+# kube_persistentvolumeclaim_info.volumename == volume_*.volume_name. Everything else about
+# the storage chain (which aggregate, which controller, which SVM) rides on the SAME matched
+# series, so a mismatch here costs the whole storage half of the graph, silently.
+#
+# `cluster` here is an ONTAP cluster, NOT a Kubernetes one. Those nodes carry no `cluster`
+# label in the graph and never appear in the response's clusters[] — they nest under their
+# own `storage-cluster` box instead.
+#
+# These are GAUGES and the backend reads them with last_over_time, verbatim: Harvest has
+# already resolved ONTAP's base counters, so `volume_read_ops` is ALREADY per-second and
+# `volume_read_latency` is ALREADY an average in microseconds. The seeder therefore re-pushes
+# them at a steady value each tick — the exact opposite of the traces_service_graph_*
+# counters, which must increase. Making these monotonic would render absurd IOPS in the demo.
+#
+# data-mongo-0 -> aggr1 (ontap-prod-01), data-mongo-1 -> aggr2 (ontap-prod-02).
+# data-mongo-2 has no volumename at all, so it joins nothing and draws no storage edge.
+volume_read_ops{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 150
+volume_write_ops{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 40
+volume_read_latency{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 830
+volume_write_latency{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 1200
+volume_read_ops{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 12
+volume_write_ops{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 3
+volume_read_latency{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 410
+volume_write_latency{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 6500
+
+# --- Aggregate health + space. `aggr_new_status` is 1 = online, anything else = degraded;
+#     ABSENCE is neither (the backend omits data.health entirely, and the panel must not
+#     read that as degraded). Space feeds the aggregate's own data.usage + usage fill —
+#     aggr1 ~70% full, aggr2 ~20%, so the two fills read differently at a glance. ---
+aggr_new_status{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1"} 1
+aggr_space_used{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1"} 700000000000
+aggr_space_total{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1"} 1000000000000
+aggr_new_status{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2"} 1
+aggr_space_used{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2"} 400000000000
+aggr_space_total{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2"} 2000000000000
+
+# --- Controller health. ontap-prod-02 is deliberately NOT 1, so the demo shows both
+#     health states side by side (and proves degraded is a real reading, not a default). ---
+node_new_status{cluster="ontap-prod",node="ontap-prod-01"} 1
+node_new_status{cluster="ontap-prod",node="ontap-prod-02"} 0

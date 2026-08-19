@@ -9,7 +9,7 @@ describe('drawnEdgeTypesForMode', () => {
         'pod-calls-pod',
         'pod-calls-service',
         'service-selects-pod',
-        'pvc-to-storageclass',
+        'pvc-to-netapp-aggr',
         'switch-to-switch',
         'node-to-switch',
       ])
@@ -28,7 +28,7 @@ describe('drawnEdgeTypesForMode', () => {
         'pod-calls-service',
         'service-selects-pod',
         'pod-to-node',
-        'pvc-to-storageclass',
+        'pvc-to-netapp-aggr',
         'switch-to-switch',
         'node-to-switch',
       ])
@@ -42,9 +42,9 @@ describe('drawnEdgeTypesForMode', () => {
     }
   });
 
-  it('draws pvc-to-storageclass in both modes', () => {
-    expect(drawnEdgeTypesForMode('node')).toContain('pvc-to-storageclass');
-    expect(drawnEdgeTypesForMode('controller')).toContain('pvc-to-storageclass');
+  it('draws pvc-to-netapp-aggr in both modes', () => {
+    expect(drawnEdgeTypesForMode('node')).toContain('pvc-to-netapp-aggr');
+    expect(drawnEdgeTypesForMode('controller')).toContain('pvc-to-netapp-aggr');
   });
 
   it('returns a fresh array each call (no shared mutable state)', () => {

@@ -65,10 +65,11 @@ services:
     profiles: ['backend']
     # Defaults to :latest (locally built via `make docker-build` in the backend repo, or
     # pulled from Docker Hub) so `docker compose --profile backend up` runs out-of-the-box.
-    # The FULL D6 hierarchy (namespace/application/controller groups, storageclass leaf,
-    # pod-to-node / pvc-to-storageclass edges) needs a backend at design D6 (commit 787573b
-    # or later) — point KSG_BACKEND_TAG at that image once published. A pre-D6 backend still
-    # renders (the panel degrades gracefully), just without the new groups/edges.
+    # REQUIRED: a backend carrying `replace-storageclass-with-netapp-nodes`. The panel is a
+    # HARD CUT onto that wire contract — it no longer understands `storageclass` nodes or
+    # `pvc-to-storageclass` edges — so an older image renders the workload half normally and
+    # the storage half not at all (no netapp nodes, no storage edges, no usage fills). Point
+    # KSG_BACKEND_TAG at a suitable image; :latest is only correct once that change ships.
     image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
     container_name: ksg-backend
     depends_on:

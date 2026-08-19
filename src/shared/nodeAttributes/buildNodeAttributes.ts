@@ -1,3 +1,4 @@
+import { formatUsage } from '../format/measurements';
 import { isPlainObject } from '../guards/isPlainObject';
 
 // One promoted attribute row for a node. Shared shape between the floating hover tooltip's
@@ -5,7 +6,7 @@ import { isPlainObject } from '../guards/isPlainObject';
 export interface NodeAttribute {
   key: string;
   value: string;
-  // Wrap instead of clip — for long values like a storageclass selector parameter.
+  // Wrap instead of clip — for long values like a formatted usage reading.
   wrap?: boolean;
 }
 
@@ -44,19 +45,26 @@ export function buildNodeAttributes(data: Readonly<Record<string, unknown>>): No
   if (Array.isArray(data.ipAddress) && data.ipAddress.length > 0) {
     attrs.push({ key: 'ipAddress', value: data.ipAddress.filter((ip) => typeof ip === 'string').join(', ') });
   }
-  // A storageclass leaf (backend D6) carries its own provisioner.
-  if (typeof data.provisioner === 'string' && data.provisioner.length > 0) {
-    attrs.push({ key: 'provisioner', value: data.provisioner });
+  // The claim's StorageClass NAME, on the PVC itself (the storageclass node is gone).
+  if (typeof data.storageclass === 'string' && data.storageclass.length > 0) {
+    attrs.push({ key: 'storageclass', value: data.storageclass });
   }
-  // StorageClass backing-storage parameters (D6): a typed string map. Each as a wrapped
-  // row (values like a selector can be long) — key-sorted for a deterministic order.
-  const parameters = data.parameters;
-  if (isPlainObject(parameters)) {
-    for (const key of Object.keys(parameters).sort()) {
-      const value = parameters[key];
-      if (typeof value === 'string') {
-        attrs.push({ key, value, wrap: true });
-      }
+  // ONTAP health on a netapp-aggr / netapp-node, verbatim. Absent stays absent — the
+  // backend omits it when it has no status data, which is NOT 'degraded'.
+  if (typeof data.health === 'string' && data.health.length > 0) {
+    attrs.push({ key: 'health', value: data.health });
+  }
+  // Storage usage, formatted here rather than carried pre-formatted so the raw bytes stay
+  // available to the on-node fill. Same row for a pvc and a netapp-aggr — one shape, one
+  // formatter. A partial reading renders what it has; nothing renders when neither half
+  // resolved (formatUsage returns undefined), never a placeholder 0.
+  const usage = data.usage;
+  if (isPlainObject(usage)) {
+    const used = typeof usage.usedBytes === 'number' ? usage.usedBytes : undefined;
+    const capacity = typeof usage.capacityBytes === 'number' ? usage.capacityBytes : undefined;
+    const formatted = formatUsage(used, capacity);
+    if (formatted !== undefined) {
+      attrs.push({ key: 'usage', value: formatted });
     }
   }
   return attrs;

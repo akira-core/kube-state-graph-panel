@@ -19,13 +19,27 @@ declare module 'cytoscape' {
     // enriched backend controller carries the (name, image)-deduped union across its
     // child pods. Omitted when absent or nothing valid survives validation.
     containers?: ContainerSpec[];
-    // StorageClass leaf structural fields (backend D6: cluster > storageclass leaf,
-    // both omitempty). `provisioner` is the CSI driver; `parameters` is the
-    // provisioner-dependent key/value map (validated via parseStringRecord). Surfaced in
-    // the detail panel's Storage Class section; NOT query params (assembleDashboardParams
-    // DENYLIST). Omitted when the backend sends a bare storageclass.
-    provisioner?: string;
-    parameters?: Record<string, string>;
+    // The claim's StorageClass NAME, carried on the PVC itself now that the backend has
+    // no storageclass node. Kept purely as the operator's discriminator between "this
+    // claim was never meant to have a NetApp backend" and "this claim should have joined
+    // and did not" — the panel only displays it. Omitted when unresolved.
+    storageclass?: string;
+    // ONTAP health on `netapp-aggr` / `netapp-node`, normally 'online' | 'degraded' but
+    // typed as a bare string so an unknown backend value passes through rather than
+    // failing the build. ABSENCE IS NOT 'degraded': the backend omits it when it has no
+    // status data at all, and consumers MUST NOT default it.
+    health?: string;
+    // Storage usage in bytes, on `pvc` (kubelet volume stats) and `netapp-aggr` (Harvest
+    // aggregate space) — the SAME shape for both, so one formatter and one visual rule
+    // serve them. Each field is independently optional; the object is omitted when
+    // neither resolved. Never a placeholder 0.
+    usage?: { usedBytes?: number; capacityBytes?: number };
+    // usedBytes / capacityBytes, clamped to [0,1], derived by normalize ONLY when both
+    // are valid and capacity > 0. Flattened out of `usage` because cytoscape selectors
+    // can read neither nested data nor arithmetic — the usage-fill stylesheet rule keys
+    // on `node[usageRatio]`, so it is kind-agnostic by construction and an ABSENT ratio
+    // matches nothing (structurally distinct from 0%).
+    usageRatio?: number;
     // A pod's controller owner (typed upstream `data.owner` passthrough). The
     // detail-URL queries resolve a pod's controller kind/name from it; a pod
     // without one queries as itself (standalone pod).
@@ -64,13 +78,20 @@ declare module 'cytoscape' {
     // application groups too.
     isApplication?: boolean; // true only on a backend application group node
     applicationColor?: string; // accent assigned in normalize so the stylesheet stays pure
+    // Backend `storage-cluster` group node (one ONTAP cluster) — accent-only decorative
+    // compound, sibling of isCluster: kind-less, non-selectable, no status/alerts. NOT
+    // merged into isCluster despite the identical shape: isCluster drives the K8s
+    // Clusters legend/palette, and an ONTAP cluster is not a Kubernetes cluster.
+    isStorageCluster?: boolean; // true only on a backend storage-cluster group node
+    storageCluster?: string; // ONTAP cluster name carried on the group node
+    storageClusterColor?: string; // accent assigned in normalize so the stylesheet stays pure
   }
 
   // RED measurements the backend attaches to trace-derived edges (upstream `data.metrics`),
   // renamed to the panel's camelCase convention in normalize. Present only on edges whose
   // BOTH endpoints resolve to a pod or service node — in practice `pod-calls-pod` and
   // `pod-calls-service`; never on `service-selects-pod` / `pod-to-node` / `pod-mounts-pvc` /
-  // `pvc-to-storageclass` / fabric edges, nor on any edge touching an `external` node.
+  // fabric edges, nor on any edge touching an `external` node.
   //
   // Three-valued by design — the states are NOT interchangeable:
   //   `metrics` absent      → no measurement exists for this edge
@@ -80,11 +101,28 @@ declare module 'cytoscape' {
   //
   // Values arrive rounded to 6 significant digits, so a wide query window legitimately
   // yields exponent notation (`3.86e-7`) — format defensively, never `toFixed`.
-  interface EdgeMetrics {
-    rate: number; // requests per second over the query window; > 0 whenever `metrics` exists
+  interface EdgeRedMetrics {
+    rate: number; // requests per second over the query window; > 0 whenever this family exists
     errorRate?: number; // failed FRACTION in [0,1], not a percentage
     p90ServerMs?: number; // server-observed p90 request duration, in milliseconds
   }
+
+  // Storage I/O measurements, carried ONLY on `pvc-to-netapp-aggr` edges. Read verbatim
+  // from NetApp Harvest — the ops are already per-second and the latencies already
+  // averaged, so nothing here is a counter. Each field rides its own upstream series
+  // family, hence each is independently optional and absence ≠ 0.
+  interface EdgeIoMetrics {
+    readOps?: number; // read requests per second
+    writeOps?: number; // write requests per second
+    readLatencyUs?: number; // average read latency, MICROseconds
+    writeLatencyUs?: number; // average write latency, MICROseconds
+  }
+
+  // The two families are mutually exclusive by provenance — a trace-derived call edge or a
+  // storage edge, never both — so `metrics` is a union and `rate` can no longer be assumed
+  // present. Discriminate with `'rate' in metrics`; normalize guarantees it never emits a
+  // mixed object (RED wins if both somehow arrive).
+  type EdgeMetrics = EdgeRedMetrics | EdgeIoMetrics;
 
   interface EdgeDataDefinition {
     edgeType?: GraphEdgeType; // mapped from upstream data.type (may be an unknown backend edge type)

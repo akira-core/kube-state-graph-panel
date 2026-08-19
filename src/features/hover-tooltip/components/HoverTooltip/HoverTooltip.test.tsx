@@ -68,46 +68,65 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('1.2.3')).toBeInTheDocument();
   });
 
-  it('shows a storageclass leaf via the normal node path (own kind + provisioner, no synthesized PVC list)', () => {
+  it('shows a netapp-aggr via the normal node path (own kind + health + usage, no synthesis)', () => {
     useHoverElement.mockReturnValue({
-      id: 'prod/storageclass/fast-ssd',
+      id: 'netapp/ontap-prod/aggr/aggr1',
       group: 'nodes',
       data: {
-        id: 'prod/storageclass/fast-ssd',
-        label: 'fast-ssd',
-        kind: 'storageclass',
-        provisioner: 'rook-ceph.rbd.csi.ceph.com',
-        labels: { cluster: 'prod' },
+        id: 'netapp/ontap-prod/aggr/aggr1',
+        label: 'aggr1',
+        kind: 'netapp-aggr',
+        health: 'online',
+        usage: { usedBytes: 7e11, capacityBytes: 1e12 },
+        labels: { ontap_cluster: 'ontap-prod', node: 'ontap-prod-01' },
       },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
-    expect(screen.getByText('fast-ssd')).toBeInTheDocument(); // title (name)
-    expect(screen.getByText('storageclass')).toBeInTheDocument(); // its own kind
-    expect(screen.getByText('provisioner:')).toBeInTheDocument(); // MAY surface provisioner
-    expect(screen.getByText('rook-ceph.rbd.csi.ceph.com')).toBeInTheDocument();
-    // No synthesized "PVCs (N)" list (that path was removed when storageclass became a leaf).
-    expect(screen.queryByText(/^PVCs/)).toBeNull();
+    expect(screen.getByText('aggr1')).toBeInTheDocument(); // title (name)
+    expect(screen.getByText('netapp-aggr')).toBeInTheDocument(); // its own kind
+    expect(screen.getByText('health:')).toBeInTheDocument();
+    expect(screen.getByText('online')).toBeInTheDocument();
+    expect(screen.getByText('usage:')).toBeInTheDocument();
+    expect(screen.getByText('700 GB / 1 TB (70%)')).toBeInTheDocument();
+    // Its ONTAP labels still list below the divider, unpromoted.
+    expect(screen.getByText('ontap_cluster:')).toBeInTheDocument();
   });
 
-  it('promotes a storageclass leaf backing-storage parameters (D6) as rows', () => {
+  it('omits the health row entirely when the backend sent none (absence is not degraded)', () => {
     useHoverElement.mockReturnValue({
-      id: 'prod/storageclass/fast-ssd',
+      id: 'netapp/ontap-prod/ontap-prod-01',
       group: 'nodes',
       data: {
-        id: 'prod/storageclass/fast-ssd',
-        label: 'fast-ssd',
-        kind: 'storageclass',
-        provisioner: 'rook-ceph.rbd.csi.ceph.com',
-        parameters: { pool: 'kube', selector: 'tier=fast' },
-        labels: { cluster: 'prod' },
+        id: 'netapp/ontap-prod/ontap-prod-01',
+        label: 'ontap-prod-01',
+        kind: 'netapp-node',
+        labels: { ontap_cluster: 'ontap-prod' },
       },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
-    expect(screen.getByText('provisioner:')).toBeInTheDocument();
-    expect(screen.getByText('pool:')).toBeInTheDocument();
-    expect(screen.getByText('kube')).toBeInTheDocument();
-    expect(screen.getByText('selector:')).toBeInTheDocument();
-    expect(screen.getByText('tier=fast')).toBeInTheDocument();
+    expect(screen.getByText('netapp-node')).toBeInTheDocument();
+    expect(screen.queryByText('health:')).toBeNull();
+    expect(screen.queryByText('degraded')).toBeNull();
+  });
+
+  it('promotes a PVC storageclass name and usage as rows', () => {
+    useHoverElement.mockReturnValue({
+      id: 'prod/db/data-0',
+      group: 'nodes',
+      data: {
+        id: 'prod/db/data-0',
+        label: 'data-0',
+        kind: 'pvc',
+        storageclass: 'netapp-nas',
+        usage: { usedBytes: 5e9, capacityBytes: 1e10 },
+        labels: { cluster: 'prod', namespace: 'db' },
+      },
+    });
+    render(<HoverTooltip cyRef={cyRefStub} />);
+    expect(screen.getByText('storageclass:')).toBeInTheDocument();
+    expect(screen.getByText('netapp-nas')).toBeInTheDocument();
+    expect(screen.getByText('usage:')).toBeInTheDocument();
+    expect(screen.getByText('5 GB / 10 GB (50%)')).toBeInTheDocument();
   });
 
   it('shows a synthetic kind for a kind-less application group (so hover is not just the bare name)', () => {
@@ -127,7 +146,13 @@ describe('HoverTooltip', () => {
     useHoverElement.mockReturnValue({
       id: 'service/mongo-svc',
       group: 'nodes',
-      data: { id: 'service/mongo-svc', label: 'mongo-svc', kind: 'service', application: 'mongodb', labels: { namespace: 'prod' } },
+      data: {
+        id: 'service/mongo-svc',
+        label: 'mongo-svc',
+        kind: 'service',
+        application: 'mongodb',
+        labels: { namespace: 'prod' },
+      },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByText('application:')).toBeInTheDocument();
@@ -148,7 +173,14 @@ describe('HoverTooltip', () => {
     useHoverElement.mockReturnValue({
       id: 'prod/app/mongodb',
       group: 'nodes',
-      data: { id: 'prod/app/mongodb', label: 'mongodb', isApplication: true, application: 'mongodb', applicationColor: '#0ea5e9', labels: {} },
+      data: {
+        id: 'prod/app/mongodb',
+        label: 'mongodb',
+        isApplication: true,
+        application: 'mongodb',
+        applicationColor: '#0ea5e9',
+        labels: {},
+      },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     // kind: application (synthetic) shows, but no separate "application:" key row.
@@ -185,7 +217,14 @@ describe('HoverTooltip', () => {
     useHoverElement.mockReturnValue({
       id: 'cluster/prod',
       group: 'nodes',
-      data: { id: 'cluster/prod', label: 'prod', isCluster: true, cluster: 'prod', clusterColor: '#14b8a6', labels: {} },
+      data: {
+        id: 'cluster/prod',
+        label: 'prod',
+        isCluster: true,
+        cluster: 'prod',
+        clusterColor: '#14b8a6',
+        labels: {},
+      },
     });
     render(<HoverTooltip cyRef={cyRefStub} />);
     expect(screen.getByText('prod')).toBeInTheDocument(); // title (name)
@@ -391,9 +430,7 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
 
   it('docks a persistent, scrollable card at the canvas top-right', () => {
     useHoverElement.mockReturnValue(null);
-    render(
-      <HoverTooltip cyRef={cyRefStub} pinned={{ label: 'web', attributes: [{ key: 'kind', value: 'pod' }] }} />
-    );
+    render(<HoverTooltip cyRef={cyRefStub} pinned={{ label: 'web', attributes: [{ key: 'kind', value: 'pod' }] }} />);
     const tip = screen.getByTestId('hover-tooltip');
     expect(tip).toHaveAttribute('data-pinned', 'true');
     // top-right below SearchBar: left auto + right 8, top 52 (under search), pointer-events

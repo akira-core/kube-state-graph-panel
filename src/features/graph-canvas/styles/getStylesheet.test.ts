@@ -294,32 +294,33 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
-  it('renders a backend D6 storageclass leaf with its disk glyph (always — never a compound box)', () => {
+  it('renders a netapp-aggr leaf with its disk glyph (always — never a compound box)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
       style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
       elements: [
         { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
-        // D6: storageclass is a LEAF under the cluster (no children), carrying provisioner/parameters.
+        // A netapp-aggr is a LEAF (its parent is the real netapp-node, or here a cluster
+        // box standing in for one), carrying health/usage rather than provisioner/parameters.
         {
           group: 'nodes',
           data: {
-            id: 'prod/storageclass/fast-ssd',
-            label: 'fast-ssd',
-            kind: 'storageclass',
+            id: 'netapp/ontap-prod/aggr/aggr1',
+            label: 'aggr1',
+            kind: 'netapp-aggr',
             parent: 'cluster/prod',
-            provisioner: 'rook-ceph.rbd.csi.ceph.com',
+            health: 'online',
           },
         },
-        // A PVC nests under its namespace now (not the storageclass).
+        // A PVC nests under its namespace (never under the storage chain).
         { group: 'nodes', data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'cluster/prod' } },
       ],
     });
-    const sc = cy.getElementById('prod/storageclass/fast-ssd');
-    // A leaf (no children → never :parent) ALWAYS shows its storageclass disk glyph, with
+    const sc = cy.getElementById('netapp/ontap-prod/aggr/aggr1');
+    // A leaf (no children → never :parent) ALWAYS shows its aggregate disk glyph, with
     // no expanded-vs-collapsed compound behaviour.
-    expect(sc.style('background-image')).toBe(tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor));
+    expect(sc.style('background-image')).toBe(tintSvgToDataUri(ICON_SVG_BY_KIND['netapp-aggr'], iconColor));
     expect(sc.style('shape')).toBe('round-rectangle');
     // The PVC carries its own kind icon.
     expect(cy.getElementById('pvc/data-0').style('background-image')).toMatch(/^data:image\/svg\+xml,/);
@@ -651,7 +652,7 @@ describe('getStylesheet', () => {
     expect(nsbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#e8833a'));
     expect(appbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#0ea5e9'));
     // Gap-fill: the folder rule targets isCluster/isNamespace/isApplication ONLY, so it
-    // never leaks onto a kind-ful compound (controller / node / storageclass) — those
+    // never leaks onto a kind-ful compound (controller / node / netapp-node) — those
     // revert to their kind icon on real collapse (children removed → loses :parent).
     expect(ctrl.style('background-image')).not.toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
     cy.destroy();
@@ -666,5 +667,74 @@ describe('getStylesheet', () => {
     const edgeRule = sheet.find((s) => s.selector === `edge.${FADED_CLASS}`);
     expect(nodeRule?.style?.opacity).toBe(0.2);
     expect(edgeRule?.style?.opacity).toBe(0.12);
+  });
+});
+
+describe('storage usage fill', () => {
+  // The rule is keyed on `data.usageRatio`, NOT on kind — that is the whole point of
+  // flattening the ratio in normalize, so pvc and netapp-aggr share one declaration and a
+  // future usage-bearing kind needs no stylesheet edit.
+  const build = (nodes: cytoscape.NodeDataDefinition[]): cytoscape.Core =>
+    cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: nodes.map((data) => ({ group: 'nodes' as const, data })),
+    });
+
+  it('fills two different kinds from the same rule, in proportion to their ratio', () => {
+    const cy = build([
+      { id: 'pvc-1', label: 'pvc-1', kind: 'pvc', usageRatio: 0.7 },
+      { id: 'aggr-1', label: 'aggr-1', kind: 'netapp-aggr', usageRatio: 0.5 },
+    ]);
+    expect(cy.getElementById('pvc-1').style('background-fill')).toBe('linear-gradient');
+    expect(cy.getElementById('aggr-1').style('background-fill')).toBe('linear-gradient');
+    // Stops are bottom-up (direction to-top), so the boundary percentage IS the fill level.
+    expect(String(cy.getElementById('pvc-1').style('background-gradient-stop-positions'))).toContain('70%');
+    expect(String(cy.getElementById('aggr-1').style('background-gradient-stop-positions'))).toContain('50%');
+    cy.destroy();
+  });
+
+  it('leaves a node without a ratio unfilled — absent data is not a 0% reading', () => {
+    const cy = build([{ id: 'pvc-2', label: 'pvc-2', kind: 'pvc' }]);
+    // No usageRatio → the selector does not match at all, so the base solid fill stands.
+    expect(cy.getElementById('pvc-2').style('background-fill')).toBe('solid');
+    cy.destroy();
+  });
+
+  it('never tints the fill with a status colour (level is encoded by height, not hue)', () => {
+    const cy = build([{ id: 'aggr-2', label: 'aggr-2', kind: 'netapp-aggr', usageRatio: 0.9 }]);
+    const stops = String(cy.getElementById('aggr-2').style('background-gradient-stop-colors')).toLowerCase();
+    for (const color of Object.values(STATUS_COLOR)) {
+      expect(stops).not.toContain(color.toLowerCase());
+    }
+    cy.destroy();
+  });
+
+  it('resolves a theme-sourced fill in both light and dark (never a hardcoded grey)', () => {
+    const fillFor = (mode: 'light' | 'dark'): string => {
+      const cy = cytoscape({
+        headless: true,
+        styleEnabled: true,
+        style: getStylesheet({ theme: createTheme({ colors: { mode } }) }) as cytoscape.StylesheetStyle[],
+        elements: [{ group: 'nodes', data: { id: 'a', label: 'a', kind: 'pvc', usageRatio: 0.7 } }],
+      });
+      const stops = String(cy.getElementById('a').style('background-gradient-stop-colors'));
+      cy.destroy();
+      return stops;
+    };
+    // Both themes must produce SOME fill, and they must differ — a hardcoded colour would
+    // be identical in both and would read wrong against one of the two backgrounds.
+    expect(fillFor('light')).not.toBe('');
+    expect(fillFor('dark')).not.toBe('');
+    expect(fillFor('light')).not.toBe(fillFor('dark'));
+  });
+
+  it('keeps the kind icon painted above the fill', () => {
+    const cy = build([{ id: 'aggr-3', label: 'aggr-3', kind: 'netapp-aggr', usageRatio: 0.7 }]);
+    // background-image is composited over background-fill by cytoscape, so identity
+    // survives any fill level — assert the glyph is still resolved rather than cleared.
+    expect(String(cy.getElementById('aggr-3').style('background-image'))).toMatch(/^data:image\/svg\+xml,/);
+    cy.destroy();
   });
 });

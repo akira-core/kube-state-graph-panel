@@ -5,7 +5,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 
 import { buildNodeAttributes } from '../../../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../../../shared/theme/themeColors';
-import { formatDurationMs, formatErrorRate, formatRate } from '../../formatEdgeMetrics';
+import { formatDurationMs, formatErrorRate, formatLatencyUs, formatOps, formatRate } from '../../formatEdgeMetrics';
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
 import { type HoverTooltipProps } from './HoverTooltip.types';
@@ -13,7 +13,7 @@ import { type HoverTooltipProps } from './HoverTooltip.types';
 interface TooltipRow {
   key: string;
   value: string;
-  // Wrap instead of clip — for long synthesized values like a storageclass's grouped PVC list.
+  // Wrap instead of clip — for long values like a formatted usage reading or a long label.
   wrap?: boolean;
   // Renders the value in the theme's error colour. Only the value is tinted (the key stays
   // secondary) so the row still scans as part of the same list.
@@ -128,13 +128,19 @@ function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-// RED rows for an edge the backend measured (`data.metrics`), in R-E-D order. They sit
-// among the promoted attrs — NOT under the `labels` divider, which is reserved for what
-// the backend sent verbatim as labels (and the backend forbids these values as label keys).
+// Measurement rows for an edge the backend measured (`data.metrics`). They sit among the
+// promoted attrs — NOT under the `labels` divider, which is reserved for what the backend
+// sent verbatim as labels (and the backend forbids these values as label keys).
+//
+// `metrics` is a union of two mutually exclusive families: RED on a trace-derived call
+// edge, I/O on a `pvc-to-netapp-aggr` storage edge. `rate` discriminates them — it is
+// required within the RED family and absent from the I/O one — so an object without a
+// usable `rate` is tried as I/O rather than discarded, mirroring normalize's own ordering.
 //
 // Each optional field is rendered only when present. An absent `errorRate` means the
 // failure counter could not be read, which is NOT the measured-and-clean `0` the backend
-// also emits — so it MUST render as no row at all rather than as `0%`.
+// also emits — so it MUST render as no row at all rather than as `0%`. The same holds for
+// every I/O field: each rides its own upstream series family.
 //
 // `HoveredElement.data` is a bare `Record<string, unknown>`, so this narrows at its own
 // boundary the way `toLabelRows` does, rather than trusting a cast. normalize has already
@@ -143,9 +149,9 @@ function buildMetricRows(metrics: unknown): TooltipRow[] {
   if (metrics === null || typeof metrics !== 'object') {
     return [];
   }
-  const { rate, errorRate, p90ServerMs } = metrics as Partial<cytoscape.EdgeMetrics>;
+  const { rate, errorRate, p90ServerMs } = metrics as Partial<cytoscape.EdgeRedMetrics>;
   if (!isFiniteNumber(rate)) {
-    return [];
+    return buildIoMetricRows(metrics);
   }
   const rows: TooltipRow[] = [{ key: 'rate', value: formatRate(rate) }];
   if (isFiniteNumber(errorRate)) {
@@ -156,6 +162,26 @@ function buildMetricRows(metrics: unknown): TooltipRow[] {
   }
   if (isFiniteNumber(p90ServerMs)) {
     rows.push({ key: 'duration(p90)', value: formatDurationMs(p90ServerMs) });
+  }
+  return rows;
+}
+
+// The I/O half of the union, in read-then-write order so the two pairs read as a block.
+// Values are Harvest's verbatim per-second ops and average microsecond latencies.
+function buildIoMetricRows(metrics: object): TooltipRow[] {
+  const { readOps, writeOps, readLatencyUs, writeLatencyUs } = metrics as Partial<cytoscape.EdgeIoMetrics>;
+  const rows: TooltipRow[] = [];
+  if (isFiniteNumber(readOps)) {
+    rows.push({ key: 'read', value: formatOps(readOps) });
+  }
+  if (isFiniteNumber(writeOps)) {
+    rows.push({ key: 'write', value: formatOps(writeOps) });
+  }
+  if (isFiniteNumber(readLatencyUs)) {
+    rows.push({ key: 'read latency', value: formatLatencyUs(readLatencyUs) });
+  }
+  if (isFiniteNumber(writeLatencyUs)) {
+    rows.push({ key: 'write latency', value: formatLatencyUs(writeLatencyUs) });
   }
   return rows;
 }
@@ -278,7 +304,10 @@ export function HoverTooltip(props: Readonly<HoverTooltipProps>): React.JSX.Elem
   if (pinned != null) {
     return (
       <div className={styles.root} style={PINNED_STYLE} data-testid="hover-tooltip" data-pinned="true" role="tooltip">
-        {renderRows({ title: pinned.label, attrs: pinned.attributes, labels: toLabelRows(pinned.labels, NODE_PROMOTED_LABELS) }, styles)}
+        {renderRows(
+          { title: pinned.label, attrs: pinned.attributes, labels: toLabelRows(pinned.labels, NODE_PROMOTED_LABELS) },
+          styles
+        )}
       </div>
     );
   }

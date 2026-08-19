@@ -5,7 +5,7 @@ import type { EdgeType, PodParentMode } from './types';
 // `controller` mode the backend payload is consumed as-is: pods nest under their
 // controller and `pod-to-node` is a DRAWN edge. In `node` (infra) mode the pod↔node
 // relationship becomes compound nesting, so applyPodParentMode drops every
-// `pod-to-node` edge and the drawn-set excludes it. `pvc-to-storageclass` and the
+// `pod-to-node` edge and the drawn-set excludes it. `pvc-to-netapp-aggr` and the
 // service edges (`service-selects-pod` / `pod-calls-service`) are drawn in BOTH modes.
 //
 // `switch-to-switch` / `node-to-switch` are physical network-fabric edges
@@ -18,7 +18,7 @@ const DRAWN_BY_MODE: Record<PodParentMode, readonly EdgeType[]> = {
     'pod-calls-pod',
     'pod-calls-service',
     'service-selects-pod',
-    'pvc-to-storageclass',
+    'pvc-to-netapp-aggr',
     ...SWITCH_EDGES,
   ],
   controller: [
@@ -27,7 +27,7 @@ const DRAWN_BY_MODE: Record<PodParentMode, readonly EdgeType[]> = {
     'pod-calls-service',
     'service-selects-pod',
     'pod-to-node',
-    'pvc-to-storageclass',
+    'pvc-to-netapp-aggr',
     ...SWITCH_EDGES,
   ],
 };

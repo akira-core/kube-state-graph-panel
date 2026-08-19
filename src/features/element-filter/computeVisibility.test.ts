@@ -12,7 +12,8 @@ const edge = (id: string, source: string, target: string, edgeType: string): cyt
 describe('isFilterableKind', () => {
   it('accepts known resource kinds', () => {
     expect(isFilterableKind('pod')).toBe(true);
-    expect(isFilterableKind('storageclass')).toBe(true);
+    expect(isFilterableKind('netapp-aggr')).toBe(true);
+    expect(isFilterableKind('netapp-node')).toBe(true);
   });
 
   it('rejects the network wrapper and unknown kinds (never kind-filtered)', () => {
@@ -257,12 +258,7 @@ describe('computeVisibility', () => {
         edge('e1', 'igwSvc', 'sharedPod', 'service-selects-pod'),
         edge('e2', 'appSvc', 'sharedPod', 'service-selects-pod'),
       ];
-      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(
-        elements,
-        [...ALL_KINDS],
-        [...ALL_EDGES],
-        false
-      );
+      const { visibleNodeIds, visibleEdgeIds } = computeVisibility(elements, [...ALL_KINDS], [...ALL_EDGES], false);
       // Only the labeled service itself is hidden; the shared pod and its unrelated
       // service keep serving traffic and must stay visible.
       expect(visibleNodeIds.has('igwSvc')).toBe(false);
@@ -319,11 +315,7 @@ describe('computeVisibility', () => {
     });
 
     it('ignores a precomputed ingress set while showIngress is on', () => {
-      const elements = [
-        node('igw', 'pod', INGRESS_LABELS),
-        node('a', 'pod'),
-        edge('e1', 'igw', 'a', 'pod-calls-pod'),
-      ];
+      const elements = [node('igw', 'pod', INGRESS_LABELS), node('a', 'pod'), edge('e1', 'igw', 'a', 'pod-calls-pod')];
       const { visibleNodeIds } = computeVisibility(elements, ['pod'], ['pod-calls-pod'], true, new Set(['igw']));
       expect(visibleNodeIds.has('igw')).toBe(true);
     });

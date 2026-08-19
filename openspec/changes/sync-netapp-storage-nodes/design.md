@@ -32,7 +32,7 @@ The delta specs under `specs/` are the behaviour contract; this document covers 
 
 ### D1 — `netapp-node` is a real node that is also a compound parent
 
-The backend hands us `netapp-aggr.parent = "netapp/<oc>/<node>"` — a **real node id**. Cytoscape allows any node to be a `parent`, so this needs no new mechanism; what it needs is for the panel's *categories* to stop assuming "compound parent ⇒ kind-less decorative group OR k8s `node` container".
+The backend hands us `netapp-aggr.parent = "netapp/<oc>/<node>"` — a **real node id**. Cytoscape allows any node to be a `parent`, so this needs no new mechanism; what it needs is for the panel's _categories_ to stop assuming "compound parent ⇒ kind-less decorative group OR k8s `node` container".
 
 Three places encode that assumption and each gets `netapp-node` added, not a new branch:
 
@@ -40,9 +40,9 @@ Three places encode that assumption and each gets `netapp-node` added, not a new
 2. `getStylesheet`'s `node:parent { background-image: none }` rule — already keyed on `:parent`, so an expanded `netapp-node` loses its icon exactly like `node` / `controller`. **No change needed.**
 3. `deriveLegendKinds` — already keyed on "is someone's parent and not collapsed", so it drops an expanded `netapp-node` from the Node Kinds legend automatically. **No change needed.**
 
-*This is the payoff of the existing data-driven rules*: the one genuinely new thing is the **projection-side guarantee** that an emitted `netapp-aggr` always ships with its parent — which the backend enforces (its `Project` pulls the owning controller in). The panel therefore does not need dangling-parent defences beyond what it already has.
+_This is the payoff of the existing data-driven rules_: the one genuinely new thing is the **projection-side guarantee** that an emitted `netapp-aggr` always ships with its parent — which the backend enforces (its `Project` pulls the owning controller in). The panel therefore does not need dangling-parent defences beyond what it already has.
 
-*Alternative considered:* re-express `netapp-node > netapp-aggr` as a `netapp-node-owns-aggr` edge and flatten the nesting — rejected: the backend already made the containment decision, and re-deriving hierarchy client-side is exactly the synthesis this repo retired in D6.
+_Alternative considered:_ re-express `netapp-node > netapp-aggr` as a `netapp-node-owns-aggr` edge and flatten the nesting — rejected: the backend already made the containment decision, and re-deriving hierarchy client-side is exactly the synthesis this repo retired in D6.
 
 ### D2 — `storage-cluster` is a fourth decorative group, not a special case
 
@@ -58,7 +58,7 @@ Keying the rule on the field rather than on `kind` is the load-bearing part: PVC
 
 **Rendering mechanism:** `background-fill: 'linear-gradient'` with a two-stop achromatic gradient whose stop position is `(1 - usageRatio) * 100`% (fill grows from the bottom). Colour comes from the theme's neutral scale — never `STATUS_COLOR`, per the repo's "colour encodes status only" rule. The kind icon is a `background-image`, which cytoscape composites **above** the background fill, so identity stays legible at any fill level.
 
-*Alternative considered:* cytoscape's native pie-chart node styling (`pie-1-background-size`) — rejected: it renders a radial wedge that reads as a category share, not a tank level, and it fights the icon for the node's centre.
+_Alternative considered:_ cytoscape's native pie-chart node styling (`pie-1-background-size`) — rejected: it renders a radial wedge that reads as a category share, not a tank level, and it fights the icon for the node's centre.
 
 ### D4 — Edge `metrics` becomes a discriminated-by-presence union
 

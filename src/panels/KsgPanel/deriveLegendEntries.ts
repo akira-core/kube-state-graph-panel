@@ -9,7 +9,7 @@ import { deriveLegendKindSets } from './deriveLegendKinds';
 // Glyph kinds UNIONED with filtered-out kinds present in the elements: the
 // union keeps a hidden kind's eye-slash row on screen so it stays restorable
 // after its nodes leave the canvas. Visible-but-collapsed kinds keep glyph
-// swap semantics (e.g. pvc → collapsed storageclass); only filtered-out kinds
+// swap semantics (e.g. netapp-aggr → collapsed netapp-node); only filtered-out kinds
 // re-enter. Non-filterable kinds list as plain untoggleable rows.
 export function deriveLegendEntries(
   elements: readonly cytoscape.ElementDefinition[],

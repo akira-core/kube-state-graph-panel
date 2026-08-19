@@ -10,16 +10,25 @@ describe('resolveSelectedNode', () => {
   const elements = [
     node('p1', 'pod'),
     node('cl', 'node', { isCluster: true }),
-    // StorageClass is a backend D6 leaf now — detail-eligible, carrying provisioner/parameters.
+    // A netapp-aggr leaf — detail-eligible, carrying health/usage.
     {
       group: 'nodes',
-      data: { id: 'sc', label: 'fast-ssd', kind: 'storageclass', provisioner: 'ebs.csi.aws.com', parameters: { type: 'gp3' } },
+      data: {
+        id: 'sc',
+        label: 'aggr1',
+        kind: 'netapp-aggr',
+        health: 'online',
+        usage: { usedBytes: 7e11, capacityBytes: 1e12 },
+      },
     } as unknown as El,
     // Decorative cluster / namespace groups never open the detail panel.
     node('ns', 'node', { isNamespace: true }),
     // The application GROUP node is kind-less + carries its `application` name; it DOES open
     // the panel (the app's config_changes), unlike cluster / namespace.
-    { group: 'nodes', data: { id: 'app', label: 'mongodb', isApplication: true, application: 'mongodb' } } as unknown as El,
+    {
+      group: 'nodes',
+      data: { id: 'app', label: 'mongodb', isApplication: true, application: 'mongodb' },
+    } as unknown as El,
   ];
 
   it('returns the node detail when the selected node is visible', () => {
@@ -47,20 +56,20 @@ describe('resolveSelectedNode', () => {
     expect(resolveSelectedNode(elements, 'cl', new Set(['cl']))).toBeNull();
   });
 
-  it('resolves a storageclass leaf with provisioner/parameters (now detail-eligible, no queryTarget)', () => {
+  it('resolves a netapp-aggr leaf with health/usage (detail-eligible, no queryTarget)', () => {
     const result = resolveSelectedNode(elements, 'sc', new Set(['sc']));
-    // storageclass is not a Workloads DETAIL_URL kind, so no per-kind queryTarget.
+    // netapp-aggr is not a Workloads DETAIL_URL kind, so no per-kind queryTarget.
     expect(result).toEqual({
       id: 'sc',
-      label: 'fast-ssd',
-      kind: 'storageclass',
+      label: 'aggr1',
+      kind: 'netapp-aggr',
       attributes: [
-        { key: 'kind', value: 'storageclass' },
-        { key: 'provisioner', value: 'ebs.csi.aws.com' },
-        { key: 'type', value: 'gp3', wrap: true },
+        { key: 'kind', value: 'netapp-aggr' },
+        { key: 'health', value: 'online' },
+        { key: 'usage', value: '700 GB / 1 TB (70%)' },
       ],
-      provisioner: 'ebs.csi.aws.com',
-      parameters: { type: 'gp3' },
+      health: 'online',
+      usage: { usedBytes: 7e11, capacityBytes: 1e12 },
     });
   });
 

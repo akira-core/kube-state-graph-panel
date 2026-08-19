@@ -7,11 +7,11 @@ Grafana panel that renders Kubernetes resource topology as an interactive cytosc
 ### Graph model
 
 **Node kind**:
-The classification of a graph node (backend `data.type`): `pod`, `node`, `pvc`, `service`, `external`, `switch`, the workload controllers (`deployment`/`statefulset`/`daemonset`/`job`/`cronjob`), `storageclass`, `network`, plus the synthesized `application`. An open set — unknown kinds stay visible and fall back to defaults.
+The classification of a graph node (backend `data.type`): `pod`, `node`, `pvc`, `service`, `external`, `switch`, the workload controllers (`deployment`/`statefulset`/`daemonset`/`job`/`cronjob`), the physical storage pair `netapp-aggr`/`netapp-node`, `network`, plus the synthesized `application`. An open set — unknown kinds stay visible and fall back to defaults.
 _Avoid_: node type, category
 
 **Edge type**:
-The classification of a graph edge; the 8-type backend wire contract: `pod-to-node`, `pod-mounts-pvc`, `pod-calls-pod`, `pod-calls-service`, `service-selects-pod`, `pvc-to-storageclass`, `switch-to-switch`, `node-to-switch`. Which subset is drawn depends on the pod-parent mode.
+The classification of a graph edge; the 8-type backend wire contract: `pod-to-node`, `pod-mounts-pvc`, `pod-calls-pod`, `pod-calls-service`, `service-selects-pod`, `pvc-to-netapp-aggr`, `switch-to-switch`, `node-to-switch`. Which subset is drawn depends on the pod-parent mode.
 _Avoid_: relation, link type
 
 **Edge metrics** (RED):

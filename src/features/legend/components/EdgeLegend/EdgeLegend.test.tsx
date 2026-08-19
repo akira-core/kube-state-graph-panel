@@ -142,7 +142,7 @@ describe('EdgeLegend', () => {
     });
 
     it('sits directly under the solid row it varies, so the contrast needs no prose', () => {
-      render(<EdgeLegend edgeTypes={['pod-mounts-pvc', 'pod-calls-pod', 'pvc-to-storageclass']} hasNetworkHop />);
+      render(<EdgeLegend edgeTypes={['pod-mounts-pvc', 'pod-calls-pod', 'pvc-to-netapp-aggr']} hasNetworkHop />);
       const legend = screen.getByTestId('edge-legend');
       const keys = within(legend)
         .getAllByRole('listitem')
@@ -176,12 +176,12 @@ describe('EdgeLegend', () => {
   });
 
   describe('controller pod-parent mode', () => {
-    it('lists pod-to-node + pvc-to-storageclass and drops the omitted svc pair', () => {
+    it('lists pod-to-node + pvc-to-netapp-aggr and drops the omitted svc pair', () => {
       // The legend is list-only now; the mode is reflected by the edge types passed in.
       render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('controller')} />);
       const legend = screen.getByTestId('edge-legend');
       expect(within(legend).getByTestId('edge-legend-row-pod-to-node')).toBeInTheDocument();
-      expect(within(legend).getByTestId('edge-legend-row-pvc-to-storageclass')).toBeInTheDocument();
+      expect(within(legend).getByTestId('edge-legend-row-pvc-to-netapp-aggr')).toBeInTheDocument();
       // service edges are omitted from the legend in both modes (still drawn on canvas).
       expect(within(legend).queryByTestId('edge-legend-row-pod-svc')).toBeNull();
       expect(within(legend).queryByTestId('edge-legend-row-service-selects-pod')).toBeNull();
@@ -191,8 +191,8 @@ describe('EdgeLegend', () => {
       render(<EdgeLegend edgeTypes={drawnEdgeTypesForMode('node')} />);
       const legend = screen.getByTestId('edge-legend');
       expect(within(legend).queryByTestId('edge-legend-row-pod-to-node')).toBeNull();
-      // pvc-to-storageclass is drawn in both modes.
-      expect(within(legend).getByTestId('edge-legend-row-pvc-to-storageclass')).toBeInTheDocument();
+      // pvc-to-netapp-aggr is drawn in both modes.
+      expect(within(legend).getByTestId('edge-legend-row-pvc-to-netapp-aggr')).toBeInTheDocument();
     });
   });
 

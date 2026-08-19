@@ -26,15 +26,20 @@ describe('colorByEdgeType', () => {
     expect(EDGE_ENDPOINTS_BY_TYPE['pod-to-node']).toEqual({ from: 'pod', to: 'node' });
   });
 
-  it('defines a style + endpoints for pvc-to-storageclass (violet pvc→storageclass)', () => {
-    expect(EDGE_STYLE_BY_TYPE['pvc-to-storageclass'].color).toBe('#8b5cf6');
-    expect(EDGE_ENDPOINTS_BY_TYPE['pvc-to-storageclass']).toEqual({ from: 'pvc', to: 'storageclass' });
+  it('defines a style + endpoints for pvc-to-netapp-aggr (violet pvc→netapp-aggr)', () => {
+    expect(EDGE_STYLE_BY_TYPE['pvc-to-netapp-aggr'].color).toBe('#8b5cf6');
+    expect(EDGE_ENDPOINTS_BY_TYPE['pvc-to-netapp-aggr']).toEqual({ from: 'pvc', to: 'netapp-aggr' });
   });
 
-  it('keeps the two storage edges distinguishable (pvc-to-storageclass ≠ pod-mounts-pvc)', () => {
-    expect(EDGE_STYLE_BY_TYPE['pvc-to-storageclass'].color.toLowerCase()).not.toBe(
+  it('keeps the two storage edges distinguishable (pvc-to-netapp-aggr ≠ pod-mounts-pvc)', () => {
+    expect(EDGE_STYLE_BY_TYPE['pvc-to-netapp-aggr'].color.toLowerCase()).not.toBe(
       EDGE_STYLE_BY_TYPE['pod-mounts-pvc'].color.toLowerCase()
     );
+  });
+
+  it('no longer carries the retired storageclass edge type', () => {
+    expect('pvc-to-storageclass' in EDGE_STYLE_BY_TYPE).toBe(false);
+    expect('pvc-to-storageclass' in EDGE_ENDPOINTS_BY_TYPE).toBe(false);
   });
 
   it('no longer carries the retired panel-synthetic edge types', () => {
@@ -105,7 +110,7 @@ describe('colorByEdgeType', () => {
 
   it('includes the backend edges + switch fabric edges as known wire types', () => {
     expect('pod-to-node' in EDGE_STYLE_BY_TYPE).toBe(true);
-    expect('pvc-to-storageclass' in EDGE_STYLE_BY_TYPE).toBe(true);
+    expect('pvc-to-netapp-aggr' in EDGE_STYLE_BY_TYPE).toBe(true);
     expect('switch-to-switch' in EDGE_STYLE_BY_TYPE).toBe(true);
     expect('node-to-switch' in EDGE_STYLE_BY_TYPE).toBe(true);
   });

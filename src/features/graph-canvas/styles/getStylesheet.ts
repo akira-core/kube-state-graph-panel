@@ -43,6 +43,7 @@ function titleCaseWords(text: string): string {
 // name (tooltip / identity); only the canvas stylesheet paints `${PREFIX}: ${name}`.
 const GROUP_LABEL_PREFIX = {
   cluster: 'Cluster',
+  storageCluster: 'Storage',
   namespace: 'Namespace',
   application: 'Release Unit',
 } as const;
@@ -120,11 +121,41 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
+  // Storage usage as a bottom-up fill on ANY node carrying a usageRatio — a data-driven
+  // rule, NOT a kind list, so `pvc` (kubelet) and `netapp-aggr` (Harvest) are served by one
+  // declaration and a future usage-bearing kind joins for free. An ABSENT ratio matches no
+  // selector at all, which is how "unmeasured" stays structurally distinct from "0% full".
+  //
+  // Achromatic on purpose: colour is reserved for status in this panel, so the level is
+  // encoded by FILL HEIGHT alone. background-image (the kind glyph) composites above the
+  // fill, so identity stays readable at any level. Declared BEFORE statusSelectors so a
+  // node's status border still wins its own rule.
+  const usageFillColor = colors.border.strong;
+  const usageFillSelectors: CyStylesheet[] = [
+    {
+      selector: 'node[usageRatio]',
+      style: {
+        'background-fill': 'linear-gradient',
+        'background-gradient-direction': 'to-top',
+        // Two hard-edged bands: filled up to the ratio, plain node background above it.
+        // ARRAY form, not the space-separated string cytoscape also accepts: Grafana's
+        // neutral border colour is `rgba(204, 204, 220, 0.30)` — it contains spaces, so a
+        // joined string is split mid-colour and the whole stylesheet fails to parse.
+        'background-gradient-stop-colors': [usageFillColor, usageFillColor, bgColor, bgColor],
+        'background-gradient-stop-positions': ((ele: cytoscape.NodeSingular): string => {
+          const ratio = ele.data('usageRatio') as unknown;
+          const pct = typeof ratio === 'number' && Number.isFinite(ratio) ? Math.min(100, Math.max(0, ratio * 100)) : 0;
+          return `0% ${pct}% ${pct}% 100%`;
+        }) as unknown as Array<string | number>,
+      },
+    },
+  ];
+
   // Collapsed decorative groups (cluster / namespace / application) have no kind icon to
   // fall back to (unlike kind-ful compounds, which revert to their kind glyph when folded),
   // so a folded one would be a blank coloured box. Paint a folder glyph tinted by the
   // group's accent. These 2-condition selectors out-specify the 1-condition
-  // node[?isCluster|isNamespace|isApplication] `background-image: 'none'` rules, so the
+  // node[?isCluster|isStorageCluster|isNamespace|isApplication] `background-image: 'none'` rules, so the
   // folder shows ONLY when collapsed. See compound-parent-collapse-cue.
   const folderIcon = (color: unknown): string =>
     tintSvgToDataUri(FOLDER_ICON_SVG, typeof color === 'string' ? color : iconColor);
@@ -133,6 +164,7 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       ['node[?isCluster].cy-expand-collapse-collapsed-node', 'clusterColor'],
       ['node[?isNamespace].cy-expand-collapse-collapsed-node', 'namespaceColor'],
       ['node[?isApplication].cy-expand-collapse-collapsed-node', 'applicationColor'],
+      ['node[?isStorageCluster].cy-expand-collapse-collapsed-node', 'storageClusterColor'],
     ] as const
   ).map(([selector, colorKey]) => ({
     selector,
@@ -220,6 +252,32 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
         // Render-only kind prefix — data.label stays bare for tooltip / identity.
         label: prefixedLabel(GROUP_LABEL_PREFIX.cluster),
         color: 'data(clusterColor)',
+        'font-size': 18,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -4,
+        padding: '18px',
+      },
+    },
+    {
+      // ONTAP cluster box (`storage-cluster`), accent in data(storageClusterColor). A
+      // top-level sibling of the K8s cluster box — same decorative treatment, deliberately
+      // its own accent so the two never read as the same kind of thing. Its children are
+      // REAL nodes (netapp-node > netapp-aggr), unlike the workload groups.
+      selector: 'node[?isStorageCluster]',
+      style: {
+        shape: 'round-rectangle',
+        // No resource icon (base mapper would otherwise paint the fallback glyph).
+        'background-image': 'none',
+        'background-color': 'data(storageClusterColor)',
+        'background-opacity': 0.07,
+        'border-color': 'data(storageClusterColor)',
+        'border-width': 1.5,
+        'border-opacity': 0.5,
+        // Render-only kind prefix — data.label stays bare for tooltip / identity.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.storageCluster),
+        color: 'data(storageClusterColor)',
         'font-size': 18,
         'font-weight': 600,
         'text-valign': 'top',
@@ -322,6 +380,7 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
         'border-opacity': 0.9,
       },
     },
+    ...usageFillSelectors,
     ...collapsedDecorativeFolderSelectors,
     ...statusSelectors,
     ...collapsedContainerStatusSelectors,

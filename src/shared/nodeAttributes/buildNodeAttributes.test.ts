@@ -19,7 +19,9 @@ describe('buildNodeAttributes', () => {
   });
 
   it('synthesizes kind "cluster" for a kind-less cluster group', () => {
-    expect(buildNodeAttributes(data({ isCluster: true, cluster: 'prod' }))).toEqual([{ key: 'kind', value: 'cluster' }]);
+    expect(buildNodeAttributes(data({ isCluster: true, cluster: 'prod' }))).toEqual([
+      { key: 'kind', value: 'cluster' },
+    ]);
   });
 
   it('promotes namespace, application and ipAddress (array joined)', () => {
@@ -40,19 +42,42 @@ describe('buildNodeAttributes', () => {
   });
 
   it('skips an empty-string application', () => {
-    expect(buildNodeAttributes(data({ kind: 'service', application: '' }))).toEqual([{ key: 'kind', value: 'service' }]);
+    expect(buildNodeAttributes(data({ kind: 'service', application: '' }))).toEqual([
+      { key: 'kind', value: 'service' },
+    ]);
   });
 
-  it('promotes provisioner and storageclass parameters key-sorted with wrap', () => {
+  it("promotes an aggregate's health and formatted usage", () => {
     const attrs = buildNodeAttributes(
-      data({ kind: 'storageclass', provisioner: 'rook-ceph', parameters: { pool: 'kube', cluster_id: 'rook' } })
+      data({ kind: 'netapp-aggr', health: 'online', usage: { usedBytes: 7e11, capacityBytes: 1e12 } })
     );
     expect(attrs).toEqual([
-      { key: 'kind', value: 'storageclass' },
-      { key: 'provisioner', value: 'rook-ceph' },
-      { key: 'cluster_id', value: 'rook', wrap: true },
-      { key: 'pool', value: 'kube', wrap: true },
+      { key: 'kind', value: 'netapp-aggr' },
+      { key: 'health', value: 'online' },
+      { key: 'usage', value: '700 GB / 1 TB (70%)' },
     ]);
+  });
+
+  it("promotes a PVC's storageclass name alongside its usage", () => {
+    const attrs = buildNodeAttributes(
+      data({ kind: 'pvc', storageclass: 'netapp-nas', usage: { usedBytes: 5e9, capacityBytes: 1e10 } })
+    );
+    expect(attrs).toEqual([
+      { key: 'kind', value: 'pvc' },
+      { key: 'storageclass', value: 'netapp-nas' },
+      { key: 'usage', value: '5 GB / 10 GB (50%)' },
+    ]);
+  });
+
+  it('renders a partial usage reading without inventing the missing half', () => {
+    expect(buildNodeAttributes(data({ kind: 'pvc', usage: { capacityBytes: 1e10 } }))).toEqual([
+      { key: 'kind', value: 'pvc' },
+      { key: 'usage', value: '10 GB capacity' },
+    ]);
+  });
+
+  it('emits no health row when the backend sent none (absence is not degraded)', () => {
+    expect(buildNodeAttributes(data({ kind: 'netapp-node' }))).toEqual([{ key: 'kind', value: 'netapp-node' }]);
   });
 
   it('returns no rows for data carrying no promoted attrs (no empty rows)', () => {

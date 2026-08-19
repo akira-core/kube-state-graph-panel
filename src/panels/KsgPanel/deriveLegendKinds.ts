@@ -9,7 +9,7 @@ import type cytoscape from 'cytoscape';
 //     lives in its own swatch section: Clusters / Nodes|Controllers / Storage classes);
 //   - a node hidden inside a collapsed ancestor contributes nothing.
 //
-// This is why collapsing a storageclass swaps `pvc` → `storageclass` in the legend
+// This is why collapsing a netapp-node swaps `netapp-aggr` → `netapp-node` in the legend
 // (the PVCs are aggregated away, the collapsed group shows its disk glyph); the same
 // holds for node⇄pod and controller⇄pod. `cluster` containers carry no kind and
 // never appear here. First-seen order, deduped — a pure function of (elements,

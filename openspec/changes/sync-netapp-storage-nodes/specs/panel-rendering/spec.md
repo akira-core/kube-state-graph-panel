@@ -708,7 +708,6 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 - **WHEN** 一個 `pod` / `service` / `pvc` / `node` / `netapp-aggr` leaf 節點或 `controller` / `netapp-node` compound 節點被正規化
 - **THEN** 其 `data.label` 維持原名稱,不套用任何 kind 前綴
 
-
 ## ADDED Requirements
 
 ### Requirement: 節點使用率視覺化(usage 資料驅動,與 kind 無關)

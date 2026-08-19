@@ -19,7 +19,8 @@ export const CATEGORY_BY_KIND: Record<NodeKind, NodeCategory> = {
   switch: 'Networking',
   network: 'Networking',
   pvc: 'Storage',
-  storageclass: 'Storage',
+  'netapp-aggr': 'Storage',
+  'netapp-node': 'Storage',
   node: 'Cluster',
   external: 'Other',
 };
