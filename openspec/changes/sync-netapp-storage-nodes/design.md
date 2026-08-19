@@ -62,11 +62,13 @@ _Alternative considered:_ cytoscape's native pie-chart node styling (`pie-1-back
 
 ### D4 — Edge `metrics` becomes a discriminated-by-presence union
 
-`EdgeMetrics` in `cytoscape.d.ts` splits into `EdgeRedMetrics { rate: number; errorRate?: number; p90ServerMs?: number }` and `EdgeIoMetrics { readOps?: number; writeOps?: number; readLatencyUs?: number; writeLatencyUs?: number }`, with `metrics?: EdgeRedMetrics | EdgeIoMetrics`.
+`EdgeMetrics` in `cytoscape.d.ts` splits into `EdgeRedMetrics { rate: number; errorRate?: number; p90ServerMs?: number }` and `EdgeIoMetrics { readOps?: number; writeOps?: number; readLatencyUs?: number; writeLatencyUs?: number; readBytesPerSec?: number; writeBytesPerSec?: number }`, with `metrics?: EdgeRedMetrics | EdgeIoMetrics`.
 
 `parseEdgeMetrics` gains one decision at the top: **if `rate` is present, parse as RED (existing logic verbatim); otherwise attempt I/O.** That ordering preserves every existing RED scenario byte-for-byte — a present-but-invalid `rate` still discards the whole object — while making a `rate`-less object reach the I/O path instead of being dropped. If both families' keys appear (impossible per contract), RED wins and I/O keys are discarded, so a consumer never receives a mixed object it cannot discriminate.
 
 Consumers discriminate with `'rate' in metrics`. The tooltip renders whichever family is present.
+
+The I/O family's six fields split across two formatting ladders. `readOps` / `writeOps` / `readLatencyUs` / `writeLatencyUs` keep the RED ladder (3 significant digits + a fixed unit suffix, `formatOps` / `formatLatencyUs` in `formatEdgeMetrics.ts`). The two throughput fields are bytes per second, where that ladder degenerates into unreadable exponents at realistic values, so they format through the **existing decimal byte units** in `src/shared/format/measurements.ts` (the ladder behind the node `usage` row) with a `/s` suffix — `5.24 MB/s`. One shared byte ladder means a `700 GB` aggregate and a `5.24 MB/s` edge read on the same scale; the magnitude-preservation rule (a non-zero value never renders as `0`) is unchanged.
 
 ### D5 — Removal is a compile-driven sweep, not a search-and-delete
 

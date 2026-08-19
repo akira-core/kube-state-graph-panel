@@ -26,7 +26,7 @@
 **Edge `metrics` 為兩個互斥家族的 union**,單一邊只會攜帶其中一族,永不混合:
 
 1. **RED 家族**(trace 衍生的邊):後端在兩端皆解析為 `pod` 或 `service` 節點、且該邊由 `traces_service_graph_request_*` 序列產生時附上。實務上僅 `pod-calls-pod` 與 `pod-calls-service` 可能帶有。欄位為 `rate` / `error_rate` / `p90_server_ms`。
-2. **I/O 家族**(`pvc-to-netapp-aggr` 邊獨有):`read_ops` / `write_ops` / `read_latency_us` / `write_latency_us`,四欄**各自** optional(每欄對應一個獨立的 Harvest 序列家族,任一家族缺席只使該欄缺席)。ops 為每秒次數、latency 為微秒平均值,皆為後端逐字透傳的既有值。
+2. **I/O 家族**(`pvc-to-netapp-aggr` 邊獨有):`read_ops` / `write_ops` / `read_latency_us` / `write_latency_us` / `read_bytes_per_sec` / `write_bytes_per_sec`,六欄**各自** optional(每欄對應一個獨立的 Harvest 序列家族,任一家族缺席只使該欄缺席)。ops 為每秒次數、latency 為微秒平均值、throughput 為每秒位元組數,皆為後端逐字透傳的既有值。
 
 `service-selects-pod` / `pod-to-node` / `pod-mounts-pvc` / fabric 邊、任一端為 `external` 的邊、以及後端合成的邊,MUST 視為**永不帶** `metrics`。各欄位契約為:
 
@@ -35,6 +35,7 @@
 - `p90_server_ms`:server 端觀測之請求耗時 p90,單位**毫秒**。無可用 classic histogram(例如 native histogram / `vmrange`)時省略。
 - `read_ops` / `write_ops`:每秒讀 / 寫次數。
 - `read_latency_us` / `write_latency_us`:讀 / 寫平均延遲,單位**微秒**(µs)。
+- `read_bytes_per_sec` / `write_bytes_per_sec`:讀 / 寫吞吐量,單位**每秒位元組**(bytes/s,十進位)。**非**累計位元組數,亦非 KB/MB。
 
 後端對所有數值以 **6 位有效數字**輸出,故值可能以指數表示法送達(例如 `3.86e-7`);panel MUST 依實際數值格式化,MUST NOT 假設其為小整數。`metrics` 缺席時該 key 完全不出現(非 `null`、非 0)。所有數值欄位皆 MUST NOT 出現在 `labels` map 中——`labels` 維持嚴格的 `Record<string,string>`。
 
@@ -119,14 +120,14 @@
 
 ### Requirement: Edge RED metrics 正規化與逐欄降級
 
-`normalizeGraph` MUST 把上游 edge 的 `data.metrics` 以**同名同單位**帶到產出的 cytoscape edge `data.metrics`,並在 `src/shared/types/cytoscape.d.ts` 以 declaration merging 定義其型別。`metrics` 為兩個互斥家族的 union(見「上游 kube-state-graph payload 契約」):RED 家族 `rate` / `errorRate` / `p90ServerMs`,I/O 家族 `readOps` / `writeOps` / `readLatencyUs` / `writeLatencyUs`(snake_case → camelCase,其餘不變)。此為**純透傳 + 驗證**:panel MUST NOT 在此層做單位換算、百分比換算、四捨五入或補值——顯示層才負責格式化。
+`normalizeGraph` MUST 把上游 edge 的 `data.metrics` 以**同名同單位**帶到產出的 cytoscape edge `data.metrics`,並在 `src/shared/types/cytoscape.d.ts` 以 declaration merging 定義其型別。`metrics` 為兩個互斥家族的 union(見「上游 kube-state-graph payload 契約」):RED 家族 `rate` / `errorRate` / `p90ServerMs`,I/O 家族 `readOps` / `writeOps` / `readLatencyUs` / `writeLatencyUs` / `readBytesPerSec` / `writeBytesPerSec`(snake_case → camelCase,其餘不變)。此為**純透傳 + 驗證**:panel MUST NOT 在此層做單位換算、百分比換算、四捨五入或補值——顯示層才負責格式化。
 
 驗證與降級規則(metrics 為附加資訊層,**任何 metrics 問題皆 MUST NOT 使該邊消失**):
 
 - `metrics` 非 plain object → 整個 `metrics` 丟棄,邊照常產出。
 - `rate` 存在但非 `number` 或非有限值(`NaN` / `±Infinity`) → 整個 `metrics` 丟棄(`rate` 是 RED 家族的必要欄位),邊照常產出。
-- **`rate` 缺失時 MUST NOT 直接丟棄整個 `metrics`**:改以 I/O 家族解析——四個 I/O 欄位中若有任一為有限 `number` 則保留該族,否則整個 `metrics` 丟棄。此為 union 化後與舊行為的唯一差異。
-- 任一 optional 欄位(`error_rate` / `p90_server_ms` / 四個 I/O 欄位)存在但非 `number` 或非有限值 → **僅丟棄該欄**,其餘 `metrics` 保留。
+- **`rate` 缺失時 MUST NOT 直接丟棄整個 `metrics`**:改以 I/O 家族解析——六個 I/O 欄位中若有任一為有限 `number` 則保留該族,否則整個 `metrics` 丟棄。此為 union 化後與舊行為的唯一差異。
+- 任一 optional 欄位(`error_rate` / `p90_server_ms` / 六個 I/O 欄位)存在但非 `number` 或非有限值 → **僅丟棄該欄**,其餘 `metrics` 保留。
 - 兩族欄位若同時出現(契約上不可能),MUST 以 RED 家族為準並丟棄 I/O 欄位——避免產出混合物件使消費端無法判別家族。
 - 上游未送出的 optional 欄位 MUST 維持不存在(**不得**補 `0`、`null` 或任何 placeholder)。
 - 數值 MUST 原樣保留,含指數表示法之極小值(例如 `3.86e-7`)與 `0`。
@@ -170,13 +171,13 @@ metrics 的驗證失敗 MUST NOT 寫入 `normalizeGraph` 的 `errors` 陣列(該
 
 #### Scenario: I/O 家族 metrics 原樣帶入儲存邊
 
-- **WHEN** 上游 `pvc-to-netapp-aggr` 邊帶 `metrics: { read_ops: 150, write_ops: 40, read_latency_us: 830, write_latency_us: 1200 }`(無 `rate`)
-- **THEN** 產出的 `data.metrics` 為 `{ readOps: 150, writeOps: 40, readLatencyUs: 830, writeLatencyUs: 1200 }`,無 `rate` key,數值未經換算
+- **WHEN** 上游 `pvc-to-netapp-aggr` 邊帶 `metrics: { read_ops: 150, write_ops: 40, read_latency_us: 830, write_latency_us: 1200, read_bytes_per_sec: 5242880, write_bytes_per_sec: 1048576 }`(無 `rate`)
+- **THEN** 產出的 `data.metrics` 為 `{ readOps: 150, writeOps: 40, readLatencyUs: 830, writeLatencyUs: 1200, readBytesPerSec: 5242880, writeBytesPerSec: 1048576 }`,無 `rate` key,數值未經換算(**不**於此層換算為 MB/s)
 
 #### Scenario: I/O 家族逐欄降級
 
-- **WHEN** 上游儲存邊 `metrics` 為 `{ read_ops: 150, write_ops: 'many' }`(僅部分家族欄位、且其一非法)
-- **THEN** 產出的 `data.metrics` 為 `{ readOps: 150 }`,邊照常產出,`errors` 不新增項目
+- **WHEN** 上游儲存邊 `metrics` 為 `{ read_ops: 150, write_ops: 'many', read_bytes_per_sec: 5242880 }`(僅部分家族欄位、且其一非法)
+- **THEN** 產出的 `data.metrics` 為 `{ readOps: 150, readBytesPerSec: 5242880 }`,邊照常產出,`errors` 不新增項目
 
 ## ADDED Requirements
 

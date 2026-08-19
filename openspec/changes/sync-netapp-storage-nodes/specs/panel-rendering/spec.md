@@ -708,6 +708,111 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 - **WHEN** 一個 `pod` / `service` / `pvc` / `node` / `netapp-aggr` leaf 節點或 `controller` / `netapp-node` compound 節點被正規化
 - **THEN** 其 `data.label` 維持原名稱,不套用任何 kind 前綴
 
+### Requirement: Hover Tooltip 顯示邊 RED metrics
+
+當使用者 hover 於一條**帶有 `data.metrics`** 的邊時,`HoverTooltip` MUST 在既有 `edgeType` row **之後**、`labels` 分隔線**之前**,依序追加該邊所屬家族的 promoted attr rows(key 名為固定英文 UI 字串)。`metrics` 為兩個互斥家族的 union(見 graph-data-integration「上游 kube-state-graph payload 契約」),tooltip MUST 以 **`'rate' in metrics`** 判別家族,並只渲染該族的 row——**MUST NOT** 於任意 `metrics` 物件上假設 `rate` 存在(需求名稱保留 RED 字樣僅為與既有需求同名對齊,契約已涵蓋兩族)。
+
+**RED 家族**(trace 衍生的呼叫邊)最多三列:
+
+| row key | 來源欄位 | 顯示格式 |
+| --- | --- | --- |
+| `rate` | `metrics.rate` | `<value> req/s` |
+| `errorRate` | `metrics.errorRate` | `<value×100>%` |
+| `duration(p90)` | `metrics.p90ServerMs` | `< 1000` 時 `<value> ms`;`>= 1000` 時換算為 `<value/1000> s` |
+
+**I/O 家族**(`pvc-to-netapp-aggr` 邊獨有)最多六列,依此固定順序:
+
+| row key | 來源欄位 | 顯示格式 |
+| --- | --- | --- |
+| `read` | `metrics.readOps` | `<value> ops/s` |
+| `write` | `metrics.writeOps` | `<value> ops/s` |
+| `read latency` | `metrics.readLatencyUs` | `< 1000` 時 `<value> µs`;`>= 1000` 時換算為 `<value/1000> ms` |
+| `write latency` | `metrics.writeLatencyUs` | 同上 |
+| `read throughput` | `metrics.readBytesPerSec` | `<十進位位元組單位>/s`(如 `5.24 MB/s`) |
+| `write throughput` | `metrics.writeBytesPerSec` | 同上 |
+
+數值格式化規則:
+
+- `rate` / `errorRate` / `duration(p90)` / `read` / `write` / `read latency` / `write latency` 共用同一組純函式(`formatEdgeMetrics.ts`):數值 MUST 以最多 **3 位有效數字**呈現,尾隨的零 MUST 去除(`5` 不是 `5.00`、`3.2` 不是 `3.20`)。
+- **兩個 throughput row 例外**:其值為 bytes/s,3 位有效數字的裸值在實務量級下會退化為難讀的指數,故 MUST 改用**節點 `usage` 列既有的十進位位元組單位階梯**(`src/shared/format/measurements.ts` 的 `B` / `KB` / `MB` / `GB` / `TB` …)並附 `/s` 後綴。同一套階梯使 `700 GB` 的 aggregate 與 `5.24 MB/s` 的邊讀在同一個量尺上。
+- **非零值 MUST NOT 被格式化為 `0`**:捨入只可損失位數,MUST NOT 損失量級。極小值(例如 `3.86e-7` req/s、`6.7e-8` 比例、`12 B/s`)MUST 保留其量級。
+- `errorRate` 為比例(`[0,1]`),顯示前 MUST 乘以 100 並附 `%`;`0` MUST 顯示為 `0%`(代表「已量測且無失敗」)。
+
+失敗強調規則:`errorRate` 為**已量測且非零**(`errorRate !== 0`)時,該 row 的**值** MUST 以 theme 的 error 色呈現,key 維持 secondary 色以免整列脫離清單節奏。判斷 MUST 依**數值本身**而非格式化後的字串——`6.7e-8` 呈現為 `0.0000067%`,仍是真實的失敗比例。`errorRate: 0` MUST 維持中性色;`errorRate` 缺席時 MUST 不產生任何 row(故亦無顏色)。其餘 row(RED 的 `rate` / `duration(p90)` 與**全部** I/O row)MUST NOT 著色——I/O 量測無「失敗」語意,高吞吐或高延遲 MUST NOT 被著色為錯誤。
+
+省略規則:
+
+- 邊**無** `data.metrics` 時,tooltip MUST 與現況完全一致——不顯示任何 metrics row、不顯示標題、不顯示 `N/A` 之類的 placeholder。
+- 家族內任一 optional 欄位缺席時 MUST 不顯示該 row(**尤其 MUST NOT 顯示 `0`**:省略代表「未能量測」,與量測到 0 是不同狀態)。RED 的 `errorRate` / `p90ServerMs` 與 I/O 的全部六欄皆適用。
+- metrics 值 MUST NOT 出現在 `labels` 區塊——它們來自 `data.metrics`,不是後端 labels map。
+
+兩族皆僅影響 hover 浮動模式下的**邊** tooltip。pinned 釘選模式僅適用於被選取的**節點**,故不受本需求影響;畫布上的邊顏色、線寬、線型與 label MUST NOT 因任一族 metrics 而改變。
+
+#### Scenario: Hover 帶完整 RED 的邊顯示三列
+
+- **WHEN** 使用者 hover 於一條 `edgeType: 'pod-calls-service'`、`data.metrics = { rate: 5, errorRate: 0.2, p90ServerMs: 45 }` 的邊
+- **THEN** tooltip 依序顯示 `edgeType: pod-calls-service`、`rate: 5 req/s`、`errorRate: 20%`、`duration(p90): 45 ms`
+- **AND** 三個 RED row 位於 `edgeType` 之後、`labels` 分隔線之前
+
+#### Scenario: 無 metrics 的邊維持現況
+
+- **WHEN** 使用者 hover 於一條 `pod-mounts-pvc` 邊(無 `data.metrics`)
+- **THEN** tooltip 僅顯示 `source → target` title、`edgeType` row 與既有 labels,無任何 metrics row(RED 或 I/O)、無 placeholder
+
+#### Scenario: 省略的 errorRate 不顯示為 0%
+
+- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 3 }` 的邊(`errorRate` / `p90ServerMs` 皆不存在)
+- **THEN** tooltip 僅追加 `rate: 3 req/s` 一列;MUST NOT 出現 `errorRate` 或 `duration(p90)` row
+
+#### Scenario: 量測到零失敗顯示 0%
+
+- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 1, errorRate: 0 }` 的邊
+- **THEN** tooltip 顯示 `errorRate: 0%`(與上一情境的「不顯示」明確區分)
+- **AND** 該值以中性文字色呈現,MUST NOT 使用 error 色
+
+#### Scenario: 非零失敗率以 error 色標示
+
+- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 5, errorRate: 0.2 }` 的邊
+- **THEN** `errorRate` row 的**值**以 theme 的 error 色呈現,key 維持既有 secondary 色
+- **AND** 同一 tooltip 中的 `rate` 與 `duration(p90)` row MUST NOT 被著色
+
+#### Scenario: 極小值不被格式化為 0
+
+- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 3.86e-7, errorRate: 6.7e-8 }` 的邊
+- **THEN** `rate` row 顯示 `3.86e-7 req/s`(指數表示法),`errorRate` row 顯示 `0.0000067%`(完整小數)
+- **AND** 兩者 MUST NOT 顯示為 `0 req/s` / `0%`
+- **AND** 該 `errorRate` 仍以 error 色呈現(著色依數值 `6.7e-8 !== 0`,非依格式化字串)
+
+#### Scenario: 長耗時以秒呈現
+
+- **WHEN** 使用者 hover 於一條 `data.metrics.p90ServerMs = 2500` 的邊
+- **THEN** `duration(p90)` row 顯示 `2.5 s`(而非 `2500 ms`)
+
+#### Scenario: RED 不改變畫布視覺
+
+- **WHEN** 圖中同時存在帶 metrics(RED 或 I/O)與不帶 metrics 的邊
+- **THEN** 兩者的線色、線寬、線型、箭頭與 canvas label 完全依既有 edge-type / ingressPath / relation 規則決定,與 `metrics` 無關
+
+#### Scenario: 儲存邊顯示 I/O 六列
+
+- **WHEN** 使用者 hover 於一條 `edgeType: 'pvc-to-netapp-aggr'`、`data.metrics = { readOps: 150, writeOps: 40, readLatencyUs: 830, writeLatencyUs: 1200, readBytesPerSec: 5242880, writeBytesPerSec: 1048576 }`(無 `rate`)的邊
+- **THEN** tooltip 依序顯示 `read: 150 ops/s`、`write: 40 ops/s`、`read latency: 830 µs`、`write latency: 1.2 ms`、`read throughput: 5.24 MB/s`、`write throughput: 1.05 MB/s`,且無 `rate` / `errorRate` / `duration(p90)` row
+
+#### Scenario: 缺席的 I/O 欄位不顯示該列
+
+- **WHEN** 一條儲存邊的 `data.metrics` 僅有 `{ readOps: 150, readBytesPerSec: 5242880 }`
+- **THEN** tooltip 只顯示 `read` 與 `read throughput` 兩列,`write` / `read latency` / `write latency` / `write throughput` 皆不渲染(不顯示 `0` 或 placeholder)
+
+#### Scenario: throughput 走位元組單位階梯而非 3 位有效數字裸值
+
+- **WHEN** 一條儲存邊的 `readBytesPerSec` 為 `5242880`、`writeBytesPerSec` 為 `12`
+- **THEN** 兩列分別顯示為 `5.24 MB/s` 與 `12 B/s`——與節點 `usage` 列同一套十進位單位階梯,MUST NOT 呈現為 `5.24e6 B/s`,亦 MUST NOT 把小值捨入為 `0`
+
+#### Scenario: I/O row 不套用失敗色
+
+- **WHEN** 一條儲存邊帶完整六欄 I/O metrics
+- **THEN** 六列的值皆以中性色渲染——error 色僅保留給已量測且非零的 `errorRate`
+
 ## ADDED Requirements
 
 ### Requirement: 節點使用率視覺化(usage 資料驅動,與 kind 無關)

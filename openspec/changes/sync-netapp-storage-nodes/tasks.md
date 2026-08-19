@@ -12,7 +12,7 @@
 ## 2. Data-layer types
 
 - [x] 2.1 `src/shared/types/cytoscape.d.ts` — `NodeDataDefinition`: remove `provisioner` / `parameters`; add `storageclass?: string`, `health?: string`, `usage?: { usedBytes?: number; capacityBytes?: number }`, `usageRatio?: number`, and the `isStorageCluster` / `storageCluster` / `storageClusterColor` group flags. Document `health` absence ≠ `'degraded'` and `usageRatio` absence ≠ 0% on the fields themselves.
-- [x] 2.2 Same file — split `EdgeMetrics` into `EdgeRedMetrics` / `EdgeIoMetrics` and type `metrics?: EdgeRedMetrics | EdgeIoMetrics`; document the `'rate' in metrics` discriminator and that consumers must not assume `rate`.
+- [x] 2.2 Same file — split `EdgeMetrics` into `EdgeRedMetrics` / `EdgeIoMetrics` (six optional I/O fields, throughput included) and type `metrics?: EdgeRedMetrics | EdgeIoMetrics`; document the `'rate' in metrics` discriminator and that consumers must not assume `rate`.
 
 ## 3. normalize (anti-corruption boundary)
 
@@ -20,7 +20,7 @@
 - [x] 3.2 Add `storageClusterPalette.ts` (fixed per-kind accent, mirroring `clusterPalette` / `applicationPalette`) + its test.
 - [x] 3.3 `parseNodes`: remove the `provisioner` / `parameters` passthrough; add guarded passthrough for `storageclass` (non-empty string), `health` (non-empty string, unknown values pass through verbatim), and `usage` (per-field finite `>= 0` number → `usedBytes` / `capacityBytes`; object omitted when neither field survives).
 - [x] 3.4 Derive `usageRatio` (design D3): written only when both fields are valid and `capacityBytes > 0`; clamped to `[0,1]`; **kind-independent**.
-- [x] 3.5 `parseEdgeMetrics`: add the family branch — `rate` present → existing RED logic verbatim; `rate` absent → parse the four I/O fields (each independently guarded), object dropped when none survive; both families present → RED wins, I/O keys discarded. Never write to `errors`.
+- [x] 3.5 `parseEdgeMetrics`: add the family branch — `rate` present → existing RED logic verbatim; `rate` absent → parse the six I/O fields (each independently guarded), object dropped when none survive; both families present → RED wins, I/O keys discarded. Never write to `errors`.
 - [x] 3.6 `normalize.test.ts`: extend with the backend golden `with-netapp-storage-cytoscape.json` shape; cover `storage-cluster` identity, NetApp leaf/parent passthrough, `health` verbatim + absence, `usage` per-field degradation, `usageRatio` table (0.7 / 0.5 / capacity-0 / partial / non-object), and the metrics-union branches (RED-only, I/O-only, `rate`-invalid, both-present). Delete the storageclass normalize cases.
 
 ## 4. Stylesheet and canvas
@@ -33,7 +33,7 @@
 ## 5. Tooltip, legend, detail panel
 
 - [x] 5.1 `buildNodeAttributes.ts`: remove the `provisioner` / `parameters` rows; add rows for `storageclass`, `health`, and a formatted `usage` (`<used> / <capacity> (<pct>%)`, decimal byte units, integer percent) emitted only when present. Add a small `formatBytes` / `formatUsage` helper with its own test (including exponent-safe and 0-capacity inputs).
-- [x] 5.2 `HoverTooltip`: render whichever `metrics` family is present on an edge (discriminate with `'rate' in metrics`), adding I/O rows with their units (`ops/s`, `µs`); remove the `isStorageClass` branch and any `gatherStorageClassContext` remnant if still present.
+- [x] 5.2 `HoverTooltip`: render whichever `metrics` family is present on an edge (discriminate with `'rate' in metrics`), adding I/O rows with their units (`ops/s`, `µs`, and `MB/s` via the shared byte ladder); remove the `isStorageClass` branch and any `gatherStorageClassContext` remnant if still present.
 - [x] 5.3 `deriveLegendKinds` / `NodeLegend`: verify (and test) that an expanded `netapp-node` is excluded and a collapsed one is included, and that `Storage` lists `pvc` / `netapp-aggr` / `netapp-node` glyphs; assert no `Storage Classes` swatch section and no new ONTAP swatch section.
 - [x] 5.4 `resolveSelectedNode` / `detailUrlKinds` / `assembleDashboardParams`: add `isStorageCluster` to the non-selectable exclusion set alongside `isCluster`; confirm `netapp-aggr` / `netapp-node` are detail-eligible but outside `DETAIL_URL_KINDS` (header-only panel, no per-kind query target). Update the affected tests.
 - [x] 5.5 `KsgPanel` / `deriveLegendEntries` / `NodeDetailPanel.types` / `buildPinnedTooltip` / `nodeClickExportValues` / `applicationBearingKinds`: sweep the remaining `storageclass` references reported by 1.6 and re-point or delete each.
@@ -44,7 +44,7 @@
 
 ## 7. Demo environment
 
-- [x] 7.1 `dev/victoriametrics/seed.sh`: push the four Harvest `volume_*` families (with `cluster` / `node` / `aggr` / `svm` / `volume_name`, the last matching the fixture PVC's `kube_persistentvolumeclaim_info.volumename`), the three `aggr_*` families, `node_new_status`, and the two `kubelet_volume_stats_*` families — all as **gauges** (stable per tick, small jitter allowed), explicitly NOT counters.
+- [x] 7.1 `dev/victoriametrics/seed.sh`: push the six Harvest `volume_*` families (with `cluster` / `node` / `aggr` / `svm` / `volume_name`, the last matching the fixture PVC's `kube_persistentvolumeclaim_info.volumename`), the three `aggr_*` families, `node_new_status`, and the two `kubelet_volume_stats_*` families — all as **gauges** (stable per tick, small jitter allowed), explicitly NOT counters.
 - [x] 7.2 Shape the fixture per spec: at least one PVC that joins an aggregate and at least one that does not (missing/empty `aggr`), plus usage at roughly 70% and 20% so the fill difference is visible.
 - [ ] 7.3 `docker-compose.yaml`: bump the default `KSG_BACKEND_TAG` to an image carrying the backend `replace-storageclass-with-netapp-nodes` change. (Comment updated to state the hard-cut requirement; the default is still `:latest` because no such image is published yet — bump the value once the backend ships.)
 - [ ] 7.4 Run `npm run server` and visually verify: storage chain nests correctly, both usage fills render at different heights, edge I/O metrics appear in the tooltip, the unjoined PVC has no storage edge.
@@ -54,3 +54,20 @@
 - [x] 8.1 `CONTEXT.md`: update the node-kind and edge-type vocabulary entries (drop `storageclass` / `pvc-to-storageclass`, add the two NetApp kinds, `storage-cluster`, and `pvc-to-netapp-aggr`).
 - [x] 8.2 `CLAUDE.md`: update the demo-fixture description (new seeded families, the NetApp half of the graph, the `KSG_BACKEND_TAG` requirement).
 - [x] 8.3 Full gate: `npm run lint && npm run typecheck && npm run test:ci && npm run build` clean; `openspec validate sync-netapp-storage-nodes --strict` then `openspec verify sync-netapp-storage-nodes`.
+
+## 9. Volume throughput fields (`read_bytes_per_sec` / `write_bytes_per_sec`)
+
+> Delta on top of the shipped sections 1-8, which landed with a four-field I/O
+> family. The backend adds two throughput fields (its
+> `replace-storageclass-with-netapp-nodes` change, section 10) sourced from
+> Harvest `volume_read_data` / `volume_write_data`, in bytes per second. Those
+> task lines above now read as the final contract; the outstanding work is here.
+> Purely additive on the wire — an un-upgraded panel ignores the two keys.
+
+- [ ] 9.1 `src/shared/types/cytoscape.d.ts`: add `readBytesPerSec?: number` / `writeBytesPerSec?: number` to `EdgeIoMetrics`, with the bytes-per-second unit recorded on the fields.
+- [ ] 9.2 `normalize.ts` `parseEdgeMetrics`: hoist the two new snake_case keys with the same per-field guard as the existing four; either field alone MUST keep the I/O family alive. Extend `normalize.test.ts` (both fields, one-field survival, non-finite rejection, values passed through unconverted).
+- [ ] 9.3 `src/features/hover-tooltip/formatEdgeMetrics.ts`: add `formatThroughputBytesPerSec` delegating to the decimal byte ladder in `src/shared/format/measurements.ts` plus a `/s` suffix (`5.24 MB/s`, `12 B/s`); unit-test the magnitude-preservation and small-value cases.
+- [ ] 9.4 `HoverTooltip`: append `read throughput` / `write throughput` rows after the latency rows, each guarded by `isFiniteNumber`, neutral-coloured; extend `HoverTooltip.test.tsx` with the six-row storage edge, the partial-field case, and the byte-ladder formatting.
+- [ ] 9.5 `dev/victoriametrics/seed.sh`: seed `volume_read_data` / `volume_write_data` as gauges (bytes/s, stable per tick with small jitter) on the same label set as the four existing volume families, so the demo edge shows all six rows.
+- [ ] 9.6 `npm run lint typecheck test build` clean; `openspec validate --strict`.
+- [ ] 9.7 Backend coordination: the two fields only appear once the backend image carrying its section 10 ships — folds into the existing 7.3 `KSG_BACKEND_TAG` bump, no separate release gate.

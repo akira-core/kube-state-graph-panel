@@ -8,12 +8,12 @@
 
 必要序列與其 label 契約(後端逐字比對,拼字不符即 join 落空):
 
-- **Harvest volume 四家族** `volume_read_ops` / `volume_write_ops` / `volume_read_latency` / `volume_write_latency`,每條 MUST 帶 `cluster`(ONTAP cluster,**非** K8s cluster)、`node`(擁有該 aggregate 的 controller)、`aggr`、`svm`,以及 `volume_name`(**等於**該 PVC 之 `kube_persistentvolumeclaim_info.volumename` 值——此即整條鏈的 join key,兩處拼字必須一致)。
+- **Harvest volume 六家族** `volume_read_ops` / `volume_write_ops` / `volume_read_latency` / `volume_write_latency` / `volume_read_data` / `volume_write_data`,每條 MUST 帶 `cluster`(ONTAP cluster,**非** K8s cluster)、`node`(擁有該 aggregate 的 controller)、`aggr`、`svm`,以及 `volume_name`(**等於**該 PVC 之 `kube_persistentvolumeclaim_info.volumename` 值——此即整條鏈的 join key,兩處拼字必須一致)。
 - **Harvest aggregate 三家族** `aggr_new_status`(`1` = online)/ `aggr_space_used` / `aggr_space_total`,帶 `cluster` / `node` / `aggr`,其 `(cluster, aggr)` MUST 對應到上述 volume 序列所報的 aggregate。
 - **Harvest node 家族** `node_new_status`(`1` = healthy),帶 `cluster` / `node`。
 - **kubelet volume stats** `kubelet_volume_stats_used_bytes` / `kubelet_volume_stats_capacity_bytes`,帶 `cluster` / `namespace` / `persistentvolumeclaim`,對應到 fixture 中既有的 PVC。
 
-這些序列皆為 **gauge 語意**:後端以 `last_over_time` 讀取其視窗內最後一個樣本並**逐字採用**(ops 已是每秒值、latency 已是微秒平均),故 seeder MUST NOT 讓它們像 counter 一樣單調遞增——每 tick 重推**大致穩定**的值即可(可小幅擾動以顯示變化),遞增反而會使 demo 的 ops / latency 讀數失真。此與同檔案中 `traces_service_graph_*` counter **必須遞增**的規則相反,兩者不得混淆。
+這些序列皆為 **gauge 語意**:後端以 `last_over_time` 讀取其視窗內最後一個樣本並**逐字採用**(ops 已是每秒值、latency 已是微秒平均、`volume_*_data` 已是每秒位元組數),故 seeder MUST NOT 讓它們像 counter 一樣單調遞增——每 tick 重推**大致穩定**的值即可(可小幅擾動以顯示變化),遞增反而會使 demo 的 ops / latency / throughput 讀數失真。此與同檔案中 `traces_service_graph_*` counter **必須遞增**的規則相反,兩者不得混淆。
 
 fixture MUST 同時涵蓋**有 join** 與**無 join** 兩種 PVC,使前端「無邊即無儲存鏈」與「缺 `usage` 即不畫使用率」的降級行為在 demo 中可被肉眼驗證:至少一個 PVC 的 `volumename` 不對應任何 volume 序列(或其序列 `aggr` 為空,即 FlexGroup 形狀),該 PVC MUST 不產生 `pvc-to-netapp-aggr` 邊。usage 亦 MUST 涵蓋高低兩檔(例如一個約 70%、一個約 20%),使節點使用率填充的差異在畫面上可辨。
 
