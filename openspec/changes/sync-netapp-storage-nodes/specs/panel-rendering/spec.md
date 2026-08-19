@@ -823,32 +823,36 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 
 視覺編碼規則:
 
-- 以 `node[usageRatio]` 選擇器套用一個**由下往上的填充**(cytoscape `background-fill: 'linear-gradient'` 搭配依 `usageRatio` 計算的 gradient stop),使填滿高度正比於使用率。
-- 填充色 MUST 為**無彩度**(取自 Grafana theme 的中性色階,如 `theme.colors.text.disabled` / `border` 家族),**MUST NOT** 使用 `STATUS_COLOR` 的任一值或任何語意色——顏色在本 panel 保留給 status,使用率以**填滿高度**而非色相編碼。
-- 節點的 kind icon MUST 維持可見且位於填充**之上**,身分辨識不得被使用率遮蔽。
-- 無 `usageRatio` 的節點(含所有非儲存節點、以及 `usage` 不完整的儲存節點)MUST 維持既有背景,不套用任何填充——**缺資料不得渲染為 0%**。
+- 使用率 MUST 畫在 **kind SVG 的圓柱輪廓內**(由下往上,高度正比於 `usageRatio`),**MUST NOT** 以 cytoscape `background-fill` 填滿 40px 節點方塊——方塊填充會溢出圓柱輪廓,並在高使用率時蓋住 `netapp-aggr` 的內層橫線。
+- 液體色 MUST 為 `STATUS_COLOR` 的 Grafana 三段門檻,且 MUST 以 **fill-opacity 0.4** 繪製(線稿之後畫、不透明,使 aggr 橫線仍可讀):
+  - `usageRatio < 0.8` → `STATUS_COLOR.normal`(`#73BF69`)
+  - `usageRatio >= 0.8` → `STATUS_COLOR.warning`(`#F2CC0C`)
+  - `usageRatio >= 0.9` → `STATUS_COLOR.critical`(`#E02F44`)
+- 節點的 kind icon MUST 維持原尺寸(`NODE_SIZE` / `background-fit: contain`);label MUST 維持 `data(label)`,不得改寫為百分比。
+- 無 `usageRatio` 的節點(含所有非儲存節點、以及 `usage` 不完整的儲存節點)MUST 維持既有背景與未填充的 icon,不套用任何液體——**缺資料不得渲染為 0%**。
+- k8s `status` 邊框規則 MUST 不受影響:液體走內部色相,status 走邊框,兩者可同時出現在同一節點。
 
 此視覺化為**純呈現**:MUST NOT 影響選取、過濾、佈局或 tooltip 內容,亦 MUST NOT 寫回任何 `data` 欄位。tooltip 的文字 `usage` 列(見「Hover Tooltip 顯示元素 metadata」)與本視覺化為同一資料的兩種呈現,兩者 MUST 並存。
 
-#### Scenario: 帶 usageRatio 的節點渲染填充
+#### Scenario: 帶 usageRatio 的節點以圓柱液體渲染
 
 - **WHEN** 一個 `netapp-aggr` 節點帶 `usageRatio: 0.7`,一個 `pvc` 節點帶 `usageRatio: 0.5`
-- **THEN** 兩者皆以由下往上的填充渲染,填滿高度分別約為節點高度的 70% 與 50%,且兩者走**同一條** stylesheet 規則(非 per-kind 規則)
+- **THEN** 兩者的 kind SVG 內皆有由下往上的圓柱液體,高度分別約為圓柱的 70% 與 50%;節點方塊本身 MUST NOT 套用 `background-fill: linear-gradient`;兩者走**同一條** `usageRatio` 觸發規則(非 per-kind 觸發)
 
-#### Scenario: 無 usageRatio 的節點不套用填充
+#### Scenario: 無 usageRatio 的節點不套用液體
 
 - **WHEN** 一個 `pvc` 節點無 `usage`(或其 `usage` 僅有 `capacityBytes`,故 normalize 未寫入 `usageRatio`)
-- **THEN** 該節點維持既有背景,MUST NOT 渲染任何填充,亦 MUST NOT 被渲染為 0% 填滿
+- **THEN** 該節點維持既有背景與未填充 icon,MUST NOT 渲染任何液體,亦 MUST NOT 被渲染為 0% 填滿
 
-#### Scenario: 填充色不與 status 色衝突
+#### Scenario: 使用率液體依 80/90 門檻套用 STATUS_COLOR
 
-- **WHEN** 檢視使用率填充所用的顏色
-- **THEN** 其值 MUST NOT 等於 `STATUS_COLOR` 的任一值(綠 `#73BF69` / 黃 `#F2CC0C` / 紅 `#E02F44`),且為無彩度的中性色——使用率僅以填滿高度編碼
+- **WHEN** 三個帶 `usageRatio` 的節點分別為 `0.7`、`0.8`、`0.9`
+- **THEN** 其液體色分別為 `STATUS_COLOR.normal` / `warning` / `critical`(`#73BF69` / `#F2CC0C` / `#E02F44`),且皆為 fill-opacity 0.4;`0.79` MUST 仍為 green
 
-#### Scenario: 使用率填充不遮蔽 kind icon 與 status 邊框
+#### Scenario: 使用率液體不遮蔽 kind 線稿與 status 邊框
 
-- **WHEN** 一個帶 `usageRatio` 且同時帶 `status` 的節點被渲染
-- **THEN** 其 kind icon 仍可見於填充之上,其 status 邊框色仍依既有規則呈現(填充只影響背景,不影響邊框)
+- **WHEN** 一個帶 `usageRatio: 0.7` 的 `netapp-aggr`(含兩條內層橫線)且同時帶 `status` 的節點被渲染
+- **THEN** 其圓柱外框與內層橫線仍可見(液體在線稿之下且半透明),icon 尺寸不變,其 status 邊框色仍依既有規則呈現(液體只影響 SVG 內部,不影響邊框)
 
 #### Scenario: 使用率視覺化不影響互動與佈局
 

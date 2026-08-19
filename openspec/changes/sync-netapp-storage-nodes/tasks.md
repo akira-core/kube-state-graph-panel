@@ -28,7 +28,7 @@
 - [x] 4.1 `getStylesheet.ts`: add `node[?isStorageCluster]` to the decorative-group rules (accent background/border/label colour, `background-image: 'none'`) and to the collapsed-folder-glyph selector; add the `Storage:`-style label prefix mapper entry if the repo's prefix set covers it, keeping `data.label` bare.
 - [x] 4.2 Add the single `node[usageRatio]` usage-fill rule (design D3): achromatic `background-fill: 'linear-gradient'` from the theme's neutral scale, stop position `(1 - usageRatio) * 100`%, never a `STATUS_COLOR`. Verify the kind icon composites above the fill and the status border is unaffected.
 - [x] 4.3 `getStylesheet.test.ts`: assert the usage rule is keyed on the field (matches both `pvc` and `netapp-aggr` fixtures, matches nothing without `usageRatio`), the fill colour is not in `STATUS_COLOR`, and the `isStorageCluster` selectors exist. Delete the storageclass cases.
-- [ ] 4.4 Manually verify the fill against both light and dark Grafana themes (design risk: an achromatic fill reading as "selected").
+- [x] 4.4 Manually verify the fill against both light and dark Grafana themes (design risk: an achromatic fill reading as "selected").
 
 ## 5. Tooltip, legend, detail panel
 
@@ -47,7 +47,7 @@
 - [x] 7.1 `dev/victoriametrics/seed.sh`: push the six Harvest `volume_*` families (with `cluster` / `node` / `aggr` / `svm` / `volume_name`, the last matching the fixture PVC's `kube_persistentvolumeclaim_info.volumename`), the three `aggr_*` families, `node_new_status`, and the two `kubelet_volume_stats_*` families — all as **gauges** (stable per tick, small jitter allowed), explicitly NOT counters.
 - [x] 7.2 Shape the fixture per spec: at least one PVC that joins an aggregate and at least one that does not (missing/empty `aggr`), plus usage at roughly 70% and 20% so the fill difference is visible.
 - [ ] 7.3 `docker-compose.yaml`: bump the default `KSG_BACKEND_TAG` to an image carrying the backend `replace-storageclass-with-netapp-nodes` change. (Comment updated to state the hard-cut requirement; the default is still `:latest` because no such image is published yet — bump the value once the backend ships.)
-- [ ] 7.4 Run `npm run server` and visually verify: storage chain nests correctly, both usage fills render at different heights, edge I/O metrics appear in the tooltip, the unjoined PVC has no storage edge.
+- [x] 7.4 Run `npm run server` and visually verify: storage chain nests correctly, both usage fills render at different heights, edge I/O metrics appear in the tooltip, the unjoined PVC has no storage edge.
 
 ## 8. Docs and verification
 
@@ -64,10 +64,20 @@
 > task lines above now read as the final contract; the outstanding work is here.
 > Purely additive on the wire — an un-upgraded panel ignores the two keys.
 
-- [ ] 9.1 `src/shared/types/cytoscape.d.ts`: add `readBytesPerSec?: number` / `writeBytesPerSec?: number` to `EdgeIoMetrics`, with the bytes-per-second unit recorded on the fields.
-- [ ] 9.2 `normalize.ts` `parseEdgeMetrics`: hoist the two new snake_case keys with the same per-field guard as the existing four; either field alone MUST keep the I/O family alive. Extend `normalize.test.ts` (both fields, one-field survival, non-finite rejection, values passed through unconverted).
-- [ ] 9.3 `src/features/hover-tooltip/formatEdgeMetrics.ts`: add `formatThroughputBytesPerSec` delegating to the decimal byte ladder in `src/shared/format/measurements.ts` plus a `/s` suffix (`5.24 MB/s`, `12 B/s`); unit-test the magnitude-preservation and small-value cases.
-- [ ] 9.4 `HoverTooltip`: append `read throughput` / `write throughput` rows after the latency rows, each guarded by `isFiniteNumber`, neutral-coloured; extend `HoverTooltip.test.tsx` with the six-row storage edge, the partial-field case, and the byte-ladder formatting.
-- [ ] 9.5 `dev/victoriametrics/seed.sh`: seed `volume_read_data` / `volume_write_data` as gauges (bytes/s, stable per tick with small jitter) on the same label set as the four existing volume families, so the demo edge shows all six rows.
-- [ ] 9.6 `npm run lint typecheck test build` clean; `openspec validate --strict`.
-- [ ] 9.7 Backend coordination: the two fields only appear once the backend image carrying its section 10 ships — folds into the existing 7.3 `KSG_BACKEND_TAG` bump, no separate release gate.
+- [x] 9.1 `src/shared/types/cytoscape.d.ts`: add `readBytesPerSec?: number` / `writeBytesPerSec?: number` to `EdgeIoMetrics`, with the bytes-per-second unit recorded on the fields.
+- [x] 9.2 `normalize.ts` `parseEdgeMetrics`: hoist the two new snake_case keys with the same per-field guard as the existing four; either field alone MUST keep the I/O family alive. Extend `normalize.test.ts` (both fields, one-field survival, non-finite rejection, values passed through unconverted).
+- [x] 9.3 `src/features/hover-tooltip/formatEdgeMetrics.ts`: add `formatThroughputBytesPerSec` delegating to the decimal byte ladder in `src/shared/format/measurements.ts` plus a `/s` suffix (`5.24 MB/s`, `12 B/s`); unit-test the magnitude-preservation and small-value cases.
+- [x] 9.4 `HoverTooltip`: append `read throughput` / `write throughput` rows after the latency rows, each guarded by `isFiniteNumber`, neutral-coloured; extend `HoverTooltip.test.tsx` with the six-row storage edge, the partial-field case, and the byte-ladder formatting.
+- [x] 9.5 `dev/victoriametrics/seed.sh`: seed `volume_read_data` / `volume_write_data` as gauges (bytes/s, stable per tick with small jitter) on the same label set as the four existing volume families, so the demo edge shows all six rows.
+- [x] 9.6 `npm run lint typecheck test build` clean; `openspec validate --strict`.
+- [x] 9.7 Backend coordination: the two fields only appear once the backend image carrying its section 10 ships — folds into the existing 7.3 `KSG_BACKEND_TAG` bump, no separate release gate.
+
+## 10. Cylinder usage fill (revises D3)
+
+The shipped 4.2 node-box gradient occludes cylinder strokes (especially `netapp-aggr` layer lines). Replace it with an in-glyph liquid. 4.2–4.4 stay as the historical landing; this section is the delta.
+
+- [x] 10.1 Remove `background-fill: 'linear-gradient'` from the `node[usageRatio]` stylesheet rule; the node body stays the solid theme `background.secondary`.
+- [x] 10.2 Add a pure helper that, given the kind SVG + `usageRatio`, paints a fill-opacity **0.4** bottom-up liquid clipped to the `pvc` / `netapp-aggr` outer cylinder (viewBox rect for any other kind), then the original strokes. Colour from `STATUS_COLOR`: `< 0.8` normal, `>= 0.8` warning, `>= 0.9` critical.
+- [x] 10.3 Wire the `background-image` mapper so a node with `usageRatio` uses that helper. Icon size (`NODE_SIZE` / `contain`) and `label: data(label)` stay unchanged.
+- [x] 10.4 Tests: no node-box gradient on usage nodes; URI / helper output contains fill-opacity 0.4; `0.7` green / `0.8` yellow / `0.9` red / `0.79` still green; absent ratio still solid + untinted icon; aggr internal layer paths still present. Flip the old "fill colour MUST NOT be STATUS_COLOR" assertion.
+- [x] 10.5 Visual: light and dark Grafana themes, at ~70 / 85 / 95%, confirm aggr layer lines stay readable through the liquid.

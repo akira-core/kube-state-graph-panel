@@ -1539,9 +1539,23 @@ describe('normalizeGraph — edge RED metrics', () => {
   describe('storage I/O family', () => {
     it('carries a full I/O object through under panel field names, with no rate', () => {
       const data = edgeData(
-        withMetrics({ read_ops: 150, write_ops: 40, read_latency_us: 830, write_latency_us: 1200 })
+        withMetrics({
+          read_ops: 150,
+          write_ops: 40,
+          read_latency_us: 830,
+          write_latency_us: 1200,
+          read_bytes_per_sec: 5242880,
+          write_bytes_per_sec: 1048576,
+        })
       );
-      expect(data.metrics).toEqual({ readOps: 150, writeOps: 40, readLatencyUs: 830, writeLatencyUs: 1200 });
+      expect(data.metrics).toEqual({
+        readOps: 150,
+        writeOps: 40,
+        readLatencyUs: 830,
+        writeLatencyUs: 1200,
+        readBytesPerSec: 5242880,
+        writeBytesPerSec: 1048576,
+      });
       expect(data.metrics !== undefined && 'rate' in data.metrics).toBe(false);
     });
 
@@ -1552,8 +1566,25 @@ describe('normalizeGraph — edge RED metrics', () => {
 
     it('leaves values unconverted (Harvest already resolved the counters)', () => {
       // 830 µs stays 830: the µs→ms threshold belongs to the display layer.
-      const data = edgeData(withMetrics({ read_latency_us: 830 }));
-      expect(data.metrics).toEqual({ readLatencyUs: 830 });
+      // Throughput stays bytes/s — MB/s is a display-layer suffix, not a normalize conversion.
+      const data = edgeData(withMetrics({ read_latency_us: 830, read_bytes_per_sec: 5242880 }));
+      expect(data.metrics).toEqual({ readLatencyUs: 830, readBytesPerSec: 5242880 });
+    });
+
+    it('keeps the I/O family alive from a throughput field alone', () => {
+      expect(edgeData(withMetrics({ read_bytes_per_sec: 5242880 })).metrics).toEqual({
+        readBytesPerSec: 5242880,
+      });
+      expect(edgeData(withMetrics({ write_bytes_per_sec: 12 })).metrics).toEqual({ writeBytesPerSec: 12 });
+    });
+
+    it.each([
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['non-numeric', 'fast'],
+    ])('drops only an unusable throughput field (%s) without sinking siblings', (_label, bad) => {
+      const data = edgeData(withMetrics({ read_ops: 150, read_bytes_per_sec: bad, write_bytes_per_sec: 12 }));
+      expect(data.metrics).toEqual({ readOps: 150, writeBytesPerSec: 12 });
     });
 
     it('drops the object when no I/O field survives', () => {

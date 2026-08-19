@@ -11,6 +11,7 @@ import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation';
 import { FOLDER_ICON_SVG, iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
+import { paintUsageLiquid } from '../../../shared/icon/paintUsageLiquid';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 import { themeColors } from '../../../shared/theme/themeColors';
 import type { CyStylesheet } from '../hooks/useCytoscape';
@@ -28,8 +29,11 @@ const NODE_SIZE = 40;
 // exclusive by construction, since a single hook decides which lit set applies.
 export const FADED_CLASS = 'ksg-faded';
 
-function resolveIconUri(kind: string | undefined, iconColor: string): string {
-  return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
+function resolveIconUri(kind: string | undefined, iconColor: string, usageRatio?: number): string {
+  const raw = iconSvgForKind(kind);
+  const painted =
+    usageRatio !== undefined && Number.isFinite(usageRatio) ? paintUsageLiquid(raw, usageRatio, kind) : raw;
+  return tintSvgToDataUri(painted, iconColor);
 }
 
 // Title-case each whitespace-separated word ("physical network" → "Physical Network").
@@ -121,36 +125,6 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
     style: { 'border-color': color, 'border-width': 3, 'border-opacity': 1 },
   }));
 
-  // Storage usage as a bottom-up fill on ANY node carrying a usageRatio — a data-driven
-  // rule, NOT a kind list, so `pvc` (kubelet) and `netapp-aggr` (Harvest) are served by one
-  // declaration and a future usage-bearing kind joins for free. An ABSENT ratio matches no
-  // selector at all, which is how "unmeasured" stays structurally distinct from "0% full".
-  //
-  // Achromatic on purpose: colour is reserved for status in this panel, so the level is
-  // encoded by FILL HEIGHT alone. background-image (the kind glyph) composites above the
-  // fill, so identity stays readable at any level. Declared BEFORE statusSelectors so a
-  // node's status border still wins its own rule.
-  const usageFillColor = colors.border.strong;
-  const usageFillSelectors: CyStylesheet[] = [
-    {
-      selector: 'node[usageRatio]',
-      style: {
-        'background-fill': 'linear-gradient',
-        'background-gradient-direction': 'to-top',
-        // Two hard-edged bands: filled up to the ratio, plain node background above it.
-        // ARRAY form, not the space-separated string cytoscape also accepts: Grafana's
-        // neutral border colour is `rgba(204, 204, 220, 0.30)` — it contains spaces, so a
-        // joined string is split mid-colour and the whole stylesheet fails to parse.
-        'background-gradient-stop-colors': [usageFillColor, usageFillColor, bgColor, bgColor],
-        'background-gradient-stop-positions': ((ele: cytoscape.NodeSingular): string => {
-          const ratio = ele.data('usageRatio') as unknown;
-          const pct = typeof ratio === 'number' && Number.isFinite(ratio) ? Math.min(100, Math.max(0, ratio * 100)) : 0;
-          return `0% ${pct}% ${pct}% 100%`;
-        }) as unknown as Array<string | number>,
-      },
-    },
-  ];
-
   // Collapsed decorative groups (cluster / namespace / application) have no kind icon to
   // fall back to (unlike kind-ful compounds, which revert to their kind glyph when folded),
   // so a folded one would be a blank coloured box. Paint a folder glyph tinted by the
@@ -186,8 +160,12 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       style: {
         shape: 'round-rectangle',
         'background-color': bgColor,
-        'background-image': ((ele: cytoscape.NodeSingular): string =>
-          resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor)) as unknown as string,
+        'background-image': ((ele: cytoscape.NodeSingular): string => {
+          const ratio = ele.data('usageRatio') as unknown;
+          return typeof ratio === 'number'
+            ? resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor, ratio)
+            : resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor);
+        }) as unknown as string,
         'background-fit': 'contain',
         'background-clip': 'none',
         'background-image-opacity': 1,
@@ -380,7 +358,6 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
         'border-opacity': 0.9,
       },
     },
-    ...usageFillSelectors,
     ...collapsedDecorativeFolderSelectors,
     ...statusSelectors,
     ...collapsedContainerStatusSelectors,

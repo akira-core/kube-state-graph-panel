@@ -22,7 +22,7 @@ fixture MUST 同時涵蓋**有 join** 與**無 join** 兩種 PVC,使前端「無
 #### Scenario: 每 tick 推送完整 NetApp 序列集
 
 - **WHEN** `ksg-seeder` 容器完成一次 tick
-- **THEN** 該次 push 的 payload 同時含四個 `volume_*` 家族、`aggr_new_status` / `aggr_space_used` / `aggr_space_total`、`node_new_status`,以及兩個 `kubelet_volume_stats_*` 家族
+- **THEN** 該次 push 的 payload 同時含六個 `volume_*` 家族、`aggr_new_status` / `aggr_space_used` / `aggr_space_total`、`node_new_status`,以及兩個 `kubelet_volume_stats_*` 家族
 
 #### Scenario: volume_name 與 PVC 的 volumename 對齊
 

@@ -35,10 +35,10 @@ declare module 'cytoscape' {
     // neither resolved. Never a placeholder 0.
     usage?: { usedBytes?: number; capacityBytes?: number };
     // usedBytes / capacityBytes, clamped to [0,1], derived by normalize ONLY when both
-    // are valid and capacity > 0. Flattened out of `usage` because cytoscape selectors
-    // can read neither nested data nor arithmetic — the usage-fill stylesheet rule keys
-    // on `node[usageRatio]`, so it is kind-agnostic by construction and an ABSENT ratio
-    // matches nothing (structurally distinct from 0%).
+    // are valid and capacity > 0. Flattened out of `usage` because cytoscape cannot
+    // compute a ratio in a mapper's data() call either — the icon mapper reads this
+    // top-level field, so it is kind-agnostic by construction and an ABSENT ratio
+    // paints no liquid (structurally distinct from 0%).
     usageRatio?: number;
     // A pod's controller owner (typed upstream `data.owner` passthrough). The
     // detail-URL queries resolve a pod's controller kind/name from it; a pod
@@ -116,6 +116,8 @@ declare module 'cytoscape' {
     writeOps?: number; // write requests per second
     readLatencyUs?: number; // average read latency, MICROseconds
     writeLatencyUs?: number; // average write latency, MICROseconds
+    readBytesPerSec?: number; // read throughput, bytes per second (not a cumulative counter)
+    writeBytesPerSec?: number; // write throughput, bytes per second (not a cumulative counter)
   }
 
   // The two families are mutually exclusive by provenance — a trace-derived call edge or a

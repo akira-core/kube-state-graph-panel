@@ -25,7 +25,7 @@ The delta specs under `specs/` are the behaviour contract; this document covers 
 
 - No dual-model support for the pre-change backend (decided: hard switch).
 - No new legend section for ONTAP; `storage-cluster` is an accent box only.
-- No mapping of NetApp `health` onto the K8s `status` scale — colour stays reserved for status.
+- No mapping of NetApp `health` onto the K8s `status` scale. Status still owns the node **border**. Usage liquid reuses `STATUS_COLOR` as Grafana-style capacity thresholds (interior fill channel, translucent).
 - No E2E coverage in CI (repo policy: E2E is developer-triggered).
 
 ## Decisions
@@ -56,9 +56,21 @@ Cytoscape selectors cannot read nested `data` (`data.usage.usedBytes`) and canno
 
 Keying the rule on the field rather than on `kind` is the load-bearing part: PVC and aggregate get identical treatment from one rule, and the rule needs no edit when the backend adds `usage` to another kind. It also makes "no data" structurally distinct from "0%" — an absent `usageRatio` matches no selector at all.
 
-**Rendering mechanism:** `background-fill: 'linear-gradient'` with a two-stop achromatic gradient whose stop position is `(1 - usageRatio) * 100`% (fill grows from the bottom). Colour comes from the theme's neutral scale — never `STATUS_COLOR`, per the repo's "colour encodes status only" rule. The kind icon is a `background-image`, which cytoscape composites **above** the background fill, so identity stays legible at any fill level.
+**Rendering mechanism (revised):** do **not** paint usage on the node box. Cytoscape `background-fill: 'linear-gradient'` fills the 40px round-rectangle, so the liquid sits outside the cylinder silhouette and, at high ratios, matches the icon stroke luminance and erases `netapp-aggr`'s two internal layer lines.
 
-_Alternative considered:_ cytoscape's native pie-chart node styling (`pie-1-background-size`) — rejected: it renders a radial wedge that reads as a category share, not a tank level, and it fights the icon for the node's centre.
+Instead, bake a **bottom-up liquid into the kind SVG** (`background-image`) and leave the node body as the solid theme `background.secondary`:
+
+1. A fill shape inside that kind's **outer cylinder** (an inset rect in the vertical walls of the `pvc` / `netapp-aggr` silhouette — cytoscape's SVG rasteriser drops `clip-path="url(#…)"` and nested `<svg>` windows; any future non-cylinder kind with `usageRatio` falls back to a viewBox rect). Height is `usageRatio` of the cylinder, growing from the bottom.
+2. Fill colour is `STATUS_COLOR` on Grafana thresholds, baked as **`rgba(..., 0.4)`** (cytoscape ignores SVG `fill-opacity`):
+   - `ratio < 0.8` → `normal` `#73BF69`
+   - `ratio >= 0.8` → `warning` `#F2CC0C`
+   - `ratio >= 0.9` → `critical` `#E02F44`
+3. Original strokes (including aggr's two internal ellipses) paint **after** the liquid, full opacity, so the glyph stays the same size and the layer lines stay readable through the wash.
+4. Label stays `data(label)`. An absent `usageRatio` still matches no rule — no liquid, not a 0% green sliver.
+
+Status border rules are unchanged: a node can carry a green liquid and a red status border at once (capacity vs k8s status, two channels).
+
+_Alternatives considered:_ (1) node-box linear-gradient, shipped in 4.2 — rejected after visual check, it occludes the glyph. (2) cytoscape pie wedges — rejected: reads as a category share, not a tank. (3) shrinking the icon or appending `%` to the label — rejected: identity and naming stay as they are.
 
 ### D4 — Edge `metrics` becomes a discriminated-by-presence union
 
@@ -97,7 +109,8 @@ The one consequence to state (and test): in `node` mode a PVC re-homes under its
 
 - **Hard cut against an older backend image** → the demo's `KSG_BACKEND_TAG` and any deployed Grafana must move together; called out in the proposal and pinned by a dev-environment spec scenario.
 - **Harvest gauge vs. counter confusion in the seeder** (every other seeded series must increment; these must not) → stated explicitly in the dev-environment spec with its own scenario, since a "helpfully" incrementing gauge would show absurd ops/latency in the demo.
-- **Gradient fill vs. theme legibility** — an achromatic fill on a dark theme risks reading as "selected" → use the theme's disabled/border scale rather than a mid-grey, and verify against both light and dark Grafana themes before merging.
+- **Cylinder liquid vs. stroke contrast** — an opaque fill (and the old node-box gradient) hides `netapp-aggr` layer lines. Mitigated by baking alpha 0.4 into `rgba(...)` (cytoscape ignores `fill-opacity`) with strokes painted on top; verify at 70 / 85 / 95% on both Grafana themes.
+- **Same hues as status** — usage liquid uses `STATUS_COLOR` values. Mitigated by channel: status is the **border**, usage is the **translucent interior**. A selected node still uses the blue outline/underlay, which is not in this palette.
 - **`metrics` union widens a public-ish type** — anything doing `metrics.rate` unguarded now breaks at compile time. That is the desired outcome (it was already unsound for non-RED edges); the tooltip is the only in-repo consumer.
 - **Three `Storage` glyphs** may crowd the legend category → mitigated by D7's deliberately distinct silhouettes; if it still reads poorly, the fallback is a sub-grouping tweak in `NodeLegend`, not a colour change.
 

@@ -154,20 +154,6 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
-    "selector": "node[usageRatio]",
-    "style": {
-      "background-fill": "linear-gradient",
-      "background-gradient-direction": "to-top",
-      "background-gradient-stop-colors": [
-        "rgba(204, 204, 220, 0.30)",
-        "rgba(204, 204, 220, 0.30)",
-        "#22252b",
-        "#22252b",
-      ],
-      "background-gradient-stop-positions": [Function],
-    },
-  },
-  {
     "selector": "node[?isCluster].cy-expand-collapse-collapsed-node",
     "style": {
       "background-clip": "none",

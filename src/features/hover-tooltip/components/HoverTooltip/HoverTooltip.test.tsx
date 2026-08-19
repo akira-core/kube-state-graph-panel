@@ -620,4 +620,93 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
       expect(keys.slice(dividerIndex)).toEqual(['namespace']);
     });
   });
+
+  describe('edge storage I/O metrics', () => {
+    type EdgeExtras = Partial<Omit<cytoscape.EdgeDataDefinition, 'id' | 'source' | 'target'>>;
+
+    const hoverStorageEdgeWith = (extras: EdgeExtras): void => {
+      useHoverElement.mockReturnValue({
+        id: 'e-io',
+        group: 'edges',
+        data: { id: 'e-io', source: 'pvc', target: 'aggr', edgeType: 'pvc-to-netapp-aggr', ...extras },
+        sourceLabel: 'data-mongo-0',
+        targetLabel: 'aggr1',
+      });
+    };
+
+    const renderedKeys = (): string[] =>
+      Array.from(screen.getByTestId('hover-tooltip').querySelectorAll('span'))
+        .map((el) => el.textContent ?? '')
+        .filter((text) => text.endsWith(':'))
+        .map((text) => text.slice(0, -1));
+
+    it('renders all six I/O rows after edgeType, with no RED rows', () => {
+      hoverStorageEdgeWith({
+        metrics: {
+          readOps: 150,
+          writeOps: 40,
+          readLatencyUs: 830,
+          writeLatencyUs: 1200,
+          readBytesPerSec: 5242880,
+          writeBytesPerSec: 1048576,
+        },
+      });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('150 ops/s')).toBeInTheDocument();
+      expect(screen.getByText('40 ops/s')).toBeInTheDocument();
+      expect(screen.getByText('830 µs')).toBeInTheDocument();
+      expect(screen.getByText('1.2 ms')).toBeInTheDocument();
+      expect(screen.getByText('5.24 MB/s')).toBeInTheDocument();
+      expect(screen.getByText('1.05 MB/s')).toBeInTheDocument();
+      expect(renderedKeys()).toEqual([
+        'edgeType',
+        'read',
+        'write',
+        'read latency',
+        'write latency',
+        'read throughput',
+        'write throughput',
+      ]);
+      expect(screen.queryByText(/req\/s/)).not.toBeInTheDocument();
+    });
+
+    it('omits absent I/O fields rather than rendering 0 or a placeholder', () => {
+      hoverStorageEdgeWith({ metrics: { readOps: 150, readBytesPerSec: 5242880 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(renderedKeys()).toEqual(['edgeType', 'read', 'read throughput']);
+      expect(screen.queryByText('0 ops/s')).not.toBeInTheDocument();
+      expect(screen.queryByText('0 B/s')).not.toBeInTheDocument();
+      expect(screen.queryByText('N/A')).not.toBeInTheDocument();
+    });
+
+    it('formats throughput on the decimal byte ladder, keeping small values visible', () => {
+      hoverStorageEdgeWith({ metrics: { readBytesPerSec: 5242880, writeBytesPerSec: 12 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('5.24 MB/s')).toBeInTheDocument();
+      expect(screen.getByText('12 B/s')).toBeInTheDocument();
+      expect(screen.queryByText(/e\+?\d/)).not.toBeInTheDocument();
+      expect(screen.queryByText('0 B/s')).not.toBeInTheDocument();
+    });
+
+    it('leaves every I/O value uncoloured — error tint is reserved for a measured errorRate', () => {
+      hoverStorageEdgeWith({
+        metrics: {
+          readOps: 150,
+          writeOps: 40,
+          readLatencyUs: 830,
+          writeLatencyUs: 1200,
+          readBytesPerSec: 5242880,
+          writeBytesPerSec: 1048576,
+        },
+      });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      for (const value of ['150 ops/s', '40 ops/s', '830 µs', '1.2 ms', '5.24 MB/s', '1.05 MB/s']) {
+        expect(screen.getByText(value)).not.toHaveStyle({ color: errorTextColor });
+      }
+    });
+  });
 });

@@ -10,7 +10,7 @@
 // The significant-digit and byte helpers live in `shared/format/measurements` because the
 // promoted node attributes need them too, and `shared/` must not import a feature.
 
-import { RATIO_TO_PERCENT, formatSignificant } from '../../shared/format/measurements';
+import { RATIO_TO_PERCENT, formatBytes, formatSignificant } from '../../shared/format/measurements';
 
 export { formatSignificant };
 
@@ -61,4 +61,15 @@ export function formatLatencyUs(latencyUs: number): string {
     return `${formatSignificant(latencyUs / US_PER_MS)} ms`;
   }
   return `${formatSignificant(latencyUs)} µs`;
+}
+
+/**
+ * Storage throughput as a decimal byte rate, e.g. `5.24 MB/s`.
+ *
+ * Delegates to the shared byte ladder used by the node `usage` row so a `700 GB`
+ * aggregate and a `5.24 MB/s` edge read on the same scale. The `/s` suffix is
+ * attached here — `formatBytes` is a count, this is a rate.
+ */
+export function formatThroughputBytesPerSec(bytesPerSec: number): string {
+  return `${formatBytes(bytesPerSec)}/s`;
 }

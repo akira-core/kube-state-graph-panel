@@ -105,12 +105,16 @@ function parseIoMetrics(v: Record<string, unknown>): cytoscape.EdgeIoMetrics | u
     write_ops: writeOps,
     read_latency_us: readLatencyUs,
     write_latency_us: writeLatencyUs,
+    read_bytes_per_sec: readBytesPerSec,
+    write_bytes_per_sec: writeBytesPerSec,
   } = v;
   const io: cytoscape.EdgeIoMetrics = {
     ...(isFiniteNumber(readOps) ? { readOps } : {}),
     ...(isFiniteNumber(writeOps) ? { writeOps } : {}),
     ...(isFiniteNumber(readLatencyUs) ? { readLatencyUs } : {}),
     ...(isFiniteNumber(writeLatencyUs) ? { writeLatencyUs } : {}),
+    ...(isFiniteNumber(readBytesPerSec) ? { readBytesPerSec } : {}),
+    ...(isFiniteNumber(writeBytesPerSec) ? { writeBytesPerSec } : {}),
   };
   return Object.keys(io).length > 0 ? io : undefined;
 }
@@ -252,13 +256,13 @@ function parseUsage(v: unknown): { usedBytes?: number; capacityBytes?: number } 
   };
 }
 
-// Flatten usage to a single [0,1] ratio for the stylesheet, which can read neither nested
-// data nor arithmetic in a selector. Deliberately KIND-AGNOSTIC: any node with a complete
-// usage reading gets one, so `node[usageRatio]` styles pvc and netapp-aggr through one rule
-// and picks up a future usage-bearing kind for free.
+// Flatten usage to a single [0,1] ratio for the icon mapper, which can read neither nested
+// data nor arithmetic. Deliberately KIND-AGNOSTIC: any node with a complete usage reading
+// gets one, so pvc and netapp-aggr share one liquid painter and a future usage-bearing
+// kind joins for free.
 //
 // Returns undefined unless BOTH halves are present and capacity is non-zero — an absent
-// ratio matches no selector at all, which is how "no data" stays structurally distinct from
+// ratio paints no liquid at all, which is how "no data" stays structurally distinct from
 // a 0% fill. Clamped because a volume can legitimately report used > capacity (filesystem
 // overhead, thin provisioning) and a >100% fill would just render as a rendering bug.
 function deriveUsageRatio(usage: { usedBytes?: number; capacityBytes?: number } | undefined): number | undefined {

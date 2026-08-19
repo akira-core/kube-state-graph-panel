@@ -1,4 +1,10 @@
-import { formatDurationMs, formatErrorRate, formatRate, formatSignificant } from './formatEdgeMetrics';
+import {
+  formatDurationMs,
+  formatErrorRate,
+  formatRate,
+  formatSignificant,
+  formatThroughputBytesPerSec,
+} from './formatEdgeMetrics';
 
 describe('formatSignificant', () => {
   it('keeps at most 3 significant digits', () => {
@@ -83,5 +89,27 @@ describe('formatDurationMs', () => {
     expect(formatDurationMs(1000)).toBe('1 s');
     expect(formatDurationMs(2500)).toBe('2.5 s');
     expect(formatDurationMs(45000)).toBe('45 s');
+  });
+});
+
+describe('formatThroughputBytesPerSec', () => {
+  it('formats through the shared decimal byte ladder with a /s suffix', () => {
+    // Same ladder as the node usage row, so a 700 GB aggregate and a 5.24 MB/s edge
+    // read on one scale. 5242880 bytes/s is the spec's harvest-shaped example.
+    expect(formatThroughputBytesPerSec(5242880)).toBe('5.24 MB/s');
+    expect(formatThroughputBytesPerSec(1048576)).toBe('1.05 MB/s');
+  });
+
+  it('keeps small throughputs in bytes rather than rounding them to zero', () => {
+    expect(formatThroughputBytesPerSec(12)).toBe('12 B/s');
+    expect(formatThroughputBytesPerSec(0)).toBe('0 B/s');
+  });
+
+  it('never renders a non-zero throughput as zero', () => {
+    for (const value of [12, 0.4, 3.86e-7]) {
+      const formatted = formatThroughputBytesPerSec(value);
+      expect(formatted).not.toBe('0 B/s');
+      expect(formatted.endsWith('/s')).toBe(true);
+    }
   });
 });

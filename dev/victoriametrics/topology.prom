@@ -178,10 +178,11 @@ kube_endpointslice_endpoints{cluster="dr",namespace="dr",endpointslice="nats-svc
 # own `storage-cluster` box instead.
 #
 # These are GAUGES and the backend reads them with last_over_time, verbatim: Harvest has
-# already resolved ONTAP's base counters, so `volume_read_ops` is ALREADY per-second and
-# `volume_read_latency` is ALREADY an average in microseconds. The seeder therefore re-pushes
-# them at a steady value each tick — the exact opposite of the traces_service_graph_*
-# counters, which must increase. Making these monotonic would render absurd IOPS in the demo.
+# already resolved ONTAP's base counters, so `volume_read_ops` is ALREADY per-second,
+# `volume_read_latency` is ALREADY an average in microseconds, and `volume_*_data` is
+# ALREADY bytes per second. The seeder therefore re-pushes them at a steady value each
+# tick — the exact opposite of the traces_service_graph_* counters, which must increase.
+# Making these monotonic would render absurd IOPS / throughput in the demo.
 #
 # data-mongo-0 -> aggr1 (ontap-prod-01), data-mongo-1 -> aggr2 (ontap-prod-02).
 # data-mongo-2 has no volumename at all, so it joins nothing and draws no storage edge.
@@ -189,10 +190,14 @@ volume_read_ops{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-
 volume_write_ops{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 40
 volume_read_latency{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 830
 volume_write_latency{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 1200
+volume_read_data{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 5242880
+volume_write_data{cluster="ontap-prod",node="ontap-prod-01",aggr="aggr1",svm="svm-prod",volume_name="pvc-9f3a"} 1048576
 volume_read_ops{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 12
 volume_write_ops{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 3
 volume_read_latency{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 410
 volume_write_latency{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 6500
+volume_read_data{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 12000
+volume_write_data{cluster="ontap-prod",node="ontap-prod-02",aggr="aggr2",svm="svm-prod",volume_name="pvc-7c21"} 12
 
 # --- Aggregate health + space. `aggr_new_status` is 1 = online, anything else = degraded;
 #     ABSENCE is neither (the backend omits data.health entirely, and the panel must not

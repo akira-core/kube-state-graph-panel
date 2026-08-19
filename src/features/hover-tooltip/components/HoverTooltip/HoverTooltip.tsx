@@ -5,7 +5,14 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 
 import { buildNodeAttributes } from '../../../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../../../shared/theme/themeColors';
-import { formatDurationMs, formatErrorRate, formatLatencyUs, formatOps, formatRate } from '../../formatEdgeMetrics';
+import {
+  formatDurationMs,
+  formatErrorRate,
+  formatLatencyUs,
+  formatOps,
+  formatRate,
+  formatThroughputBytesPerSec,
+} from '../../formatEdgeMetrics';
 import { useHoverElement, type HoveredElement } from '../../hooks/useHoverElement';
 
 import { type HoverTooltipProps } from './HoverTooltip.types';
@@ -166,10 +173,12 @@ function buildMetricRows(metrics: unknown): TooltipRow[] {
   return rows;
 }
 
-// The I/O half of the union, in read-then-write order so the two pairs read as a block.
-// Values are Harvest's verbatim per-second ops and average microsecond latencies.
+// The I/O half of the union, in read-then-write order so each pair reads as a block:
+// ops, then latency, then throughput. Values are Harvest's verbatim per-second ops,
+// average microsecond latencies, and bytes-per-second rates.
 function buildIoMetricRows(metrics: object): TooltipRow[] {
-  const { readOps, writeOps, readLatencyUs, writeLatencyUs } = metrics as Partial<cytoscape.EdgeIoMetrics>;
+  const { readOps, writeOps, readLatencyUs, writeLatencyUs, readBytesPerSec, writeBytesPerSec } =
+    metrics as Partial<cytoscape.EdgeIoMetrics>;
   const rows: TooltipRow[] = [];
   if (isFiniteNumber(readOps)) {
     rows.push({ key: 'read', value: formatOps(readOps) });
@@ -182,6 +191,12 @@ function buildIoMetricRows(metrics: object): TooltipRow[] {
   }
   if (isFiniteNumber(writeLatencyUs)) {
     rows.push({ key: 'write latency', value: formatLatencyUs(writeLatencyUs) });
+  }
+  if (isFiniteNumber(readBytesPerSec)) {
+    rows.push({ key: 'read throughput', value: formatThroughputBytesPerSec(readBytesPerSec) });
+  }
+  if (isFiniteNumber(writeBytesPerSec)) {
+    rows.push({ key: 'write throughput', value: formatThroughputBytesPerSec(writeBytesPerSec) });
   }
   return rows;
 }

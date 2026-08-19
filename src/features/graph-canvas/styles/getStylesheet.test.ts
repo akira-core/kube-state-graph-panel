@@ -9,6 +9,7 @@ import {
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation';
 import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
+import { usageFillPaint } from '../../../shared/icon/paintUsageLiquid';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
 import { FADED_CLASS, getStylesheet } from './getStylesheet';
@@ -671,9 +672,9 @@ describe('getStylesheet', () => {
 });
 
 describe('storage usage fill', () => {
-  // The rule is keyed on `data.usageRatio`, NOT on kind — that is the whole point of
-  // flattening the ratio in normalize, so pvc and netapp-aggr share one declaration and a
-  // future usage-bearing kind needs no stylesheet edit.
+  // Triggered by `data.usageRatio`, NOT kind — pvc and netapp-aggr share the mapper,
+  // and a future usage-bearing kind joins for free. The liquid lives in the SVG, not
+  // a node-box gradient (that occluded cylinder strokes).
   const build = (nodes: cytoscape.NodeDataDefinition[]): cytoscape.Core =>
     cytoscape({
       headless: true,
@@ -682,59 +683,83 @@ describe('storage usage fill', () => {
       elements: nodes.map((data) => ({ group: 'nodes' as const, data })),
     });
 
-  it('fills two different kinds from the same rule, in proportion to their ratio', () => {
+  const decodedIcon = (cy: cytoscape.Core, id: string): string => {
+    const uri = String(cy.getElementById(id).style('background-image'));
+    return decodeURIComponent(uri.replace(/^data:image\/svg\+xml,/, ''));
+  };
+
+  it('does not paint usage as a node-box gradient', () => {
     const cy = build([
       { id: 'pvc-1', label: 'pvc-1', kind: 'pvc', usageRatio: 0.7 },
       { id: 'aggr-1', label: 'aggr-1', kind: 'netapp-aggr', usageRatio: 0.5 },
     ]);
-    expect(cy.getElementById('pvc-1').style('background-fill')).toBe('linear-gradient');
-    expect(cy.getElementById('aggr-1').style('background-fill')).toBe('linear-gradient');
-    // Stops are bottom-up (direction to-top), so the boundary percentage IS the fill level.
-    expect(String(cy.getElementById('pvc-1').style('background-gradient-stop-positions'))).toContain('70%');
-    expect(String(cy.getElementById('aggr-1').style('background-gradient-stop-positions'))).toContain('50%');
+    expect(cy.getElementById('pvc-1').style('background-fill')).toBe('solid');
+    expect(cy.getElementById('aggr-1').style('background-fill')).toBe('solid');
+    expect(styleFor('node[usageRatio]')).toEqual({});
+    cy.destroy();
+  });
+
+  it('paints a translucent cylinder liquid into both kinds from the same mapper', () => {
+    const cy = build([
+      { id: 'pvc-1', label: 'pvc-1', kind: 'pvc', usageRatio: 0.7 },
+      { id: 'aggr-1', label: 'aggr-1', kind: 'netapp-aggr', usageRatio: 0.5 },
+    ]);
+    const pvc = decodedIcon(cy, 'pvc-1');
+    const aggr = decodedIcon(cy, 'aggr-1');
+    expect(pvc).toContain(usageFillPaint(0.7));
+    expect(aggr).toContain(usageFillPaint(0.5));
+    expect(aggr).toContain('M5 9.8');
+    expect(aggr).toContain('M5 14.1');
     cy.destroy();
   });
 
   it('leaves a node without a ratio unfilled — absent data is not a 0% reading', () => {
     const cy = build([{ id: 'pvc-2', label: 'pvc-2', kind: 'pvc' }]);
-    // No usageRatio → the selector does not match at all, so the base solid fill stands.
     expect(cy.getElementById('pvc-2').style('background-fill')).toBe('solid');
+    expect(decodedIcon(cy, 'pvc-2')).not.toContain('rgba(');
     cy.destroy();
   });
 
-  it('never tints the fill with a status colour (level is encoded by height, not hue)', () => {
-    const cy = build([{ id: 'aggr-2', label: 'aggr-2', kind: 'netapp-aggr', usageRatio: 0.9 }]);
-    const stops = String(cy.getElementById('aggr-2').style('background-gradient-stop-colors')).toLowerCase();
-    for (const color of Object.values(STATUS_COLOR)) {
-      expect(stops).not.toContain(color.toLowerCase());
-    }
+  it('uses STATUS_COLOR thresholds: green / yellow / red', () => {
+    const cy = build([
+      { id: 'g', label: 'g', kind: 'pvc', usageRatio: 0.7 },
+      { id: 'y', label: 'y', kind: 'pvc', usageRatio: 0.8 },
+      { id: 'r', label: 'r', kind: 'pvc', usageRatio: 0.9 },
+      { id: 'just-green', label: 'just-green', kind: 'pvc', usageRatio: 0.79 },
+    ]);
+    expect(decodedIcon(cy, 'g')).toContain(usageFillPaint(0.7));
+    expect(decodedIcon(cy, 'y')).toContain(usageFillPaint(0.8));
+    expect(decodedIcon(cy, 'r')).toContain(usageFillPaint(0.9));
+    expect(decodedIcon(cy, 'just-green')).toContain(usageFillPaint(0.79));
+    expect(decodedIcon(cy, 'just-green')).not.toContain(usageFillPaint(0.8));
     cy.destroy();
   });
 
-  it('resolves a theme-sourced fill in both light and dark (never a hardcoded grey)', () => {
-    const fillFor = (mode: 'light' | 'dark'): string => {
+  it('keeps liquid colour theme-independent while strokes follow the theme', () => {
+    const svgFor = (mode: 'light' | 'dark'): string => {
       const cy = cytoscape({
         headless: true,
         styleEnabled: true,
         style: getStylesheet({ theme: createTheme({ colors: { mode } }) }) as cytoscape.StylesheetStyle[],
         elements: [{ group: 'nodes', data: { id: 'a', label: 'a', kind: 'pvc', usageRatio: 0.7 } }],
       });
-      const stops = String(cy.getElementById('a').style('background-gradient-stop-colors'));
+      const svg = decodedIcon(cy, 'a');
       cy.destroy();
-      return stops;
+      return svg;
     };
-    // Both themes must produce SOME fill, and they must differ — a hardcoded colour would
-    // be identical in both and would read wrong against one of the two backgrounds.
-    expect(fillFor('light')).not.toBe('');
-    expect(fillFor('dark')).not.toBe('');
-    expect(fillFor('light')).not.toBe(fillFor('dark'));
+    const light = svgFor('light');
+    const dark = svgFor('dark');
+    expect(light).toContain(usageFillPaint(0.7));
+    expect(dark).toContain(usageFillPaint(0.7));
+    expect(light).not.toBe(dark);
   });
 
-  it('keeps the kind icon painted above the fill', () => {
+  it('keeps the kind icon at NODE_SIZE with an unchanged label', () => {
     const cy = build([{ id: 'aggr-3', label: 'aggr-3', kind: 'netapp-aggr', usageRatio: 0.7 }]);
-    // background-image is composited over background-fill by cytoscape, so identity
-    // survives any fill level — assert the glyph is still resolved rather than cleared.
     expect(String(cy.getElementById('aggr-3').style('background-image'))).toMatch(/^data:image\/svg\+xml,/);
+    expect(cy.getElementById('aggr-3').style('width')).toBe('40px');
+    expect(cy.getElementById('aggr-3').style('height')).toBe('40px');
+    expect(styleFor('node').label).toBe('data(label)');
     cy.destroy();
   });
 });
