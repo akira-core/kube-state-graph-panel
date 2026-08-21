@@ -81,3 +81,35 @@ The shipped 4.2 node-box gradient occludes cylinder strokes (especially `netapp-
 - [x] 10.3 Wire the `background-image` mapper so a node with `usageRatio` uses that helper. Icon size (`NODE_SIZE` / `contain`) and `label: data(label)` stay unchanged.
 - [x] 10.4 Tests: no node-box gradient on usage nodes; URI / helper output contains fill-opacity 0.4; `0.7` green / `0.8` yellow / `0.9` red / `0.79` still green; absent ratio still solid + untinted icon; aggr internal layer paths still present. Flip the old "fill colour MUST NOT be STATUS_COLOR" assertion.
 - [x] 10.5 Visual: light and dark Grafana themes, at ~70 / 85 / 95%, confirm aggr layer lines stay readable through the liquid.
+
+## 11. QoS ceiling fields and the corrected demo join hops
+
+> Delta on top of the shipped sections 1-10. Two independent gaps against the
+> backend as it actually ships (both introduced by backend commit `160c347`,
+> "read storage I/O from QoS workloads, surface the QoS ceiling", which landed
+> after sections 1-10 were written):
+>
+> (a) the I/O family is **eight** fields, not six — the backend also emits the
+> volume's declared QoS ceiling `max_iops` / `max_bytes_per_sec`;
+>
+> (b) the demo fixture seeds the wrong Harvest families. The backend resolves
+> storage in three hops — `volume_labels` (topology, the SOLE source), the six
+> `qos_*` workloads at `{lun=""}` (measurements), and
+> `qos_policy_fixed_max_throughput_{iops,mbps}` joined on
+> `(cluster, svm, policy_group)` (ceiling). The fixture currently pushes six
+> `volume_*` measurement families and **no `volume_labels` at all**, so the demo
+> renders no storage half whatsoever. Task 7.4's visual check passed against the
+> pre-`160c347` backend and no longer holds.
+>
+> (a) is purely additive on the wire — an un-upgraded panel ignores the two keys.
+> (b) is a fixture correction with no production-code impact.
+
+- [ ] 11.1 `src/shared/types/cytoscape.d.ts`: add `maxIops?: number` / `maxBytesPerSec?: number` to `EdgeIoMetrics`, recording on the fields that `maxBytesPerSec` is bytes per second (already converted upstream from Harvest's MB/s) and that absence means *no declared ceiling* — never `0`, never an unlimited sentinel.
+- [ ] 11.2 `normalize.ts` `parseEdgeMetrics`: hoist `max_iops` / `max_bytes_per_sec` with the same per-field guard as the existing six; either field alone MUST keep the I/O family alive, and normalize MUST NOT enforce "a ceiling never appears alone" (that invariant is the backend's). Extend `normalize.test.ts`: both ceilings present, measurements-with-no-ceiling, one ceiling invalid (drops that field only), values passed through unconverted.
+- [ ] 11.3 `src/features/hover-tooltip/formatEdgeMetrics.ts`: route `maxIops` through the existing ops formatter and `maxBytesPerSec` through `formatThroughputBytesPerSec` (added in 9.3) — no new formatter, that shared ladder is what makes a ceiling and a measurement comparable at a glance.
+- [ ] 11.4 `HoverTooltip`: append `max iops` / `max throughput` rows **after** the two throughput rows, each guarded by `isFiniteNumber`, neutral-coloured. Exceeding a ceiling MUST NOT colour or warn. Extend `HoverTooltip.test.tsx` with the eight-row storage edge, the measured-but-uncapped case, and an over-ceiling case asserting neutral colour.
+- [ ] 11.5 `dev/victoriametrics/topology.prom`: replace the six `volume_*` measurement families with `volume_labels` (info series; `cluster` / `node` / `aggr` / `svm` / `volume_name`, value ignored) plus the six `qos_*` families carrying `cluster` / `svm` / `volume_name` / `policy_group` and **no `lun` label**. Keep the existing `aggr_*`, `node_new_status`, and `kubelet_volume_stats_*` blocks unchanged. Update the surrounding header comment, which currently describes the retired single-family model.
+- [ ] 11.6 Same fixture: add `qos_policy_fixed_max_throughput_iops` / `_mbps` for one volume's `(cluster, svm, policy_group)`, and deliberately leave the second joined volume in no policy group, so the demo shows both the capped and the uncapped edge. Values in MB/s for the `_mbps` family (the backend converts).
+- [ ] 11.7 Re-run the section 7.4 visual check against a backend image carrying `160c347`: storage chain nests, both usage fills render, the capped edge shows eight tooltip rows and the uncapped one shows six.
+- [ ] 11.8 `CLAUDE.md` demo-fixture description: correct the seeded Harvest family names to the three-hop set.
+- [ ] 11.9 Full gate: `npm run lint && npm run typecheck && npm run test:ci && npm run build` clean; `openspec validate sync-netapp-storage-nodes --strict`.

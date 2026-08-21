@@ -2,53 +2,53 @@
 
 ## MODIFIED Requirements
 
-### Requirement: 節點身分以 icon 編碼
+### Requirement: Node identity is encoded by icon
 
-系統 SHALL 以 per-kind **icon** 承載節點身分(`kind`),取代既有的 per-kind 形狀編碼。所有 leaf 節點 MUST 以統一的 `round-rectangle` 容器渲染,kind 由節點的 `background-image`(icon)區分。`src/shared/constants/iconSvgByKind.ts` 匯出的 `ICON_SVG_BY_KIND` MUST 為 kind→icon 的唯一資料源,供 `getStylesheet` 與 legend 共用(取代 `SHAPE_BY_KIND` 的身分角色)。`NodeKind` 列舉 MUST 為 `pod`/`node`/`pvc`/`service`/`external` 加上 workload kind `deployment`/`statefulset`/`daemonset`/`job`/`cronjob`、物理網路 kind `switch`(後端 v0.0.18)、**實體儲存 kind `netapp-aggr`(ONTAP aggregate,leaf)與 `netapp-node`(ONTAP controller,**真實**的 compound 容器——見下方 compound icon 需求)**,以及包裹 switch fabric 的虛擬**容器型** kind `network`(`network > switch` 群組;wifi glyph 僅於收合時繪製,展開時與其他容器同樣 icon-less;收合時於 Node-kinds 圖例取代 `switch`,標籤顯示 `physical network`——見 panel-rendering / switch-tier-layout 規格)。`storageclass` MUST NOT 存在(後端已將其自契約移除,實體儲存鏈取代之)。`others` MUST NOT 存在(後端已將其自契約移除,external 吸收該 fallback)。ReplicaSet **不是** panel 的 NodeKind——後端將 `Deployment → ReplicaSet → Pod` 收斂,pod 直接歸其頂層 controller,故 ReplicaSet 不出現於圖中、不需 icon。
+The system SHALL carry node identity (`kind`) through a per-kind **icon**, replacing the previous per-kind shape encoding. All leaf nodes MUST render in a uniform `round-rectangle` container, with kind distinguished by the node's `background-image` (its icon). `ICON_SVG_BY_KIND`, exported from `src/shared/constants/iconSvgByKind.ts`, MUST be the single source of the kind→icon mapping, shared by `getStylesheet` and the legend (taking over the identity role `SHAPE_BY_KIND` used to hold). The `NodeKind` enum MUST be `pod` / `node` / `pvc` / `service` / `external`, plus the workload kinds `deployment` / `statefulset` / `daemonset` / `job` / `cronjob`, the physical-network kind `switch` (backend v0.0.18), **the physical-storage kinds `netapp-aggr` (an ONTAP aggregate, a leaf) and `netapp-node` (an ONTAP controller, a **real** compound container — see the compound-icon requirement below)**, and the virtual **container** kind `network` that wraps the switch fabric (the `network > switch` group; its wifi glyph is drawn only when collapsed, and it is icon-less when expanded like every other container; when collapsed it replaces `switch` in the Node-kinds legend with the label `physical network` — see the panel-rendering and switch-tier-layout specs). `storageclass` MUST NOT exist (the backend removed it from the contract; the physical storage chain replaces it). `others` MUST NOT exist (the backend removed it from the contract; `external` absorbed that fallback). ReplicaSet is **not** a panel `NodeKind` — the backend collapses `Deployment → ReplicaSet → Pod` and attributes a pod straight to its top-level controller, so a ReplicaSet never appears in the graph and needs no icon.
 
-`netapp-aggr` 與 `netapp-node` MUST 各有其專屬 icon,且兩者 MUST 在視覺上可區分(aggregate 為儲存池、controller 為機箱/控制器語彙),以免同屬 `Storage` category 的兩層在圖例與畫布上混淆。
+`netapp-aggr` and `netapp-node` MUST each have their own icon, and the two MUST be visually distinguishable (a storage-pool vocabulary for the aggregate, a chassis/controller vocabulary for the controller), so that the two tiers sharing the `Storage` category do not blur together in the legend or on the canvas.
 
-#### Scenario: 已知 kind 對應到正確 icon
+#### Scenario: A known kind maps to the correct icon
 
-- **WHEN** 節點 data 帶有 `kind: 'deployment'`(或其他已定義 kind)
-- **THEN** 該節點以統一 `round-rectangle` 容器渲染,中央以 `ICON_SVG_BY_KIND['deployment']` 對應的 icon 作為 `background-image`,且對應與 `iconSvgByKind.ts` 一致
+- **WHEN** a node's data carries `kind: 'deployment'` (or any other defined kind)
+- **THEN** that node renders in the uniform `round-rectangle` container with the icon from `ICON_SVG_BY_KIND['deployment']` as its centred `background-image`, and the mapping agrees with `iconSvgByKind.ts`
 
-#### Scenario: leaf 節點形狀不再編碼 kind
+#### Scenario: Leaf node shape no longer encodes kind
 
-- **WHEN** 兩個不同 kind(如 `pod` 與 `service`)的 leaf 節點同時渲染
-- **THEN** 兩者容器形狀皆為 `round-rectangle`(形狀不再區分 kind),僅由 icon 區分身分
+- **WHEN** two leaf nodes of different kinds (say `pod` and `service`) render at the same time
+- **THEN** both containers are `round-rectangle` (shape no longer distinguishes kind) and only the icon distinguishes identity
 
-#### Scenario: NetApp 兩 kind 各有可區分的 icon
+#### Scenario: The two NetApp kinds have distinguishable icons
 
-- **WHEN** 同一張圖中同時渲染 `kind: 'netapp-aggr'` 與 `kind: 'netapp-node'` 節點
-- **THEN** `ICON_SVG_BY_KIND` 為兩者提供不同的 icon,且 `storageclass` 不再是 `ICON_SVG_BY_KIND` 的 key
+- **WHEN** a single graph renders both a `kind: 'netapp-aggr'` and a `kind: 'netapp-node'` node
+- **THEN** `ICON_SVG_BY_KIND` supplies a different icon for each, and `storageclass` is no longer a key of `ICON_SVG_BY_KIND`
 
-### Requirement: compound 容器的 icon(展開無 icon、收合 / leaf 顯示置中 icon)
+### Requirement: Icons on compound containers (none when expanded, centred icon when collapsed or a leaf)
 
-當 `node` / `controller` / `netapp-node` 節點身為**展開的** compound parent(其下有可見子節點,`:parent`)時,系統 MUST **不**渲染 resource icon(`node:parent` 設 `background-image: 'none'`),僅以 label + 容器框呈現,避免 icon 鋪在子節點之後;同類節點於 **collapsed** 狀態(非 `:parent`)時,中央顯示其 kind icon(由 base `node` 選擇器依 `data.kind` 解析)。其中 `controller` 為後端 D6 直接送出的 compound 群組,但仍攜帶真實 `kind`(由 enrichment 自子 pod `owner.kind` 推得),故其行為比照舊版 panel 合成的 controller:**收合時顯示其 Workloads glyph、展開時為框**。
+When a `node` / `controller` / `netapp-node` node is an **expanded** compound parent (it has visible children, matching `:parent`), the system MUST NOT render a resource icon (`node:parent` sets `background-image: 'none'`) and MUST show only the label and the container frame, so that no icon tiles behind the children. The same nodes in the **collapsed** state (not `:parent`) show their kind icon in the centre, resolved by the base `node` selector from `data.kind`. Among these, `controller` is a compound group the backend emits directly under D6, yet it still carries a real `kind` (enrichment derives it from a child pod's `owner.kind`), so it behaves exactly like the controller the panel used to synthesise: **its Workloads glyph when collapsed, a frame when expanded.**
 
-`netapp-node` 同屬此類且為**後端契約直接指定**的真實-節點 compound parent(儲存鏈 `storage-cluster > netapp-node > netapp-aggr`):它攜帶真實 `kind`、可選取、有 icon,同時又 box 住其 `netapp-aggr` 子節點,故 MUST 完全比照 `node` / `controller` 的展開/收合 icon 行為(展開為框、收合顯示其 kind icon)。`netapp-aggr` 為其下的 leaf,icon 恆以 leaf 身分繪製。
+`netapp-node` belongs to the same class and is the real-node compound parent the **backend contract names directly** (the storage chain `storage-cluster > netapp-node > netapp-aggr`): it carries a real `kind`, is selectable, and has an icon, while also boxing its `netapp-aggr` children. It MUST therefore follow the `node` / `controller` expanded/collapsed icon behaviour exactly (a frame when expanded, its kind icon when collapsed). `netapp-aggr` is the leaf beneath it and always draws its icon as a leaf.
 
-`storageclass` 已自 `NodeKind` 移除,故其展開/收合與 leaf glyph 行為一併消失,不再有任何對應規則。
+`storageclass` has been removed from `NodeKind`, so its expanded/collapsed and leaf-glyph behaviour disappears with it; no rule corresponds to it any more.
 
-凡**無 `kind`** 的裝飾性 compound 群組 MUST NOT 於任何狀態(展開或收合)渲染 resource icon——除既有 `cluster` 容器(`isCluster`)外,後端 D6 送出的 `namespace`(`isNamespace`)、`application`(`isApplication`)與 `storage-cluster`(`isStorageCluster`)群組同屬此類:它們是 kind-less 的 accent-only 群組框。對應 stylesheet 選擇器(`node[?isCluster]` / `node[?isNamespace]` / `node[?isApplication]` / `node[?isStorageCluster]`)MUST 強制 `background-image: 'none'`,僅以 label + accent 容器框呈現。
+Any decorative compound group with **no `kind`** MUST NOT render a resource icon in either state (expanded or collapsed). Besides the existing `cluster` container (`isCluster`), this now covers the `namespace` (`isNamespace`), `application` (`isApplication`), and `storage-cluster` (`isStorageCluster`) groups the backend emits under D6: all of them are kind-less, accent-only group frames. The corresponding stylesheet selectors (`node[?isCluster]` / `node[?isNamespace]` / `node[?isApplication]` / `node[?isStorageCluster]`) MUST force `background-image: 'none'` and present only the label and the accent frame.
 
-#### Scenario: 展開的容器不放 icon
+#### Scenario: An expanded container carries no icon
 
-- **WHEN** 某 `node` / `controller` / `netapp-node` 容器內含可見子節點(展開,為 `:parent`)
-- **THEN** 該容器 `background-image` 為 `none`,中央區域留給子節點,僅顯示 label 與容器框
+- **WHEN** a `node` / `controller` / `netapp-node` container holds visible children (expanded, matching `:parent`)
+- **THEN** that container's `background-image` is `none`, its centre is left to the children, and only the label and container frame show
 
-#### Scenario: 收合的 node / controller 顯示置中 kind icon
+#### Scenario: A collapsed node / controller shows its centred kind icon
 
-- **WHEN** `node`、`controller` 或 `netapp-node` 容器被收合(非 `:parent`)
-- **THEN** 中央顯示其 `kind` icon(收合的 K8s node 顯示 node icon、收合的 controller 顯示其 Workloads glyph、收合的 `netapp-node` 顯示其 controller icon)
+- **WHEN** a `node`, `controller`, or `netapp-node` container is collapsed (not `:parent`)
+- **THEN** its centre shows its `kind` icon — a collapsed K8s node shows the node icon, a collapsed controller shows its Workloads glyph, and a collapsed `netapp-node` shows its controller icon
 
-#### Scenario: storageclass leaf 恆顯示磁碟 glyph
+#### Scenario: The storageclass leaf glyph no longer exists
 
-- **WHEN** 檢視 `ICON_SVG_BY_KIND` 與 stylesheet 的 kind 解析
-- **THEN** 不存在 `storageclass` kind(該 kind 已自契約與列舉移除),本情境所述的舊 leaf glyph 行為一併不存在;其位置由 `netapp-aggr` leaf 的 icon 取代
+- **WHEN** inspecting `ICON_SVG_BY_KIND` and the stylesheet's kind resolution
+- **THEN** there is no `storageclass` kind (it was removed from both the contract and the enum) and the old leaf-glyph behaviour this scenario described is gone with it; the `netapp-aggr` leaf icon takes its place
 
-#### Scenario: 無 kind 的裝飾群組不放 resource icon
+#### Scenario: A kind-less decorative group carries no resource icon
 
-- **WHEN** 渲染 `isCluster` / `isNamespace` / `isApplication` / `isStorageCluster` 的 compound 容器(展開或收合)
-- **THEN** 該容器不帶任何 resource icon(`background-image: 'none'`),僅作為群組框與 accent 色
+- **WHEN** rendering an `isCluster` / `isNamespace` / `isApplication` / `isStorageCluster` compound container, expanded or collapsed
+- **THEN** that container carries no resource icon (`background-image: 'none'`) and serves only as a group frame in its accent colour

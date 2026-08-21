@@ -2,23 +2,23 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Dashboard 按鈕的節點適用範圍
+### Requirement: Node applicability of the Dashboard button
 
-Panel SHALL 僅對 **node-detail 面板會開啟的節點**請求 `/dashboard` 並渲染 Dashboard 按鈕——即 **leaf 節點**(含後端實體儲存的 **`netapp-aggr`** leaf,攜帶 `health` / `usage`)、**k8s-node**(`kind: node`)compound 容器、**`netapp-node`** compound 容器(後端契約中唯一由真實節點擔任 compound parent 者,攜帶 `health`)、與 **controller** compound 容器(backend 提供、經 enrich 後攜帶真實 `kind` 的 controller;`resolveSelectedNode` ≠ `null` 的集合)。**cluster / storage-cluster / namespace / application** compound MUST NOT 觸發任何 `/dashboard` 查詢、亦 MUST NOT 渲染 Dashboard 按鈕。適用範圍的守門以參數組裝在不適用節點回傳「無參數」(`undefined`)實作——使停用的節點不發查詢——並與 `resolveSelectedNode` 的排除集合(`isCluster` / `isStorageCluster` / `isNamespace` / `isApplication`)共用同一判定,不另立平行清單以免漂移。
+The panel SHALL request `/dashboard` and render the Dashboard button ONLY for nodes **the node-detail panel opens for** — that is, **leaf nodes** (including the backend's physical-storage **`netapp-aggr`** leaf, which carries `health` / `usage`), the **k8s-node** (`kind: node`) compound container, the **`netapp-node`** compound container (the one place in the backend contract where a real node acts as a compound parent; it carries `health`), and the **controller** compound container (backend-supplied and enriched with a real `kind`) — the set for which `resolveSelectedNode` is not `null`. The **cluster / storage-cluster / namespace / application** compounds MUST NOT trigger any `/dashboard` query and MUST NOT render the Dashboard button. Applicability is gated by having parameter assembly return "no parameters" (`undefined`) for an inapplicable node — so a disabled node issues no query — and it MUST share the same decision as `resolveSelectedNode`'s exclusion set (`isCluster` / `isStorageCluster` / `isNamespace` / `isApplication`) rather than maintaining a parallel list that could drift.
 
-`netapp-aggr` / `netapp-node` 雖開啟 detail 面板並如其他適用節點般進行 `/dashboard` 預取,但其 `kind` **不屬於 Workloads `DETAIL_URL` 集合**,故 `resolveSelectedNode` MUST NOT 為其指派 per-kind dashboard query target(`queryTarget`):其 `health` / `usage`(以及 `netapp-aggr` 的 `ontap_cluster` / `node` labels)由右上角**釘選 tooltip** 呈現(見 panel-rendering「Hover Tooltip」pinned 模式),detail 面板本身為 header-only(無 Workloads-kind 的細項查詢目標)。已移除的 `storageclass` kind 連同其 `provisioner` / `parameters` 的同類規則一併消失。
+`netapp-aggr` / `netapp-node` open the detail panel and prefetch `/dashboard` like any other applicable node, but their `kind` is **not in the Workloads `DETAIL_URL` set**, so `resolveSelectedNode` MUST NOT assign them a per-kind dashboard query target (`queryTarget`): their `health` / `usage` (and, for `netapp-aggr`, its `ontap_cluster` / `node` labels) surface through the **pinned tooltip** in the top-right corner (see panel-rendering, "Hover Tooltip", pinned mode), and the detail panel itself is header-only, with no Workloads-kind query target. The removed `storageclass` kind takes its equivalent `provisioner` / `parameters` rule with it.
 
-#### Scenario: leaf(含 storageclass)/ k8s-node / controller 為適用節點
+#### Scenario: Leaf / k8s-node / controller are applicable nodes
 
-- **WHEN** node-detail 面板對一個 leaf 節點(含 `netapp-aggr` leaf;本情境原先所述的 `storageclass` leaf 已自契約移除)、k8s-node compound、`netapp-node` compound、或 backend 提供的 enriched controller compound 開啟
-- **THEN** 系統為該節點發出一次 `/dashboard` 查詢(於下「預取」需求所述時機),並在可用時渲染 Dashboard 按鈕
+- **WHEN** the node-detail panel opens for a leaf node (including the `netapp-aggr` leaf; the `storageclass` leaf this scenario originally named has been removed from the contract), a k8s-node compound, a `netapp-node` compound, or a backend-supplied enriched controller compound
+- **THEN** the system issues one `/dashboard` query for that node (at the moment described by the "prefetch" requirement below) and renders the Dashboard button when one is available
 
-#### Scenario: storageclass leaf 開啟 detail 但無 per-kind dashboard query target
+#### Scenario: NetApp leaf opens detail but has no per-kind dashboard query target
 
-- **WHEN** 被選取的節點為 `netapp-aggr` leaf 或 `netapp-node` compound(攜帶 `health` / `usage`;本情境原先所述的 `storageclass` leaf 已自契約移除)
-- **THEN** detail 面板以 header-only 開啟,其 `health` / `usage` 釘選於右上角 tooltip(見 panel-rendering「Hover Tooltip」pinned 模式);由於其 `kind` 不屬 Workloads `DETAIL_URL` 集合,`resolveSelectedNode` MUST NOT 為其指派 per-kind `queryTarget`(它仍如其他適用節點般進行 `/dashboard` 預取、可用時渲染 Dashboard 按鈕)
+- **WHEN** the selected node is a `netapp-aggr` leaf or a `netapp-node` compound (carrying `health` / `usage`; the `storageclass` leaf this scenario originally named has been removed from the contract)
+- **THEN** the detail panel opens header-only, its `health` / `usage` are pinned to the top-right tooltip (see panel-rendering, "Hover Tooltip", pinned mode), and because its `kind` is not in the Workloads `DETAIL_URL` set, `resolveSelectedNode` MUST NOT assign it a per-kind `queryTarget` — it still prefetches `/dashboard` like any other applicable node and renders the Dashboard button when one is available
 
-#### Scenario: cluster / namespace / application 不適用
+#### Scenario: cluster / namespace / application are not applicable
 
-- **WHEN** 被選取的節點為 `cluster` / `storage-cluster` / `namespace` / `application` compound
-- **THEN** 系統 MUST NOT 發出 `/dashboard` 查詢,Dashboard 按鈕 MUST NOT 渲染(這些節點本就不開啟 detail 面板)
+- **WHEN** the selected node is a `cluster` / `storage-cluster` / `namespace` / `application` compound
+- **THEN** the system MUST NOT issue a `/dashboard` query and MUST NOT render the Dashboard button (these nodes do not open the detail panel in the first place)

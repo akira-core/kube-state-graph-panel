@@ -2,44 +2,71 @@
 
 ## ADDED Requirements
 
-### Requirement: Demo seeder 推送 NetApp Harvest 與 kubelet 儲存序列
+### Requirement: Demo seeder pushes the NetApp Harvest and kubelet storage series
 
-`dev/victoriametrics/seed.sh` MUST 於每個 tick 額外推送後端 NetApp 儲存鏈所需的序列,使 `docker compose --profile backend up` 的 `KSG Demo` 能實際產生 `netapp-aggr` / `netapp-node` / `storage-cluster` 節點、`pvc-to-netapp-aggr` 邊,以及 `health` / `usage` / 邊 I/O `metrics` 三類數值——否則 demo 的儲存半邊為空,前端的新渲染路徑無從肉眼驗證。
+`dev/victoriametrics/seed.sh` MUST push, on every tick, the series the backend's NetApp storage chain needs, so that `docker compose --profile backend up` makes `KSG Demo` actually produce `netapp-aggr` / `netapp-node` / `storage-cluster` nodes, `pvc-to-netapp-aggr` edges, and the three families of numbers (`health`, `usage`, and the edge I/O `metrics`). Without them the demo's storage half is empty and the panel's new rendering paths cannot be verified by eye.
 
-必要序列與其 label 契約(後端逐字比對,拼字不符即 join 落空):
+The backend resolves storage through **three independently-degrading hops**, all rooted at the same join key — the PVC's `volumename` (its bound PV name) matched against the Harvest `volume_name` relabel. The fixture MUST seed all three; seeding one hop's metric names in place of another's silently costs whatever that hop owns.
 
-- **Harvest volume 六家族** `volume_read_ops` / `volume_write_ops` / `volume_read_latency` / `volume_write_latency` / `volume_read_data` / `volume_write_data`,每條 MUST 帶 `cluster`(ONTAP cluster,**非** K8s cluster)、`node`(擁有該 aggregate 的 controller)、`aggr`、`svm`,以及 `volume_name`(**等於**該 PVC 之 `kube_persistentvolumeclaim_info.volumename` 值——此即整條鏈的 join key,兩處拼字必須一致)。
-- **Harvest aggregate 三家族** `aggr_new_status`(`1` = online)/ `aggr_space_used` / `aggr_space_total`,帶 `cluster` / `node` / `aggr`,其 `(cluster, aggr)` MUST 對應到上述 volume 序列所報的 aggregate。
-- **Harvest node 家族** `node_new_status`(`1` = healthy),帶 `cluster` / `node`。
-- **kubelet volume stats** `kubelet_volume_stats_used_bytes` / `kubelet_volume_stats_capacity_bytes`,帶 `cluster` / `namespace` / `persistentvolumeclaim`,對應到 fixture 中既有的 PVC。
+**Hop A — `volume_labels` (topology; the SOLE source).** One series per volume, carrying `cluster` (the ONTAP cluster, **not** a Kubernetes one), `node` (the controller currently owning the aggregate), `aggr`, `svm`, and `volume_name` (**equal to** that PVC's `kube_persistentvolumeclaim_info.volumename` — this is the join key for the entire chain and the two spellings MUST match verbatim). This is an **info series**: the backend discards its sample value and reads only its labels. Everything topological — the `pvc-to-netapp-aggr` edge, the `netapp-aggr` and `netapp-node` entities, and the PVC's `svm` label — derives from this family and from nothing else, so omitting it costs the whole storage half of the graph even when every other family is present.
 
-這些序列皆為 **gauge 語意**:後端以 `last_over_time` 讀取其視窗內最後一個樣本並**逐字採用**(ops 已是每秒值、latency 已是微秒平均、`volume_*_data` 已是每秒位元組數),故 seeder MUST NOT 讓它們像 counter 一樣單調遞增——每 tick 重推**大致穩定**的值即可(可小幅擾動以顯示變化),遞增反而會使 demo 的 ops / latency / throughput 讀數失真。此與同檔案中 `traces_service_graph_*` counter **必須遞增**的規則相反,兩者不得混淆。
+**Hop B — the six QoS workload families (the measurements).** `qos_read_ops` / `qos_write_ops` / `qos_read_latency` / `qos_write_latency` / `qos_read_data` / `qos_write_data`, each carrying the same `cluster` / `svm` / `volume_name` label set as hop A, plus `policy_group` (the QoS policy group the volume belongs to, which is hop C's join key). The backend reads these at **`{lun=""}`**: ONTAP collects a workload per LUN as well as per volume, and a LUN workload carries its FlexVol's relabelled `volume_name`, so the backend filters LUN workloads out to avoid double-counting the claim. The fixture's volume workloads MUST therefore carry either no `lun` label or an empty one — a non-empty `lun` makes the series invisible to the backend. A hop-B miss leaves a valid **measurement-less** edge: the topology survives, the edge simply carries no `metrics` key.
 
-fixture MUST 同時涵蓋**有 join** 與**無 join** 兩種 PVC,使前端「無邊即無儲存鏈」與「缺 `usage` 即不畫使用率」的降級行為在 demo 中可被肉眼驗證:至少一個 PVC 的 `volumename` 不對應任何 volume 序列(或其序列 `aggr` 為空,即 FlexGroup 形狀),該 PVC MUST 不產生 `pvc-to-netapp-aggr` 邊。usage 亦 MUST 涵蓋高低兩檔(例如一個約 70%、一個約 20%),使節點使用率填充的差異在畫面上可辨。
+**Hop C — the two QoS fixed-policy families (the declared ceiling).** `qos_policy_fixed_max_throughput_iops` and `qos_policy_fixed_max_throughput_mbps`, joined on the `(cluster, svm, policy_group)` triple recovered from a matched hop-B series. The policy's identity label is read as `name` with a `policy_group` fallback (Harvest spells it differently across templates), so the fixture MAY use either. `..._mbps` is in **megabytes per second** and is the one value the backend converts (×`1048576`) so the wire's `max_bytes_per_sec` shares the unit of `read_bytes_per_sec`. A ceiling can never reach the wire without a hop-B measurement, so a policy series for a volume with no workload series is inert.
 
-`docker-compose.yaml` 的預設 `KSG_BACKEND_TAG` MUST 指向含後端 `replace-storageclass-with-netapp-nodes` 變更的 image;沿用舊 tag 時 demo 將完全不含儲存半邊(前端為硬切換,不再支援舊 `storageclass` 契約)。
+The remaining families are unchanged by the hop split:
 
-#### Scenario: 每 tick 推送完整 NetApp 序列集
+- **Harvest aggregate, three families** — `aggr_new_status` (`1` = online) / `aggr_space_used` / `aggr_space_total`, carrying `cluster` / `node` / `aggr`, whose `(cluster, aggr)` MUST match an aggregate named by a hop-A series.
+- **Harvest node family** — `node_new_status` (`1` = healthy), carrying `cluster` / `node`.
+- **kubelet volume stats** — `kubelet_volume_stats_used_bytes` / `kubelet_volume_stats_capacity_bytes`, carrying `cluster` / `namespace` / `persistentvolumeclaim`, matching PVCs already in the fixture.
 
-- **WHEN** `ksg-seeder` 容器完成一次 tick
-- **THEN** 該次 push 的 payload 同時含六個 `volume_*` 家族、`aggr_new_status` / `aggr_space_used` / `aggr_space_total`、`node_new_status`,以及兩個 `kubelet_volume_stats_*` 家族
+Every one of these series is a **gauge**: the backend reads the window's last sample with `last_over_time` and takes it verbatim (ops are already per-second, latency is already an average in microseconds, `qos_*_data` is already bytes per second). The seeder MUST NOT make them climb like counters — re-push a roughly steady value each tick (small jitter is fine). Monotonic growth would render absurd IOPS / latency / throughput in the demo. This is the **opposite** of the `traces_service_graph_*` counters in the same file, which MUST increase; the two rules MUST NOT be confused.
 
-#### Scenario: volume_name 與 PVC 的 volumename 對齊
+The fixture MUST cover both the **joined** and the **unjoined** PVC so the panel's degradation is visible on screen: at least one PVC whose `volumename` matches no `volume_labels` series (or whose series carries an empty `aggr`, the FlexGroup shape) MUST produce no `pvc-to-netapp-aggr` edge. `usage` MUST cover a high and a low band (roughly 70% and 20%) so the usage-fill difference is legible. The fixture MUST likewise cover both **ceiling states**: at least one joined volume in a QoS policy group with both `qos_policy_fixed_max_throughput_*` series, and at least one joined volume in no policy group at all, so the "measured but no declared ceiling" path renders in the demo rather than only in unit tests.
 
-- **WHEN** 檢視 seeder 為某個 PVC(例如 `prod/db/data-mongo-0`)推送的 `kube_persistentvolumeclaim_info` 與 `volume_read_ops` 序列
-- **THEN** 前者的 `volumename` label 與後者的 `volume_name` label 逐字相同,且後者另帶 `cluster` / `node` / `aggr` / `svm` 四個 label
+`docker-compose.yaml`'s default `KSG_BACKEND_TAG` MUST point at an image carrying the backend's `replace-storageclass-with-netapp-nodes` change; against an older tag the demo has no storage half whatsoever (the panel is a hard cut and no longer supports the old `storageclass` contract).
 
-#### Scenario: Harvest 序列為 gauge,不隨 tick 遞增
+#### Scenario: Every tick pushes the complete NetApp series set
 
-- **WHEN** 比較連續兩個 tick 中同一條 `volume_read_ops` 或 `aggr_space_used` 序列的值
-- **THEN** 其值 MUST NOT 單調遞增為 counter 形狀,而是維持大致穩定(允許小幅擾動)——與同檔案 `traces_service_graph_*` counter 必須遞增的規則相反
+- **WHEN** the `ksg-seeder` container completes one tick
+- **THEN** that push carries `volume_labels`, the six `qos_*` workload families, `qos_policy_fixed_max_throughput_iops` / `_mbps`, `aggr_new_status` / `aggr_space_used` / `aggr_space_total`, `node_new_status`, and the two `kubelet_volume_stats_*` families
 
-#### Scenario: demo 同時呈現有 join 與無 join 的 PVC
+#### Scenario: volume_name lines up with the PVC's volumename
 
-- **WHEN** `KSG Demo` 以 `--profile backend` 啟動並載入圖
-- **THEN** 至少一個 PVC 連往 `netapp-aggr`(帶邊上 I/O `metrics`),且至少一個 PVC 無任何 `pvc-to-netapp-aggr` 邊,使前端降級行為可被肉眼驗證
+- **WHEN** inspecting the `kube_persistentvolumeclaim_info` and `volume_labels` series the seeder pushes for one PVC (for example `prod/db/data-mongo-0`)
+- **THEN** the former's `volumename` label and the latter's `volume_name` label are byte-identical, and the latter also carries `cluster` / `node` / `aggr` / `svm`
 
-#### Scenario: usage 涵蓋高低兩檔
+#### Scenario: Topology comes from volume_labels alone
 
-- **WHEN** 檢視 demo 中帶 `usage` 的節點(PVC 與 aggregate)
-- **THEN** 其使用率至少涵蓋一高(約 70%)一低(約 20%)兩檔,使節點使用率填充的高度差異在畫面上可辨
+- **WHEN** the fixture pushes the six `qos_*` workload families for a volume but no `volume_labels` series for it
+- **THEN** the graph contains no `pvc-to-netapp-aggr` edge, no `netapp-aggr`, and no `netapp-node` for that volume — the measurements alone cannot draw the chain
+
+#### Scenario: QoS workloads are seeded at volume granularity
+
+- **WHEN** inspecting a `qos_read_ops` series in the fixture
+- **THEN** it carries no `lun` label (or an empty one), so it survives the backend's `{lun=""}` selector and the claim is not double-counted against its LUN workload
+
+#### Scenario: Ceiling joins on the policy triple
+
+- **WHEN** a `qos_read_ops` series carries `cluster="ontap-prod"`, `svm="svm-prod"`, `policy_group="gold"`, and the fixture also pushes `qos_policy_fixed_max_throughput_iops` / `_mbps` for that same triple
+- **THEN** the storage edge for that volume carries `max_iops` and `max_bytes_per_sec`, the latter already converted to bytes per second by the backend
+
+#### Scenario: Demo covers a volume with no declared ceiling
+
+- **WHEN** the fixture holds a second joined volume whose workload series belong to no policy group with `qos_policy_fixed_max_throughput_*` series
+- **THEN** that volume's storage edge carries its measurements but neither ceiling field, and the panel renders no `max iops` / `max throughput` row for it
+
+#### Scenario: Harvest series are gauges and do not climb per tick
+
+- **WHEN** comparing the value of one `qos_read_ops` or `aggr_space_used` series across two consecutive ticks
+- **THEN** the value MUST NOT climb monotonically like a counter but stays roughly steady (small jitter allowed) — the opposite of the `traces_service_graph_*` counters in the same file, which must increase
+
+#### Scenario: Demo shows both a joined and an unjoined PVC
+
+- **WHEN** `KSG Demo` starts with `--profile backend` and loads the graph
+- **THEN** at least one PVC connects to a `netapp-aggr` (with I/O `metrics` on the edge) and at least one PVC has no `pvc-to-netapp-aggr` edge at all, so the panel's degradation is verifiable by eye
+
+#### Scenario: usage covers a high and a low band
+
+- **WHEN** inspecting the demo's `usage`-bearing nodes (PVCs and aggregates)
+- **THEN** their utilisation spans at least one high (about 70%) and one low (about 20%) band, so the difference in usage-fill height is legible on screen
