@@ -43,7 +43,11 @@
   "preload": false,
   "refresh": "",
   "schemaVersion": 39,
-  "tags": ["ksg", "demo", "showcase"],
+  "tags": [
+    "ksg",
+    "demo",
+    "showcase"
+  ],
   "templating": {
     "list": [
       {
