@@ -4,6 +4,7 @@
 
 TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Grafana Panel Plugin 註冊
 
 系統 SHALL 在 `src/module.ts` 以具名 export `plugin`(`export const plugin = new PanelPlugin<KsgPanelOptions>(KsgPanel)`)提供一個 `PanelPlugin` 實例,完整實作 `@grafana/data` 的 panel plugin 介面,使 Grafana 載入後可在 panel type 清單中選擇本 plugin。(`@grafana/create-plugin` 的 webpack runtime 以具名 `plugin` export 載入 panel,故本檔不使用 default export。)
@@ -32,34 +33,34 @@ Panel SHALL 透過 cytoscape.js 在指定 DOM 容器中渲染 nodes 與 edges,�
 - **WHEN** 使用者於 panel options 將 layout 從 `fcose` 切換為 `dagre`
 - **THEN** 同一 cytoscape instance 呼叫 `cy.stop()` 後執行 `cy.layout({ name: 'dagre' }).run()`,節點透過動畫過渡到新位置,instance reference 不變
 
-### Requirement: 邊顏色依關係類型對應
+### Requirement: Edge colour by relationship type
 
-系統 SHALL 透過 `src/shared/constants/colorByEdgeType.ts` 將 edge type(`EdgeType`)映射到不同顏色與線型,並由同一份對應表供 stylesheet 與 legend 共用。`EdgeType` 列舉涵蓋後端輸出的邊型別(`pod-to-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `pvc-to-storageclass` / `switch-to-switch` / `node-to-switch`),共 8 種,**皆為後端輸出**——panel 隨後端 D6 階層採用而退役兩個舊有合成邊:`pod-runs-on-node`(pod-runs-on-node 不再是巢狀或合成邊,改由後端 `pod-to-node` 邊取代)與 `controller-owns-pod`(controller 群組改由後端輸出,panel 不再自 pod `data.owner` 合成此邊,見 graph-data-integration)。`pod-to-node`(`pod → node`)MUST 以藍色 `#3b82f6`(舊 blue)實線渲染;`pvc-to-storageclass`(`pvc → storageclass`)MUST 以紫色 `#8b5cf6`(storage violet)實線渲染,且此色 MUST **刻意有別於** `pod-mounts-pvc` 的 `#a855f7`,使兩條 storage 邊在視覺上可區分。`pod-calls-service` 與 `service-selects-pod` MUST 共用與 `pod-calls-pod` **相同的橘色 `#f97316`**——一個 pod→service→pod hop 本質仍是 pod-to-pod 關係、只多一層 Service;這兩個服務型別並 MUST **自 edge legend 省略**(無獨立列、亦無額外合併列),由 `pod-calls-pod` 的單一列代表——該列渲染為 `pod ↔ pod/service`(雙向箭頭 glyph),標示其同時涵蓋直連與經 Service 的 pod-to-pod 關係(見下「圖例」需求)。所有邊皆實線,方向以**箭頭**區分;`switch-to-switch` 與 `node-to-switch`(後端 v0.0.18 物理網路 fabric)MUST **完全共用同一 infra 色與實線線型**,並走相同的正交(`taxi`)路由(見 switch-tier-layout 規格),視覺上等同——`node-to-switch` 不再使用獨立靛色或 bézier,僅以端點(`<node> → <switch>` vs `<switch> → <switch>`)區分,使 K8s node 的上行連線讀起來即為 switch fabric 的一部分。`colorByEdgeType.ts` 同時匯出 `EDGE_ENDPOINTS_BY_TYPE`(每個 edge type 的來源/目標 `NodeKind`),供 legend 將 edge type 渲染為 `<from> → <to>`;`pod-to-node` 的端點 MUST 為 `<pod> → <node>`,`pvc-to-storageclass` 為 `<pvc> → <storageclass>`,`switch-to-switch` 為 `<switch> → <switch>`,`node-to-switch` 為 `<node> → <switch>`。
+The system SHALL map each edge type (`EdgeType`) to a distinct colour and line style through `src/shared/constants/colorByEdgeType.ts`, and that one table MUST be shared by the stylesheet and the legend. The `EdgeType` enum covers the edge types the backend emits (`pod-to-node` / `pod-mounts-pvc` / `pod-calls-pod` / `pod-calls-service` / `service-selects-pod` / `pvc-to-netapp-aggr` / `switch-to-switch` / `node-to-switch`) — 8 in total, **all backend-emitted**. With the adoption of the backend's D6 hierarchy the panel retires two former synthesised edges: `pod-runs-on-node` (pod-runs-on-node is no longer nesting or a synthesised edge; the backend's `pod-to-node` edge replaces it) and `controller-owns-pod` (the backend now emits the controller group, so the panel no longer synthesises this edge from a pod's `data.owner` — see graph-data-integration). `pod-to-node` (`pod → node`) MUST render as a blue `#3b82f6` (the old blue) solid line; `pvc-to-netapp-aggr` (`pvc → netapp-aggr`) MUST render as a violet `#8b5cf6` (storage violet) solid line, and that colour MUST be **deliberately distinct** from `pod-mounts-pvc`'s `#a855f7` so the two storage edges read apart (the removed `pvc-to-storageclass` vacated both the colour and the slot). `pod-calls-service` and `service-selects-pod` MUST share the **same orange `#f97316` as `pod-calls-pod`** — a pod→service→pod hop is still fundamentally a pod-to-pod relationship with a Service in the middle — and those two service types MUST be **omitted from the edge legend** (no row of their own and no extra merged row), represented instead by the single `pod-calls-pod` row, which renders as `pod ↔ pod/service` (a bidirectional arrow glyph) to mark that it covers both the direct and the via-Service pod-to-pod relationship (see the "Legend" requirement below). Every edge is solid and direction is conveyed by the **arrowhead**. `switch-to-switch` and `node-to-switch` (the backend v0.0.18 physical-network fabric) MUST **share one infra colour and one solid line style** and take the same orthogonal (`taxi`) routing (see the switch-tier-layout spec), making them visually identical — `node-to-switch` no longer uses a separate indigo or a bézier, and is distinguished only by its endpoints (`<node> → <switch>` vs `<switch> → <switch>`), so a K8s node's uplink reads as part of the switch fabric. `colorByEdgeType.ts` also exports `EDGE_ENDPOINTS_BY_TYPE` (the source and target `NodeKind` of each edge type) so the legend can render an edge type as `<from> → <to>`; `pod-to-node`'s endpoints MUST be `<pod> → <node>`, `pvc-to-netapp-aggr`'s `<pvc> → <netapp-aggr>`, `switch-to-switch`'s `<switch> → <switch>`, and `node-to-switch`'s `<node> → <switch>`.
 
-#### Scenario: 已知邊類型對應到正確顏色
+#### Scenario: A known edge type maps to the correct colour
 
-- **WHEN** 邊 data 帶有 `edgeType: 'pod-to-node'`(或其他已定義 type)
-- **THEN** 該邊以對應顏色與線型渲染(`pod-to-node` 為藍 `#3b82f6` 實線),且與 `colorByEdgeType.ts` 定義一致
+- **WHEN** an edge's data carries `edgeType: 'pod-to-node'` (or any other defined type)
+- **THEN** that edge renders in the corresponding colour and line style (`pod-to-node` as a blue `#3b82f6` solid line), matching the definition in `colorByEdgeType.ts`
 
-#### Scenario: 兩條 storage 邊以不同紫色區分
+#### Scenario: The two storage edges are distinguished by different violets
 
-- **WHEN** 圖中同時存在 `pod-mounts-pvc` 與 `pvc-to-storageclass` 邊
-- **THEN** `pod-mounts-pvc` 以 `#a855f7`、`pvc-to-storageclass` 以 `#8b5cf6` 渲染,兩色刻意不同使兩條 storage 邊可區分閱讀
+- **WHEN** the graph holds both a `pod-mounts-pvc` and a `pvc-to-netapp-aggr` edge
+- **THEN** `pod-mounts-pvc` renders in `#a855f7` and `pvc-to-netapp-aggr` in `#8b5cf6` — deliberately different so the two storage edges read apart
 
-#### Scenario: 邊顏色不與 status 顏色衝突
+#### Scenario: Edge colours do not collide with status colours
 
-- **WHEN** 檢視 `EDGE_STYLE_BY_TYPE` 中任一 edge type 的顏色
-- **THEN** 其顏色 MUST NOT 等於 `STATUS_COLOR` 的任一值(綠 `#73BF69` / 黃 `#F2CC0C` / 紅 `#E02F44`)——`pod-to-node` `#3b82f6`、`pvc-to-storageclass` `#8b5cf6` 與服務邊橘色 `#f97316` 皆滿足此條件
+- **WHEN** inspecting the colour of any edge type in `EDGE_STYLE_BY_TYPE`
+- **THEN** it MUST NOT equal any value in `STATUS_COLOR` (green `#73BF69` / yellow `#F2CC0C` / red `#E02F44`) — `pod-to-node`'s `#3b82f6`, `pvc-to-netapp-aggr`'s `#8b5cf6`, and the service edges' orange `#f97316` all satisfy this
 
-#### Scenario: node-to-switch 與 switch-to-switch 視覺一致
+#### Scenario: node-to-switch and switch-to-switch look identical
 
-- **WHEN** 圖中同時有 `node-to-switch` 與 `switch-to-switch` 邊
-- **THEN** 兩者以相同 infra 色、相同實線線型、相同 `taxi` 正交路由渲染(僅端點不同);`node-to-switch` 不再以獨立靛色或 bézier 呈現
+- **WHEN** the graph holds both a `node-to-switch` and a `switch-to-switch` edge
+- **THEN** both render in the same infra colour, the same solid line style, and the same `taxi` orthogonal routing (only their endpoints differ); `node-to-switch` no longer appears in a separate indigo or as a bézier
 
-#### Scenario: 未知邊類型走 fallback
+#### Scenario: An unknown edge type takes the fallback
 
-- **WHEN** 邊 data 的 `edgeType` 不在對應表中
-- **THEN** 該邊以 fallback 灰色實線渲染,不拋出例外
+- **WHEN** an edge's `edgeType` is absent from the mapping table
+- **THEN** it renders as a grey solid fallback line and throws nothing
 
 ### Requirement: Grafana Theme 適配
 
@@ -107,76 +108,76 @@ Panel SHALL 使用 `ResizeObserver` 監聽 cytoscape 容器尺寸變化,並以 d
 - **WHEN** 使用者拖曳 Grafana panel 改變大小
 - **THEN** `ResizeObserver` 在 debounce 後呼叫 `cy.resize()` 與 `cy.fit()`,所有節點仍在可視範圍內
 
-### Requirement: 互動與選取狀態
+### Requirement: Interaction and selection state
 
-Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selected` style 視覺化,且可選地透過 `onSelect` callback 將被選節點 id 傳出供其他元件消費。
+The panel SHALL support click-to-select on nodes, visualising the selected state through cytoscape's built-in `:selected` style and optionally emitting the selected node's id through an `onSelect` callback for other components to consume.
 
-**選取(selection)與 detail 面板的可見性(detail open)MUST 為兩個獨立狀態**:selection 驅動 cytoscape 單選高亮、selection-focus 淡化、右上角釘選 tooltip(位於 search bar 下方,見 `graph-search`)與變數輸出(selected-pod-export);detail 面板的開/關為純 UI 狀態,關閉面板 MUST NOT 清除 selection(見「Node Detail 面板」)。取消選取的途徑**僅有**:點擊背景、點擊邊、點擊不可選取的 `cluster` 背板(三者皆觸發 `onSelect(null)`)。點擊**已選取**的節點 MUST 重新開啟其 detail 面板(而非取消選取)。除畫布 tap 外,graph-search 的 **locate** 亦建立 selection,且對 detail-eligible 節點 MUST 開啟 detail 面板(等同畫布左鍵點該節點,見 `graph-search` capability)。**畫布**上的選取/取消選取(GraphCanvas `onSelect`)在 search query 非空時 MUST 清除 search(見 `graph-search`「Canvas interaction clears search」);locate 路徑 MUST NOT 走此清除。
+**Selection and detail-panel visibility (detail open) MUST be two independent states.** Selection drives the cytoscape single-select highlight, the selection-focus fade, the pinned tooltip in the top-right corner (below the search bar — see `graph-search`), and variable output (selected-pod-export); whether the detail panel is open is pure UI state, and closing the panel MUST NOT clear the selection (see "Node detail panel"). Deselection happens through **exactly three** routes: clicking the background, clicking an edge, or clicking a non-selectable `cluster` backdrop (all three fire `onSelect(null)`). Clicking an **already-selected** node MUST reopen its detail panel rather than deselect it. Besides a canvas tap, graph-search's **locate** also establishes a selection and MUST open the detail panel for a detail-eligible node (equivalent to left-clicking it on the canvas — see the `graph-search` capability). Selection and deselection **on the canvas** (GraphCanvas `onSelect`) MUST clear a non-empty search query (see `graph-search`, "Canvas interaction clears search"); the locate path MUST NOT go through that clear.
 
-**`controller` / K8s `node` / `storageclass`,以及裝飾性 `namespace` / `application` 群組 MUST 為可選取(`selectable`)。裝飾性 `cluster` 群組 MUST NOT 可選取(`selectable: false`)。** 此可選取性的唯一目的,是讓 `cytoscape-expand-collapse` 既已啟用(`cueEnabled: true`)的 **`+/-` 摺疊 cue** 能浮現:該 cue 為 selection-driven,僅於**單一被選取**且為 `:parent`(或已收合)的節點上繪製。故使用者點選任一可選取的 compound parent → 該 parent 浮現其 `+/-` cue → 點 cue 切換該 parent 的收合 / 展開(沿用既有 expand-collapse plumbing,無新元件、無新收合機制)。
+**`controller` / K8s `node` / `netapp-node` / `netapp-aggr`, and the decorative `namespace` / `application` groups, MUST be selectable. The decorative `cluster` and `storage-cluster` groups MUST NOT be selectable (`selectable: false`).** The sole purpose of that selectability is to let the **`+/-` collapse cue** of the already-enabled `cytoscape-expand-collapse` (`cueEnabled: true`) appear: the cue is selection-driven and is drawn only on a **single selected** node that is a `:parent` (or already collapsed). So the user clicks any selectable compound parent → that parent shows its `+/-` cue → clicking the cue toggles it collapsed or expanded (reusing the existing expand-collapse plumbing, with no new component and no new collapse mechanism).
 
-`cluster` 群組因不可選取,點擊(`tap`)它一律視同點擊背景(觸發 `onSelect(null)`,不顯示選取環、不浮現摺疊 cue)。其收合 / 展開改由**雙擊(`dbltap`)**觸發:GraphCanvas MUST 於偵測到對 `isCluster` 節點的 `dbltap` 時,直接呼叫既有 `ExpandCollapseApi`(`api.expand(node)` 或 `api.collapse(node)`,依 `isExpandable`/`isCollapsible` 判斷)切換該節點收合狀態——此路徑觸發與 cue 相同的 `expandcollapse.aftercollapse`/`afterexpand` 事件,`collapsedIds` 更新沿用既有 `onCollapsedChange` 路徑,無新收合狀態機制。
+Because the `cluster` group is not selectable, tapping it always behaves like tapping the background (firing `onSelect(null)`, showing no selection ring, and surfacing no collapse cue). Its collapse/expand is triggered by **double-click (`dbltap`)** instead: on detecting a `dbltap` on an `isCluster` node, GraphCanvas MUST call the existing `ExpandCollapseApi` directly (`api.expand(node)` or `api.collapse(node)`, chosen by `isExpandable` / `isCollapsible`) to toggle that node's collapsed state. That path fires the same `expandcollapse.aftercollapse` / `afterexpand` events as the cue, and `collapsedIds` updates through the existing `onCollapsedChange` path, so no new collapse-state mechanism is introduced.
 
-`namespace` 裝飾群組雖可被選取(顯示單選環與既有 selection-focus 視覺),但 MUST NOT 開啟 node-detail 面板:`resolveSelectedNode` 對 `isNamespace` 一律回 `null`。**`application` 群組為例外**:它現為 detail-eligible——選取時除浮現摺疊 cue 外,**亦開啟 node-detail 面板**顯示該 ArgoCD application 的 config_changes(`resolveSelectedNode` 以合成 `kind: application` + `queryTarget { kind: 'application', name: <app> }` 解析,見「Node Detail 面板」/「Node Detail Application 與 Containers 區塊」)。故 `resolveSelectedNode` 的範圍刻意較 `isDashboardEligible` 寬——後者仍排除 `application` 群組於 `/dashboard` 按鈕之外(application 群組無 per-node dashboard)。
+A `namespace` decorative group is selectable (showing the single-select ring and the existing selection-focus visuals) but MUST NOT open the node-detail panel: `resolveSelectedNode` always returns `null` for `isNamespace`. **The `application` group is the exception**: it is now detail-eligible — selecting it surfaces the collapse cue **and** opens the node-detail panel showing that ArgoCD application's config_changes (`resolveSelectedNode` resolves it with a synthetic `kind: application` plus `queryTarget { kind: 'application', name: <app> }` — see "Node detail panel" and "Node-detail Application and Containers sections"). `resolveSelectedNode`'s scope is therefore deliberately wider than `isDashboardEligible`'s: the latter still excludes the `application` group from the `/dashboard` button, since an application group has no per-node dashboard.
 
-#### Scenario: 點擊節點觸發選取與 callback
+#### Scenario: Clicking a node selects it and fires the callback
 
-- **WHEN** 使用者點擊任一可選取節點
-- **THEN** 該節點被 cytoscape 標記為 `:selected` 並套用對應樣式,若提供 `onSelect` prop 則以節點 id 呼叫之
+- **WHEN** the user clicks any selectable node
+- **THEN** cytoscape marks it `:selected` and applies the corresponding style, and if an `onSelect` prop was supplied it is called with the node's id
 
-#### Scenario: 點擊已選取節點重開面板而非取消選取
+#### Scenario: Clicking an already-selected node reopens the panel rather than deselecting
 
-- **WHEN** 某節點已被選取且其 detail 面板已被關閉鈕關閉,使用者再次點擊該節點
-- **THEN** detail 面板重新開啟;selection 維持不變(不經歷「取消再選取」,高亮、釘選 tooltip、變數輸出全程存續)
+- **WHEN** a node is already selected and its detail panel was closed with the close button, and the user clicks it again
+- **THEN** the detail panel reopens and the selection is unchanged (it never passes through deselect-then-reselect, so the highlight, the pinned tooltip, and the variable output persist throughout)
 
-#### Scenario: cluster 群組不可選取,點擊如同背景點擊
+#### Scenario: The cluster group is not selectable and a tap behaves like a background click
 
-- **WHEN** 使用者點擊一個裝飾性 `cluster` 群組節點
-- **THEN** 該節點 `selectable()` 為 `false`,`onSelect(null)` 被呼叫,不顯示選取環,`cytoscape-expand-collapse` 摺疊 cue 不浮現
+- **WHEN** the user clicks a decorative `cluster` group node
+- **THEN** that node's `selectable()` is `false`, `onSelect(null)` is called, no selection ring appears, and the `cytoscape-expand-collapse` collapse cue does not surface
 
-#### Scenario: 雙擊 cluster 群組切換收合 / 展開
+#### Scenario: Double-clicking a cluster group toggles collapse / expand
 
-- **WHEN** 使用者對一個裝飾性 `cluster` 群組節點雙擊(`dbltap`)
-- **THEN** 該節點的收合 / 展開狀態透過 `ExpandCollapseApi` 被直接切換,且 `collapsedIds` 隨之更新(經既有 `onCollapsedChange` 路徑),無論該節點目前是否被選取
+- **WHEN** the user double-clicks (`dbltap`) a decorative `cluster` group node
+- **THEN** that node's collapsed / expanded state is toggled directly through `ExpandCollapseApi` and `collapsedIds` updates accordingly (through the existing `onCollapsedChange` path), regardless of whether the node is currently selected
 
-#### Scenario: namespace / application 群組可被選取以浮現摺疊 cue
+#### Scenario: namespace / application groups are selectable so the collapse cue can surface
 
-- **WHEN** 使用者點擊一個裝飾性 `namespace` / `application` 群組節點
-- **THEN** 該節點 `selectable()` 為 `true`、被標記為 `:selected`(顯示單選環),且 `cytoscape-expand-collapse` 於其上繪製 `+/-` 摺疊 cue
+- **WHEN** the user clicks a decorative `namespace` / `application` group node
+- **THEN** its `selectable()` is `true`, it is marked `:selected` (showing the single-select ring), and `cytoscape-expand-collapse` draws its `+/-` collapse cue on it
 
-#### Scenario: 選取 namespace 群組不開啟 detail 面板
+#### Scenario: Selecting a namespace group opens no detail panel
 
-- **WHEN** 使用者選取一個裝飾性 `namespace` 群組節點
-- **THEN** `resolveSelectedNode` 回 `null`,node-detail 面板 MUST NOT 開啟(只顯示選取環與摺疊 cue)
+- **WHEN** the user selects a decorative `namespace` group node
+- **THEN** `resolveSelectedNode` returns `null` and the node-detail panel MUST NOT open (only the selection ring and the collapse cue appear)
 
-#### Scenario: 選取 application 群組開啟其 app-detail
+#### Scenario: Selecting an application group opens its app detail
 
-- **WHEN** 使用者選取一個 `application` 群組節點
-- **THEN** `resolveSelectedNode` 解析該節點(合成 `kind: application`),node-detail 面板開啟並渲染 Application 區塊(預取該 application 的 `config_changes`),tooltip 釘選於右上角;同時仍浮現摺疊 cue
+- **WHEN** the user selects an `application` group node
+- **THEN** `resolveSelectedNode` resolves it (with a synthetic `kind: application`), the node-detail panel opens and renders the Application section (prefetching that application's `config_changes`), and the tooltip pins to the top-right corner — while the collapse cue still surfaces
 
-#### Scenario: 點摺疊 cue 切換該 parent 收合
+#### Scenario: Clicking the collapse cue toggles that parent's collapse
 
-- **WHEN** 某可選取的 compound parent(`controller` / K8s `node` / `storageclass` / `namespace` / `application`)已被選取並顯示其 `+/-` cue,使用者點擊該 cue 範圍
-- **THEN** 該 parent 的收合 / 展開狀態被切換(經 expand-collapse api),且 `collapsedIds` 隨之更新(沿用既有 cue 事件 → `onCollapsedChange` 路徑)
+- **WHEN** a selectable compound parent (`controller` / K8s `node` / `netapp-node` / `namespace` / `application`) is selected and shows its `+/-` cue, and the user clicks within that cue
+- **THEN** that parent's collapsed / expanded state toggles (through the expand-collapse api) and `collapsedIds` updates accordingly (reusing the existing cue-event → `onCollapsedChange` path)
 
-### Requirement: 收合的裝飾群組顯示 folder icon
+### Requirement: A collapsed decorative group shows a folder icon
 
-裝飾性 `cluster` / `namespace` / `application` 群組在**收合**(`.cy-expand-collapse-collapsed-node`)時 MUST 於框中央顯示一個 **folder glyph**,以該群組的 accent 色(`clusterColor` / `namespaceColor` / `applicationColor`)上色(`background-fit: contain`)。**展開**時維持現狀——無中央 icon 的 labelled 容器(`background-image: 'none'`)。此 folder icon 為 gap-fill:具 `kind` 的 compound(`controller` / k8s `node` / `storageclass`)在收合時本就回退顯示其 kind icon(base `node` 規則),MUST NOT 受影響(folder 選擇器僅匹配 `isCluster` / `isNamespace` / `isApplication`)。folder glyph 為 `NodeKind` 之外的獨立 SVG(`FOLDER_ICON_SVG`,裝飾 kind 非 `NodeKind`,不入 `ICON_SVG_BY_KIND`)。
+A decorative `cluster` / `storage-cluster` / `namespace` / `application` group MUST show a **folder glyph** in the centre of its frame when **collapsed** (`.cy-expand-collapse-collapsed-node`), tinted with that group's accent colour (`clusterColor` / `storageClusterColor` / `namespaceColor` / `applicationColor`) at `background-fit: contain`. When **expanded** it stays as it is today — a labelled container with no centred icon (`background-image: 'none'`). This folder icon is a gap-fill: a compound that has a `kind` (`controller` / k8s `node` / `netapp-node`) already falls back to its kind icon when collapsed (the base `node` rule) and MUST NOT be affected (the folder selector matches only `isCluster` / `isStorageCluster` / `isNamespace` / `isApplication`). The folder glyph is a standalone SVG outside `NodeKind` (`FOLDER_ICON_SVG`; a decorative kind is not a `NodeKind` and does not enter `ICON_SVG_BY_KIND`).
 
-#### Scenario: 收合的裝飾群組顯示 folder icon
+#### Scenario: A collapsed decorative group shows the folder icon
 
-- **WHEN** 一個 `cluster` / `namespace` / `application` 裝飾群組被收合
-- **THEN** 其 `background-image` 為 folder glyph(以該群組 accent 色 tinted),而非 `'none'`
+- **WHEN** a `cluster` / `namespace` / `application` decorative group is collapsed
+- **THEN** its `background-image` is the folder glyph (tinted with that group's accent colour) rather than `'none'`
 
-#### Scenario: 展開的裝飾群組無中央 icon
+#### Scenario: An expanded decorative group has no centred icon
 
-- **WHEN** 該裝飾群組為展開狀態(`:parent`,其下有可見子節點)
-- **THEN** 其 `background-image` 為 `'none'`(labelled 容器,無中央 folder icon)
+- **WHEN** that decorative group is expanded (`:parent`, with visible children beneath it)
+- **THEN** its `background-image` is `'none'` (a labelled container with no centred folder icon)
 
-#### Scenario: 收合的 kind-ful compound 維持 kind icon
+#### Scenario: A collapsed kind-ful compound keeps its kind icon
 
-- **WHEN** 一個 `controller` / k8s `node` / `storageclass` compound 被收合
-- **THEN** 其中央 icon 維持為該 kind 的 icon,folder 選擇器 MUST NOT 套用其上
+- **WHEN** a `controller` / k8s `node` / `netapp-node` compound is collapsed
+- **THEN** its centred icon stays that kind's icon and the folder selector MUST NOT apply to it
 
 ### Requirement: Legend 面板可收合至側邊
 
@@ -197,160 +198,161 @@ Panel SHALL 支援節點點擊選取,選取狀態透過 cytoscape 內建 `:selec
 - **WHEN** `options.showLegend` 為 false
 - **THEN** legend `<aside>` 與 `<` 收合鈕、`>` 還原鈕皆 MUST NOT 渲染
 
-### Requirement: 圖例 (Legend)
+### Requirement: Legend
 
-Panel SHALL 提供 legend 元件,顯示**圖中實際呈現的**節點 icon 與邊類型對應說明。Node legend 的 icon / 顏色資料源 MUST 與 cytoscape stylesheet 共用同一份對應表(`iconSvgByKind.ts` / `colorByEdgeType.ts`)。Node legend 的 kind 集合 MUST 由 collapse-aware 的 `deriveLegendKinds`(見「Node-kinds 圖例 collapse-aware」requirement)導出——只列出**目前以 glyph 呈現於畫布**的 kind(drawn leaf + 收合容器;展開容器與被收合祖先隱藏的子節點不列);Edge legend MUST 只列出**目前資料中出現的 edge type**,惟 `pod-calls-service` / `service-selects-pod` 一律**省略**(本質為 pod-to-pod,由 `pod-calls-pod` 的 `pod ↔ pod/service` 雙向列代表——見下);兩者於對應集合為空時 MUST 不渲染(`return null`)。Node legend MUST 以隨主題上色的 icon glyph(取代既有 `ShapeGlyph`)呈現各 kind,並依 panel-owned 的 `kind → 超大類`(`categoryByKind.ts`:Workloads / Networking / Storage / Cluster / Other)查表**分組**,只渲染含 ≥1 個出現 kind 的大類;顏色 MUST NOT 編碼大類(顏色保留給狀態)。kind 列的文字標籤預設為 kind 字串本身,惟 MUST 支援 display-name 覆寫(`NodeLegend` 內的查表):`network` MUST 顯示為 `physical network`。Edge legend 每列 MUST 渲染為 `<from> [箭頭 glyph] <to>`:箭頭 glyph(`EdgeGlyph`,帶該 edge 的顏色與線型)置於兩端 `NodeKind` 標籤中間以取代動詞,端點標籤由 `EDGE_ENDPOINTS_BY_TYPE` 解析(`service` 縮寫為 `svc`),且 MUST NOT 顯示額外的 nesting 說明文字。例外:`pod-calls-pod` 列 MUST 渲染為 `pod ↔ pod/service`(雙向箭頭 glyph,兩端皆有箭頭),代表被省略的服務邊對。
+The panel SHALL provide a legend component showing the node icons and edge types **actually present in the graph**. The legend's icon and colour data MUST come from the same tables the cytoscape stylesheet uses (`iconSvgByKind.ts` / `colorByEdgeType.ts`). The node legend's kind set MUST be derived by the collapse-aware `deriveLegendKinds` (see the "Collapse-aware node-kinds legend" requirement) — listing only the kinds **currently drawn as a glyph on the canvas** (drawn leaves and collapsed containers; expanded containers and children hidden by a collapsed ancestor are excluded). The edge legend MUST list only the **edge types present in the current data**, except that `pod-calls-service` / `service-selects-pod` are always **omitted** (they are pod-to-pod in nature and are represented by `pod-calls-pod`'s `pod ↔ pod/service` bidirectional row — see below). Both MUST render nothing (`return null`) when their set is empty. The node legend MUST present each kind as a theme-tinted icon glyph (replacing the former `ShapeGlyph`) and **group** them by the panel-owned `kind → category` table (`categoryByKind.ts`: Workloads / Networking / Storage / Cluster / Other), rendering only categories holding at least one present kind; colour MUST NOT encode category (colour is reserved for status). A kind row's text label defaults to the kind string itself but MUST support a display-name override (a lookup inside `NodeLegend`): `network` MUST display as `physical network`. Each edge-legend row MUST render as `<from> [arrow glyph] <to>`: the arrow glyph (`EdgeGlyph`, carrying that edge's colour and line style) sits between the two `NodeKind` labels in place of a verb, the endpoint labels come from `EDGE_ENDPOINTS_BY_TYPE` (`service` abbreviated to `svc`), and no extra nesting explanation text may appear. The exception: the `pod-calls-pod` row MUST render as `pod ↔ pod/service` (a bidirectional arrow glyph with a head at each end), representing the omitted service-edge pair.
 
-legend 區段的垂直順序 MUST 為:`Layout`(Node|Controller 切換,置頂)→ `Node Kinds` → **`Ingress Gateway`** → `Edge Types` → `Status` → swatch 區段(`Clusters` → `Namespaces` → `Applications` → **`Nodes`|`Controllers`**);亦即 swatch 區段置於 `Status` **之後**,且 **`Nodes`|`Controllers`(`NodeContainerLegend`)MUST 為 legend 最底區段**(在 `Applications` 之後;在 `node` 模式下 `Namespaces` / `Applications` 不渲染時,仍接在 `Clusters` 之後作為最底)。
+The legend's vertical section order MUST be: `Layout` (the Node|Controller switch, pinned at the top) → `Node Kinds` → **`Ingress Gateway`** → `Edge Types` → `Status` → the swatch sections (`Clusters` → `Namespaces` → `Applications` → **`Nodes`|`Controllers`**). That is, the swatch sections sit **after** `Status`, and **`Nodes`|`Controllers` (`NodeContainerLegend`) MUST be the bottom-most section** (after `Applications`; in `node` mode, where `Namespaces` / `Applications` do not render, it still follows `Clusters` as the bottom-most).
 
-其中 `Ingress Gateway`(`IngressToggle`,見 ingress-visibility-toggle capability)為 **presence-gated**:僅在圖中確實存在 ingress-gateway 節點集合(非空)時渲染,否則 MUST NOT 渲染——與本 requirement「對應集合為空時 `return null`」的既有慣例一致。它緊接 `Node Kinds` **之後**、`Edge Types` **之前**,因其與 `NodeLegend` 同屬**節點可見性控制**(眼睛 / eye-slash 切換語彙),而非邊或狀態的說明列;它 MUST NOT 併入 `NodeLegend` 的 kind-based row(那些列嚴格以 kind 為 key)。該區段除標題與 eye 切換外,MUST 另附一條虛線 `EdgeGlyph` 樣本說明畫布上的 ingress 虛線語意——`EdgeLegend` 省略了服務型別列且其樣本一律實線,故若無此樣本,畫布虛線在 legend 中無任何對應說明。
+`Ingress Gateway` (`IngressToggle` — see the ingress-visibility-toggle capability) is **presence-gated**: it renders only when the graph actually holds a non-empty ingress-gateway node set, and MUST NOT render otherwise — consistent with this requirement's existing "return null when the set is empty" convention. It sits immediately **after** `Node Kinds` and **before** `Edge Types`, because like `NodeLegend` it is a **node-visibility control** (the eye / eye-slash vocabulary) rather than an explanatory row about edges or status; it MUST NOT be folded into `NodeLegend`'s kind-based rows, which are strictly keyed on kind. Besides its title and eye toggle, that section MUST carry a dashed `EdgeGlyph` sample explaining the dashed ingress semantics on the canvas — `EdgeLegend` omits the service-type rows and its samples are always solid, so without this sample the canvas's dashed lines would have no explanation anywhere in the legend.
 
-`Namespaces`(`NamespaceLegend`)與 `Applications`(`ApplicationLegend`,標題 `Applications` / 應用程式)為 **mode-gated**:僅在 `controller` 模式渲染(`node` 模式剝除 namespace / application 群組,故兩區段 MUST `return null`);`NamespaceLegend` 由後端 `isNamespace` 群組節點餵入(以 `namespaceColor` accent 上色)、`ApplicationLegend` 由後端 `isApplication` 群組節點餵入(以 `applicationColor` accent 上色,`applicationPalette` 衍生)。舊有的 `StorageClassLegend`(`Storage Classes` swatch 區段)MUST **移除**——`storageclass` 於後端 D6 階層改為 cluster 下的一般 leaf,故 MUST 改以其 `storageclass` glyph 列於 `NodeLegend` 的 `Storage` 大類(經既有 `categoryByKind` wiring),不再有獨立 swatch 區段。所有區段標題 MUST 為 Title Case(`Node Kinds` / `Ingress Gateway` / `Edge Types` / `Status` / `Clusters` / `Namespaces` / `Applications` / `Nodes`|`Controllers`)。
+`Namespaces` (`NamespaceLegend`) and `Applications` (`ApplicationLegend`, titled `Applications`) are **mode-gated**: they render only in `controller` mode (`node` mode strips the namespace / application groups, so both sections MUST `return null`). `NamespaceLegend` is fed by the backend's `isNamespace` group nodes (tinted with `namespaceColor`) and `ApplicationLegend` by the backend's `isApplication` group nodes (tinted with `applicationColor`, derived from `applicationPalette`). The `storageclass` kind has been removed from the backend contract, so `NodeLegend`'s `Storage` category now consists of the three glyphs `pvc` / `netapp-aggr` / `netapp-node` (through the existing `categoryByKind` wiring); the already-removed `StorageClassLegend` (the `Storage Classes` swatch section) MUST stay gone, and no new swatch section may be added for ONTAP — `storage-cluster` is a plain accent group frame and needs no legend row. Every section title MUST be Title Case (`Node Kinds` / `Ingress Gateway` / `Edge Types` / `Status` / `Clusters` / `Namespaces` / `Applications` / `Nodes`|`Controllers`).
 
-#### Scenario: Node legend 只列出以 glyph 呈現的 kind,依大類分組
+#### Scenario: The node legend lists only glyph-rendered kinds, grouped by category
 
-- **WHEN** Panel 收到 pod / service / pvc / node 皆為 drawn leaf(無巢狀容器、無收合)且無 workload / switch 的資料
-- **THEN** Node legend 只以 icon glyph 呈現 pod / service / pvc / node 並依大類分組(pod→Workloads、service→Networking、pvc→Storage、node→Cluster),未出現的 kind(deployment / switch …)不列出;顏色不用於區分大類
-- **AND**(見 collapse-aware requirement)若 `node` 改為裝載 pod 的展開容器,則 `node` 不列於 Node legend(改於「Nodes」swatch 區段),收合後才以 glyph 回到 Node legend
+- **WHEN** the panel receives data where pod / service / pvc / node are all drawn leaves (no nesting containers, nothing collapsed) and there are no workloads or switches
+- **THEN** the node legend presents only pod / service / pvc / node as icon glyphs grouped by category (pod→Workloads, service→Networking, pvc→Storage, node→Cluster), absent kinds (deployment / switch, …) are not listed, and colour is not used to distinguish category
+- **AND** (see the collapse-aware requirement) if `node` instead becomes an expanded container holding pods, `node` drops out of the node legend (appearing in the "Nodes" swatch section instead) and returns to the node legend as a glyph only once collapsed
 
-#### Scenario: Edge legend 只列出圖中出現且未省略的 edge type
+#### Scenario: The edge legend lists only the present, non-omitted edge types
 
-- **WHEN** 圖中存在 `pod-mounts-pvc` 與 `pod-calls-pod` 邊,但無 `switch-to-switch`
-- **THEN** Edge legend 以 `<from> → <to>`(箭頭 glyph 置中)只呈現 `pod-mounts-pvc` / `pod-calls-pod`,`switch-to-switch` / `node-to-switch` 不列出;顏色/線型與 canvas 中渲染一致
+- **WHEN** the graph holds `pod-mounts-pvc` and `pod-calls-pod` edges but no `switch-to-switch`
+- **THEN** the edge legend presents only `pod-mounts-pvc` / `pod-calls-pod` as `<from> → <to>` (arrow glyph centred), `switch-to-switch` / `node-to-switch` are not listed, and colours and line styles match the canvas rendering
 
-#### Scenario: 服務邊自 edge legend 省略(本質為 pod-to-pod)
+#### Scenario: Service edges are omitted from the edge legend (they are pod-to-pod in nature)
 
-- **WHEN** 圖中存在 `pod-calls-service` / `service-selects-pod` 邊
-- **THEN** 該兩型別 MUST NOT 出現於 edge legend(無獨立列、亦無額外合併列);它們在 canvas 以與 `pod-calls-pod` 相同的橘色繪製,於 legend 由 `pod-calls-pod` 列代表——該列渲染為 `pod ↔ pod/service`(雙向箭頭 glyph)
+- **WHEN** the graph holds `pod-calls-service` / `service-selects-pod` edges
+- **THEN** neither type may appear in the edge legend (no row of its own and no extra merged row); they draw on the canvas in the same orange as `pod-calls-pod` and are represented in the legend by the `pod-calls-pod` row, rendered as `pod ↔ pod/service` (a bidirectional arrow glyph)
 
-#### Scenario: Ingress Gateway 區段位於 Node Kinds 與 Edge Types 之間
+#### Scenario: The Ingress Gateway section sits between Node Kinds and Edge Types
 
-- **WHEN** 圖中存在 ingress-gateway 節點集合(非空),legend 渲染
-- **THEN** 區段順序 MUST 為 `Node Kinds` → `Ingress Gateway` → `Edge Types`,標題為 Title Case 的 `Ingress Gateway`
+- **WHEN** the graph holds a non-empty ingress-gateway node set and the legend renders
+- **THEN** the section order MUST be `Node Kinds` → `Ingress Gateway` → `Edge Types`, with the Title Case title `Ingress Gateway`
 
-#### Scenario: 圖中無 ingress 節點時該區段不渲染
+#### Scenario: The section does not render when the graph holds no ingress node
 
-- **WHEN** 圖中無任何節點屬 ingress-gateway 集合
-- **THEN** legend MUST NOT 渲染 `Ingress Gateway` 區段,其餘區段順序不受影響(`Node Kinds` 直接接 `Edge Types`)
+- **WHEN** no node in the graph belongs to the ingress-gateway set
+- **THEN** the legend MUST NOT render the `Ingress Gateway` section, and the remaining section order is unaffected (`Node Kinds` runs straight into `Edge Types`)
 
-#### Scenario: Applications swatch 區段列出後端 application 群組(mode-gated)
+#### Scenario: The Applications swatch section lists the backend's application groups (mode-gated)
 
-- **WHEN** `controller` 模式下圖中含後端 `isApplication` 群組節點
-- **THEN** `ApplicationLegend`(標題 `Applications`)以各 application 名稱列出 swatch,顏色取自 `applicationColor`(`applicationPalette` accent);切換為 `node` 模式時 application 群組被剝除,該區段 `return null`(與 `Namespaces` 區段一致 mode-gated)
+- **WHEN** in `controller` mode the graph holds backend `isApplication` group nodes
+- **THEN** `ApplicationLegend` (titled `Applications`) lists a swatch per application name, coloured from `applicationColor` (the `applicationPalette` accent); switching to `node` mode strips the application groups and the section returns `null` (mode-gated exactly like the `Namespaces` section)
 
-#### Scenario: Controllers/Nodes swatch 位於 legend 最底
+#### Scenario: The Controllers/Nodes swatch is the bottom-most legend section
 
-- **WHEN** `controller` 模式下 legend 同時渲染 `Clusters`、`Namespaces`、`Applications` 與 `Controllers`
-- **THEN** 垂直順序 MUST 為 `Clusters` → `Namespaces` → `Applications` → `Controllers`(`Controllers` 為 legend 最後一區)
-- **WHEN** `node` 模式下 legend 渲染 `Clusters` 與 `Nodes`(無 Namespaces / Applications)
-- **THEN** 垂直順序 MUST 為 `Clusters` → `Nodes`(`Nodes` 為 legend 最後一區)
+- **WHEN** in `controller` mode the legend renders `Clusters`, `Namespaces`, `Applications`, and `Controllers`
+- **THEN** the vertical order MUST be `Clusters` → `Namespaces` → `Applications` → `Controllers` (`Controllers` last)
+- **WHEN** in `node` mode the legend renders `Clusters` and `Nodes` (no Namespaces / Applications)
+- **THEN** the vertical order MUST be `Clusters` → `Nodes` (`Nodes` last)
 
-#### Scenario: storageclass 以 NodeLegend glyph 呈現、無獨立 swatch 區段
+#### Scenario: NetApp kinds appear as NodeLegend glyphs with no swatch section of their own
 
-- **WHEN** 圖中含 storageclass leaf 節點
-- **THEN** `storageclass` 以其 glyph 列於 `NodeLegend` 的 `Storage` 大類;legend MUST NOT 渲染任何 `Storage Classes` swatch 區段(`StorageClassLegend` 已移除)
+- **WHEN** the graph holds `netapp-aggr` / `netapp-node` nodes (the `storageclass` leaf this scenario originally described has been removed from the contract)
+- **THEN** each appears as its own glyph in `NodeLegend`'s `Storage` category (alongside `pvc`); the legend MUST NOT render a `Storage Classes` swatch section and MUST NOT add a swatch section for `storage-cluster`
 
-#### Scenario: 對應集合為空時不渲染
+#### Scenario: Nothing renders when the set is empty
 
-- **WHEN** 圖中無任何節點(或無任何 drawn 邊)
-- **THEN** Node legend(或 Edge legend)`return null`,不渲染空標題
+- **WHEN** the graph holds no nodes (or no drawn edges)
+- **THEN** the node legend (or the edge legend) returns `null` and renders no empty title
 
-### Requirement: Hover Tooltip 顯示元素 metadata
+### Requirement: The hover tooltip shows element metadata
 
-Panel SHALL 顯示 `HoverTooltip` 元件,具**兩種模式**:
+The panel SHALL render a `HoverTooltip` component with **two modes**:
 
-- **(1) Hover 浮動模式(預設,無 detail 節點被選取時)**:使用者 hover 於任一 node 或 edge 時,tooltip MUST 浮動定位於被 hover 元素附近(`position: absolute`,node 取其 rendered 中心、edge 取游標 rendered 位置,加固定偏移),並夾擠 / 翻轉於 cytoscape canvas wrapper 邊界內(偏移後超出右 / 下緣時翻轉至元素左側並夾於 wrapper 內,不超出可視範圍),寬度約 280px,套用 `pointer-events: none` 以確保不阻擋下方圖形互動。**此模式行為與既往完全一致。**
-- **(2) Pinned 釘選模式(當一個 detail-eligible 節點被左鍵選取時)**:tooltip 改**釘選於 canvas 右上角**(`top: 8` / `right: 8` / `left: auto`、`maxHeight: calc(50% - 16px)`、`overflowY: auto`、`pointer-events: auto` 使其內容可捲動、`zIndex: 1000` 以蓋過 cytoscape expand-collapse 的透明輸入層 `z-index: 999`),顯示**被選取節點**的完整 tooltip 內容(title + promoted attrs + 原始 labels),其內容**與 hover 模式同源同樣**(同一 `buildNodeAttributes` 與 `toLabelRows`,promoted 的 `kind` row 一併顯示)。釘選時 **hover 浮動 tooltip 全面抑制**(node 與 edge 皆不再浮動)。
+- **(1) Floating hover mode (the default, when no detail node is selected).** When the user hovers any node or edge, the tooltip MUST position itself near the hovered element (`position: absolute`, taking a node's rendered centre or the cursor's rendered position on an edge, plus a fixed offset), clamped and flipped within the cytoscape canvas wrapper's bounds (flipping to the element's left and clamping inside the wrapper when the offset would push it past the right or bottom edge, never overflowing the viewport). It is about 280px wide and applies `pointer-events: none` so it never blocks interaction with the graph beneath. **This mode's behaviour is exactly as before.**
+- **(2) Pinned mode (when a detail-eligible node is left-click selected).** The tooltip **pins to the canvas's top-right corner** (`top: 8` / `right: 8` / `left: auto`, `maxHeight: calc(50% - 16px)`, `overflowY: auto`, `pointer-events: auto` so its content can scroll, `zIndex: 1000` to sit above cytoscape expand-collapse's transparent input layer at `z-index: 999`), showing the **selected node's** full tooltip content (title + promoted attrs + raw labels). That content is **identical to and derived from the same source as** hover mode (the same `buildNodeAttributes` and `toLabelRows`, with the promoted `kind` row shown too). While pinned, the **floating hover tooltip is fully suppressed** for both nodes and edges.
 
-被選取節點的資料源為已 gated 的 `resolveSelectedNode`(可見 + 未被收合祖先隱藏 + detail-eligible),故裝飾性 **`cluster` / `namespace`** 群組(`resolveSelectedNode` 回 `null`)**不**釘選、其 hover 行為不變;**`application` 群組現為 detail-eligible**,選取時**亦釘選**(顯示合成 `kind: application` + 其名稱)。釘選卡片**無關閉鈕**:取消選取(點背景 / 邊、切換節點、kind / edge 過濾、收合祖先、資料刷新移除)即自動清除釘選並恢復 hover 模式。樣式 MUST 使用 `@grafana/ui` theme tokens(背景半透明 `theme.colors.background.secondary` + opacity ≥ 0.85)。
+The selected node's data comes from the already-gated `resolveSelectedNode` (visible + not hidden by a collapsed ancestor + detail-eligible), so the decorative **`cluster` / `namespace`** groups (for which `resolveSelectedNode` returns `null`) do **not** pin and their hover behaviour is unchanged; **the `application` group is now detail-eligible** and **does** pin when selected (showing its synthetic `kind: application` and its name). The pinned card has **no close button**: deselecting (clicking the background or an edge, switching nodes, filtering by kind / edge, collapsing an ancestor, or a data refresh removing it) automatically clears the pin and restores hover mode. Styling MUST use `@grafana/ui` theme tokens (a semi-transparent `theme.colors.background.secondary` at opacity ≥ 0.85).
 
-`storageclass` leaf 節點 MUST 走**一般 node-tooltip 路徑**——它於後端 D6 階層自帶 `kind`(`storageclass`)、`labels.cluster`、`provisioner` 與 `parameters`,tooltip(hover 浮動或釘選)直接顯示這些自帶欄位;舊有「自子 PVC 節點合成 context」路徑(`gatherStorageClassContext`、`HoveredElement.storageClass` 欄、`HoverTooltip` 的 `isStorageClass` 分支)MUST 移除。kind-less 的 backend 群組(`isNamespace` / `isApplication`)MUST 由旗標推導一個**合成 `kind` row**(`isApplication` → `application`、`isNamespace` → `namespace`)——純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見);`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用。
+**Physical-storage nodes (`netapp-aggr` / `netapp-node`) MUST go through the ordinary node-tooltip path** — they carry their own `kind`, `labels.ontap_cluster` (and, on an aggregate, `labels.node`), and `health`, and `netapp-aggr` additionally carries `usage`; the tooltip (floating or pinned) shows those own fields directly, with no synthesis path. The removed `storageclass` kind takes its `provisioner` / `parameters` tooltip rows with it. **`health` and `usage` MUST be promoted attribute rows** (from the same source as `kind` / `namespace` / `ipAddress`, via `buildNodeAttributes`): `health` displays its string value verbatim, and `usage` MUST be formatted human-readably as `<used> / <capacity> (<pct>%)` (bytes abbreviated in decimal units, percentage rounded to an integer). When `usage` is absent the whole row is omitted and **MUST NOT** be shown as `0` or a placeholder. A PVC node carrying `storageclass` (the claim's StorageClass name) and `usage` MUST show one row for each through the same mechanism. Kind-less backend groups (`isNamespace` / `isApplication`) MUST derive a **synthetic `kind` row** from their flag (`isApplication` → `application`, `isNamespace` → `namespace`) — presentation only, and it MUST NOT write `kind` into `data` (the group stays kind-less and invisible to the kind filter and icon legend). The `cluster` group is skipped upstream in `useHoverElement` and shows no tooltip, so it does not apply.
 
-**Tooltip 的 name title MUST 使用裸 `data.label`(或缺則 `data.id`),MUST NOT 含畫布 compound 的 kind 前綴**(`Cluster:` / `Namespace:` / `Release Unit:` / `Node:`)。那些前綴僅由 stylesheet 於畫布標籤渲染(見「裝飾性 compound 群組…」與「physical-network 與 k8s node compound header…」);normalize 對裝飾性群組寫入的 `data.label` 為裸名稱,故 hover / pinned 路徑讀 `data.label` 即得裸名,無需額外 strip。
+**The tooltip's name title MUST use the bare `data.label` (falling back to `data.id`) and MUST NOT include the canvas compound's kind prefix** (`Cluster:` / `Namespace:` / `Release Unit:` / `Node:`). Those prefixes are rendered by the stylesheet on the canvas label only (see "Decorative compound groups use fixed per-kind colours and a kind-prefixed label" and "physical-network and k8s node compound headers"); the `data.label` normalize writes for a decorative group is the bare name, so the hover and pinned paths get the bare name straight from `data.label` with no stripping.
 
-#### Scenario: Hover 節點顯示節點 metadata（無選取時）
+#### Scenario: Hovering a node shows its metadata (with nothing selected)
 
-- **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一節點
-- **THEN** `HoverTooltip` 浮動顯示節點 `name`(`data.label ?? data.id`)、`kind`、`namespace`、`ipAddress`(`data.ipAddress` 以逗號串接顯示,僅當存在且非空時)、`application`(ArgoCD application;凡 leaf 帶 `data.application`——pod / service / pvc 與聚合後的 controller——即顯示,惟裝飾性 `application` 群組節點 MUST NOT 顯示此 row 以免與其合成 `kind`/`name` 重複),以及白名單 labels(`app`、`version`、`app.kubernetes.io/name`、`app.kubernetes.io/instance`)中有值的欄位;缺漏欄位 MUST 不顯示其 row(不顯示空白 placeholder)
+- **WHEN** no detail node is selected and the user hovers any node
+- **THEN** `HoverTooltip` floats and shows the node's `name` (`data.label ?? data.id`), `kind`, `namespace`, `ipAddress` (`data.ipAddress` joined with commas, only when present and non-empty), `application` (the ArgoCD application; shown for any leaf carrying `data.application` — pod / service / pvc and an aggregated controller — while a decorative `application` group node MUST NOT show this row, to avoid duplicating its synthetic `kind`/`name`), and whichever allow-listed labels have values (`app`, `version`, `app.kubernetes.io/name`, `app.kubernetes.io/instance`); a missing field MUST NOT render its row (no blank placeholder)
 
-#### Scenario: Hover storageclass leaf 顯示自帶 metadata（未選取）
+#### Scenario: Hovering a NetApp leaf shows its own metadata (nothing selected)
 
-- **WHEN** 無選取時,滑鼠移至一個 storageclass leaf(巢狀於某 cluster,自帶 `kind: storageclass`、`labels.cluster`、`provisioner`、`parameters`)
-- **THEN** tooltip 浮動顯示其名稱(title)、`kind: storageclass`、`cluster: <name>`、`provisioner: <name>`,以及每個 backing-storage 參數一列(如 `pool: kube`、`selector: tier=fast`;key 排序、值換行)
-- **AND** MUST NOT 以子 PVC 節點合成 `PVCs (N)` 清單(該合成路徑已隨 storageclass 改為 leaf 而移除;PVC 以 `pvc-to-storageclass` 邊相連而非巢狀)
+- **WHEN** nothing is selected and the pointer moves onto a `netapp-aggr` leaf (nested under some `netapp-node`, carrying its own `kind: netapp-aggr`, `labels.ontap_cluster`, `labels.node`, `health: "online"`, and `usage: { usedBytes: 700000000000, capacityBytes: 1000000000000 }`; the storageclass leaf this scenario originally described has been removed from the contract)
+- **THEN** the tooltip floats and shows its name (as the title), `kind: netapp-aggr`, `health: online`, the formatted `usage` (for example `700 GB / 1 TB (70%)`), and the two label rows `ontap_cluster` / `node`
+- **AND** it MUST NOT show any `provisioner` / `parameters` row (those fields left the contract with storageclass)
 
-#### Scenario: Hover kind-less 群組(namespace / application)顯示合成 kind
+#### Scenario: Hovering a kind-less group (namespace / application) shows a synthetic kind
 
-- **WHEN** 使用者 hover 於一個 backend `namespace` 或 `application` 群組節點(kind-less:無 `data.kind`,僅帶 `isNamespace` / `isApplication` 旗標)
-- **THEN** `HoverTooltip` MUST 由該旗標推導出一個合成 `kind` row(`isApplication` → `application`、`isNamespace` → `namespace`)並顯示,使 hover 不致只剩裸 name;此 row 為純呈現,MUST NOT 於 `data` 寫入 `kind`(群組維持 kind-less,對 kind filter / icon legend 不可見)。`cluster` 群組於 `useHoverElement` 上游略過、不顯示 tooltip,故不適用
+- **WHEN** the user hovers a backend `namespace` or `application` group node (kind-less: no `data.kind`, only the `isNamespace` / `isApplication` flag)
+- **THEN** `HoverTooltip` MUST derive and show a synthetic `kind` row from that flag (`isApplication` → `application`, `isNamespace` → `namespace`) so the hover is not reduced to a bare name; that row is presentation only and MUST NOT write `kind` into `data` (the group stays kind-less and invisible to the kind filter and icon legend). The `cluster` group is skipped upstream in `useHoverElement` and shows no tooltip, so it does not apply
 
-#### Scenario: Hover 裝飾性群組 title 為裸名稱(不含 kind 前綴)
+#### Scenario: A decorative group's hover title is the bare name (no kind prefix)
 
-- **WHEN** 使用者 hover 於一個 `data.label` 為 `shop` 的 `namespace` 群組,或 `data.label` 為 `mongo` 的 `application` 群組(畫布上分別渲染為 `Namespace: shop` / `Release Unit: mongo`)
-- **THEN** tooltip title MUST 分別為 `shop` / `mongo`,MUST NOT 含 `Namespace:` / `Release Unit:` 前綴
-- **AND** 合成 `kind` row 仍分別顯示 `namespace` / `application`
+- **WHEN** the user hovers a `namespace` group whose `data.label` is `shop`, or an `application` group whose `data.label` is `mongo` (rendered on the canvas as `Namespace: shop` / `Release Unit: mongo` respectively)
+- **THEN** the tooltip title MUST be `shop` / `mongo` respectively and MUST NOT include the `Namespace:` / `Release Unit:` prefix
+- **AND** the synthetic `kind` row still shows `namespace` / `application` respectively
 
-#### Scenario: 釘選 application 群組 title 為裸名稱
+#### Scenario: A pinned application group's title is the bare name
 
-- **WHEN** 使用者左鍵選取一個 `data.label` 為 `mongo` 的 `application` 群組(detail-eligible,釘選 tooltip)
-- **THEN** 釘選卡片 title MUST 為 `mongo`,MUST NOT 為 `Release Unit: mongo`
+- **WHEN** the user left-click selects an `application` group whose `data.label` is `mongo` (detail-eligible, so the tooltip pins)
+- **THEN** the pinned card's title MUST be `mongo` and MUST NOT be `Release Unit: mongo`
 
-#### Scenario: Hover 邊顯示邊 metadata（無選取時）
+#### Scenario: Hovering an edge shows its metadata (with nothing selected)
 
-- **WHEN** 無 detail 節點被選取,使用者滑鼠 hover 於任一邊
-- **THEN** `HoverTooltip` 浮動顯示 `edgeType`、`source → target`(以兩端節點的 `label` 解析,而非裸 id)
+- **WHEN** no detail node is selected and the user hovers any edge
+- **THEN** `HoverTooltip` floats and shows `edgeType` and `source → target` (resolved through the two endpoint nodes' `label`, not their bare ids)
 
-#### Scenario: Tooltip 定位於 hovered 元素附近（hover 模式）
+#### Scenario: The tooltip positions near the hovered element (hover mode)
 
-- **WHEN** 無 detail 節點被選取,使用者 hover 於某節點
-- **THEN** tooltip 以該節點 rendered 位置加固定偏移定位(動態 `left` / `top`),而非固定於角落
-- **AND** 當偏移後 tooltip 會超出 canvas 右 / 下緣時,翻轉至節點左側並夾擠於 wrapper 邊界內
+- **WHEN** no detail node is selected and the user hovers a node
+- **THEN** the tooltip positions from that node's rendered position plus a fixed offset (dynamic `left` / `top`) rather than fixed in a corner
+- **AND** when the offset would push it past the canvas's right or bottom edge, it flips to the node's left and clamps within the wrapper's bounds
 
-#### Scenario: Tooltip 不阻擋圖形互動（hover 模式）
+#### Scenario: The tooltip does not block graph interaction (hover mode)
 
-- **WHEN** Hover 浮動 tooltip 顯示中,使用者點擊 tooltip DOM 覆蓋區域底下的節點
-- **THEN** 該節點被選取(觸發既有 `:selected` 樣式與 `onSelect` callback),hover tooltip 不攔截 click 事件(`pointer-events: none` 生效)
+- **WHEN** the floating hover tooltip is showing and the user clicks a node beneath the tooltip's DOM area
+- **THEN** that node is selected (firing the existing `:selected` style and the `onSelect` callback) and the hover tooltip does not intercept the click (`pointer-events: none` is in effect)
 
-#### Scenario: 取消 hover 後浮動 tooltip 淡出並從 DOM 移除
+#### Scenario: After hover ends, the floating tooltip fades out and leaves the DOM
 
-- **WHEN** 無選取時,使用者滑鼠移出原 hovered 元素且未進入其他元素
-- **THEN** `HoverTooltip` 以 opacity transition(≥ 100ms ≤ 200ms)淡出,動畫結束後 tooltip 不渲染任何 DOM(避免空 box 佔位)
+- **WHEN** nothing is selected and the pointer leaves the hovered element without entering another
+- **THEN** `HoverTooltip` fades out over an opacity transition (≥ 100ms, ≤ 200ms) and, once the animation ends, renders no DOM at all (leaving no empty box occupying space)
 
-#### Scenario: Hovered 元素被移除時清空浮動 tooltip
+#### Scenario: A removed hovered element clears the floating tooltip
 
-- **WHEN** 一個元素 hover 中(無選取),該元素因 data refresh 從 cytoscape instance 中被 remove
-- **THEN** `useHoverElement` 收到 `remove` 事件後清空 store,`HoverTooltip` 立即消失,不渲染參照已不存在元素的內容
+- **WHEN** an element is hovered (nothing selected) and a data refresh removes it from the cytoscape instance
+- **THEN** `useHoverElement` clears the store on the `remove` event, `HoverTooltip` disappears immediately, and it never renders content referring to an element that no longer exists
 
-#### Scenario: Hover 不觸發 GraphCanvas 重渲染
+#### Scenario: Hovering does not re-render GraphCanvas
 
-- **WHEN** 連續 hover 多個元素
-- **THEN** 透過 `useSyncExternalStore` 訂閱的 `HoverTooltip` 元件重新渲染,但 `GraphCanvas` 與 cytoscape instance reference 不變(React DevTools profiler 驗證 `GraphCanvas` render count 不增加)
+- **WHEN** the user hovers several elements in sequence
+- **THEN** the `HoverTooltip` component subscribed through `useSyncExternalStore` re-renders, while `GraphCanvas` and the cytoscape instance reference do not (verified through the React DevTools profiler: `GraphCanvas`'s render count does not increase)
 
-#### Scenario: 左鍵選取 detail 節點將 tooltip 釘選於右上角
+#### Scenario: Left-click selecting a detail node pins the tooltip to the top-right
 
-- **WHEN** 使用者左鍵選取一個 detail-eligible 節點(leaf 含 storageclass / k8s-node / controller)
-- **THEN** `HoverTooltip` 進入 pinned 模式:於 canvas 右上角(`top:8` / `right:8`、`pointer-events:auto`、`zIndex:1000`、`maxHeight: calc(50% - 16px)` 可捲動)釘選顯示**該節點**的 title + promoted attrs(含 `kind` row)+ 原始 labels(`toLabelRows` 過濾掉已 promote 的 `namespace`)
-- **AND** 釘選內容與 hover 該節點時的內容完全一致(同源)
+- **WHEN** the user left-click selects a detail-eligible node (a leaf including `netapp-aggr`, a k8s-node, a `netapp-node`, or a controller)
+- **THEN** `HoverTooltip` enters pinned mode: in the canvas's top-right corner (`top:8` / `right:8`, `pointer-events:auto`, `zIndex:1000`, scrollable at `maxHeight: calc(50% - 16px)`) it pins **that node's** title + promoted attrs (including the `kind` row) + raw labels (`toLabelRows` filtering out the already-promoted `namespace`)
+- **AND** the pinned content is identical to what hovering that node would show (same source)
 
-#### Scenario: 釘選時抑制 hover 浮動
+#### Scenario: Pinning suppresses the floating hover
 
-- **WHEN** 一個 detail 節點已被選取(tooltip 釘選中),使用者 hover 於其他 node 或 edge
-- **THEN** 浮動 hover tooltip MUST NOT 顯示(pinned 模式抑制 hover);右上角僅持續顯示被選取節點的釘選卡片
+- **WHEN** a detail node is selected (the tooltip is pinned) and the user hovers another node or edge
+- **THEN** the floating hover tooltip MUST NOT appear (pinned mode suppresses hover) and the top-right corner continues showing only the selected node's pinned card
 
-#### Scenario: 釘選 tooltip 即使游標不在任何元素上仍顯示
+#### Scenario: The pinned tooltip shows even when the cursor is over nothing
 
-- **WHEN** 一個 detail 節點被選取,且游標未 hover 於任何元素(`useHoverElement` 回 `null`)
-- **THEN** 釘選卡片仍 MUST 顯示(pinned 模式不依賴 hovered 元素;渲染早於 hover 的 `hovered === null` 早退)
+- **WHEN** a detail node is selected and the cursor hovers no element (`useHoverElement` returns `null`)
+- **THEN** the pinned card MUST still show (pinned mode does not depend on a hovered element; it renders before hover's `hovered === null` early return)
 
-#### Scenario: 取消選取清除釘選並恢復 hover
+#### Scenario: Deselecting clears the pin and restores hover
 
-- **WHEN** 釘選中,使用者取消選取(點背景 / 邊、切換到另一節點、kind/edge 過濾掉該節點、收合其祖先、或資料刷新移除該節點)
-- **THEN** `resolveSelectedNode` 回 `null` → 釘選卡片消失,tooltip 恢復 hover 浮動模式
+- **WHEN** the tooltip is pinned and the user deselects (clicking the background or an edge, switching to another node, filtering that node out by kind or edge, collapsing its ancestor, or a data refresh removing it)
+- **THEN** `resolveSelectedNode` returns `null`, the pinned card disappears, and the tooltip returns to floating hover mode
 
-#### Scenario: 選取 storageclass 釘選 provisioner 與 parameters
+#### Scenario: Selecting a NetApp node pins its health and usage
 
-- **WHEN** 使用者左鍵選取一個 storageclass leaf
-- **THEN** tooltip 釘選顯示 `kind: storageclass` + `provisioner` + 每個 backing-storage parameter(key 排序、值換行);底部 detail 面板因無 change-report / alerts 區塊而僅渲染 header(見「Node Detail 面板」)
+- **WHEN** the user left-click selects a `netapp-aggr` leaf or a `netapp-node` compound (the storageclass leaf this scenario originally described has been removed from the contract)
+- **THEN** the tooltip pins showing its `kind` + `health` + (on a `netapp-aggr`) the formatted `usage`, along with its `ontap_cluster` / `node` labels; the bottom detail panel renders header-only, having no change-report or alerts section (see "Node detail panel")
+- **AND** selecting a PVC carrying `storageclass` and `usage` pins one row each for `storageclass: <name>` and the formatted `usage`
 
 ### Requirement: Node Kind / Edge Type 過濾
 
@@ -464,100 +466,100 @@ Panel SHALL 依節點 `data.status` 渲染狀態外框,顏色取自單一資料�
 - **THEN** 選取高亮(`node:selected`)覆蓋 status 外框
 - **AND** 身為 compound parent 的 K8s `node` 或 controller 仍顯示 status 外框(選擇器排序覆蓋 `node:parent`)
 
-### Requirement: Node Detail 面板
+### Requirement: Node detail panel
 
-Panel SHALL 在**左鍵**點擊節點時,於 canvas 底部以浮層(不縮放 graph)開啟 detail 面板,header 顯示節點 name、kind、status 三項。面板的關閉途徑分**兩類、語意不同**:(1)點擊背景 / 邊(= 取消選取)時面板關閉且 selection 一併清除;(2)按**關閉鈕**時 MUST **僅關閉面板**(detail open → false)——selection 及其衍生視覺(cytoscape 單選高亮、selection-focus 淡化、右上角釘選 tooltip)與變數輸出 MUST 全數存續。切換到另一節點時面板切換至新節點。cytoscape 單選的藍色高亮 MUST 與 **selection** 同步(而非與面板開關同步)。關閉後**再次點擊該已選取節點** MUST 重新開啟面板,且 MUST 沿用原選取當下的查詢時間戳(不重發 change-report 查詢——關/開面板為 UI 動作,非資料動作;查詢時間戳的生命週期繫於 selection,選取**另一**節點時才取新時間戳)。裝飾性 **cluster** 群組**不可被選取**(見「互動與選取狀態」:tap 視同背景點擊、無選取環、無摺疊 cue,收合改由 dbltap 觸發),裝飾性 **namespace** 群組**可被選取**(顯示選取環與摺疊 cue,見「互動與選取狀態」)——兩者 `resolveSelectedNode` 皆回 `null`,故 MUST NOT 開啟此 detail 面板、亦 MUST NOT 釘選 tooltip。**`application` 群組為例外**:它現為 detail-eligible(kind-less,以合成 `kind: application` 解析),選取時**開啟面板**渲染該 ArgoCD application 的 Application config_changes 區塊(見「Node Detail Application 與 Containers 區塊」)並**釘選 tooltip**,同時仍浮現其摺疊 cue。
+On a **left click** on a node, the panel SHALL open a detail panel as an overlay at the bottom of the canvas (without resizing the graph), its header showing the node's name, kind, and status. There are **two semantically different** ways to close it: (1) clicking the background or an edge (= deselecting) closes the panel and clears the selection with it; (2) pressing the **close button** MUST **close the panel only** (detail open → false) — the selection and everything derived from it (the cytoscape single-select highlight, the selection-focus fade, the pinned top-right tooltip) and the variable output MUST all persist. Switching to another node switches the panel to it. The cytoscape single-select blue highlight MUST track **selection**, not the panel's open state. After closing, **clicking that already-selected node again** MUST reopen the panel using the query timestamp captured at selection time (it MUST NOT re-issue the change-report queries — closing and reopening is a UI action, not a data action; the query timestamp's lifetime is bound to the selection, and a new timestamp is taken only when a **different** node is selected). The decorative **cluster** group is **not selectable** (see "Interaction and selection state": a tap behaves like a background click, with no selection ring and no collapse cue, and collapse is triggered by dbltap instead), while the decorative **namespace** group **is** selectable (showing the selection ring and collapse cue, see the same requirement) — `resolveSelectedNode` returns `null` for both, so neither may open this detail panel or pin the tooltip. **The `application` group is the exception**: it is now detail-eligible (kind-less, resolved with a synthetic `kind: application`), so selecting it **opens the panel** rendering that ArgoCD application's Application config_changes section (see "Node-detail Application and Containers sections") and **pins the tooltip**, while still surfacing its collapse cue.
 
-header 除節點 name / kind / status 外,當該節點(任一 detail-eligible 節點:**leaf 含 storageclass / k8s-node / controller**;**僅裝飾性 cluster / namespace / application 除外**)的 `/dashboard` 查詢回傳可用 URL 時,MUST 於 name 旁顯示一顆 **Dashboard 按鈕**;按鈕的查詢時機、參數組裝、200-gated 可用性與新分頁開啟行為見 `node-dashboard-url` capability。
+Besides the node's name / kind / status, when that node (any detail-eligible node: **a leaf including `netapp-aggr`, a k8s-node, a `netapp-node`, or a controller**; **only the decorative cluster / storage-cluster / namespace / application are excluded**) has a `/dashboard` query returning a usable URL, the header MUST show a **Dashboard button** beside the name; the query's timing, parameter assembly, 200-gated availability, and new-tab open behaviour are covered by the `node-dashboard-url` capability.
 
-面板 body 一律以**資料有無**閘控,依序為——(1)**Application change-report 區塊**:帶 `data.application` 的節點即顯示(**含 `service` / `pvc`**——見「Node Detail Application 與 Containers 區塊」需求);**Containers change-report 區塊**僅 workload kind 且帶 `data.containers` 時顯示;(2)**Alerts 區塊**(`node-detail-section-alerts`):節點帶非空 `data.alerts` 時渲染告警表,**無告警時整段不渲染**。**面板不再有恆顯的屬性(Properties)區塊**——節點的 promoted attributes(合成 kind、`namespace`、`application`、`ipAddress`、`provisioner`、storageclass `parameters`)改由**右上角釘選 tooltip** 呈現(見「Hover Tooltip」pinned 模式,與 hover 同源);釘選卡 MUST 排在 **search bar 下方**(search 在上、屬性卡在下,見 `graph-search`)。
+The panel body is always gated on **whether the data exists**, in this order: (1) the **Application change-report section**, shown for any node carrying `data.application` (**including `service` / `pvc`** — see the "Node-detail Application and Containers sections" requirement); the **Containers change-report section**, shown only for a workload kind carrying `data.containers`; (2) the **Alerts section** (`node-detail-section-alerts`), rendering the alert table when the node carries a non-empty `data.alerts` and **rendering nothing at all when there are no alerts**. **The panel no longer has an always-visible Properties section** — a node's promoted attributes (the synthetic kind, `namespace`, `application`, `ipAddress`, `storageclass`, `health`, and the formatted `usage`) are presented by the **pinned top-right tooltip** instead (see "The hover tooltip shows element metadata", pinned mode, sharing hover's source); the pinned card MUST sit **below the search bar** (search above, attribute card below — see `graph-search`).
 
-**面板 ALWAYS 渲染**(當左鍵選取一個 detail-eligible 節點**且面板未被關閉鈕關閉**——即 selection 存在且 detail open 為 true):**header**(節點 name + kind / status badge + 關閉鈕,以及 `/dashboard` 查詢回 `ready` + 非空 `urls` 時的 Dashboard 按鈕)為最小渲染;body 區塊(Application / Containers / Alerts)各自以資料有無閘控。無任何 body 內容的節點(如純 `storageclass`、無 `application` 的 `service` / `pvc`)左鍵選取後**仍渲染 header-only 面板**;其 promoted attributes 由右上角釘選 tooltip 承載(不重複於面板)。釘選卡片本身**不含** Dashboard 按鈕,故 header 是 dashboard 入口的唯一處——因 header 恆顯,入口必然可達。**graph-search 的 locate 對 detail-eligible 節點 MUST 建立 selection 並開啟面板**(detail open → true,等同畫布左鍵,見 `graph-search` capability);釘選 tooltip 照常呈現於 search bar 下方。
+**The panel ALWAYS renders** when a detail-eligible node is left-click selected **and the panel was not closed with the close button** (that is, a selection exists and detail open is true): the **header** (node name + kind / status badge + close button, plus the Dashboard button when the `/dashboard` query is `ready` with non-empty `urls`) is the minimum rendering, and each body section (Application / Containers / Alerts) is gated on its own data. A node with no body content at all (such as `netapp-aggr` / `netapp-node`, or a `service` / `pvc` with no `application`) **still renders a header-only panel** when left-click selected; its promoted attributes are carried by the pinned top-right tooltip and are not duplicated in the panel. The pinned card itself carries **no** Dashboard button, so the header is the sole dashboard entry point — and because the header always renders, that entry point is always reachable. **graph-search's locate MUST establish a selection and open the panel for a detail-eligible node** (detail open → true, equivalent to a canvas left click — see the `graph-search` capability), with the pinned tooltip appearing below the search bar as usual.
 
-面板高度 MUST 隨內容增長,僅在超過上限(canvas 高度的 `50%`)時才捲動(header 釘住);內容短於上限時 MUST NOT 出現捲動。**捲動 MUST 集中於單一容器(面板 body,`node-detail-scroll`):body 為唯一 scroll authority(`overflowY: auto`),各區塊一律為 content-height(`flex: 0 0 auto`)且 MUST NOT 各自擁有內部捲動。**面板可同時堆疊多個區塊(Application + Containers + Alerts),若任一區塊自帶內部捲動,多個 fill 區塊會在受限高度下互相重疊且皆無法捲動——故 single-body-scroll 為唯一可組合的模型。
+The panel's height MUST grow with its content and scroll only past a ceiling of `50%` of the canvas height (with the header pinned); content shorter than that ceiling MUST NOT scroll. **Scrolling MUST be concentrated in a single container (the panel body, `node-detail-scroll`): the body is the sole scroll authority (`overflowY: auto`), every section is content-height (`flex: 0 0 auto`), and no section may own an internal scroll.** The panel can stack several sections at once (Application + Containers + Alerts), and if any section carried its own internal scroll, several fill sections would overlap under a constrained height and none of them would scroll — so single-body-scroll is the only composable model.
 
-告警資料來自上游 graph JSON 節點的選用欄位 `alerts: NodeAlert[]`(`normalizeGraph` 攜帶至 `data.alerts`,缺值或空陣列→該區塊不渲染)。每筆 `NodeAlert` 以 `timeRecords: number[]`(Unix 秒,升序)表示重複發生;後端已把同一 alert 分組為**單筆**,故告警表格**一列代表一個 alert**。**Count** 欄 MUST 顯示 `timeRecords.length`,並 MUST 透過 `@grafana/ui` `Tooltip` 列出全部發生時間(依 `timeZone` 格式化)。**Last occurred** 欄 MUST 顯示 `max(timeRecords)`(格式化)且 MUST 可點擊:點擊時以 `t = max(timeRecords)`(Unix 秒)為中心、固定 ±5 分鐘(300 秒),呼叫 `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })` 倒帶 dashboard 時間範圍。`severity` 為自由字串:`info` / `warning` / `critical` 取 `SEVERITY_COLOR` 對應色,其餘自訂標籤 MUST 原樣保留並以 `FALLBACK_SEVERITY_COLOR`(critical 色)著色。告警表格的 **Pod / Service 缺值格 MUST 顯示 muted「n/a」**(統一缺值占位 `MISSING_VALUE_PLACEHOLDER`,見「Node Detail Application 與 Containers 區塊」)。
+Alert data comes from the optional `alerts: NodeAlert[]` field on the upstream graph JSON node (`normalizeGraph` carries it to `data.alerts`; absent or an empty array → the section does not render). Each `NodeAlert` represents repeated occurrences through `timeRecords: number[]` (Unix seconds, ascending); the backend already groups one alert into a **single** entry, so the alert table shows **one row per alert**. The **Count** column MUST show `timeRecords.length` and MUST list every occurrence time (formatted by `timeZone`) through a `@grafana/ui` `Tooltip`. The **Last occurred** column MUST show `max(timeRecords)` (formatted) and MUST be clickable: clicking it rewinds the dashboard time range by calling `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })`, centred on `t = max(timeRecords)` (Unix seconds) with a fixed ±5 minutes (300 seconds). `severity` is a free string: `info` / `warning` / `critical` take their `SEVERITY_COLOR`, and any other custom label MUST be preserved verbatim and coloured with `FALLBACK_SEVERITY_COLOR` (the critical colour). **A missing Pod / Service cell in the alert table MUST show a muted "n/a"** (the unified missing-value placeholder `MISSING_VALUE_PLACEHOLDER` — see "Node-detail Application and Containers sections").
 
-#### Scenario: 左鍵點任一 detail-eligible 節點開啟面板
+#### Scenario: Left-clicking any detail-eligible node opens the panel
 
-- **WHEN** 使用者**左鍵**點擊任一非裝飾 detail-eligible 節點
-- **THEN** 底部浮層渲染 header(節點 label、kind badge、status badge、關閉鈕),覆蓋於 graph 之上且不改變 graph 尺寸;有資料的 body 區塊隨之顯示
-- **AND** 該節點的選取高亮與 selection 同步,且其屬性同時釘選於右上角 tooltip
+- **WHEN** the user **left-clicks** any non-decorative, detail-eligible node
+- **THEN** the bottom overlay renders the header (node label, kind badge, status badge, close button) above the graph without changing the graph's size, and any body section with data appears with it
+- **AND** that node's selection highlight tracks the selection, and its attributes pin simultaneously in the top-right tooltip
 
-#### Scenario: 點外面或關閉鈕關閉
+#### Scenario: Clicking outside or pressing close
 
-- **WHEN** 使用者點擊 graph 背景或邊
-- **THEN** detail 面板關閉,selection 清除(選取高亮、focus 淡化、右上角釘選 tooltip 一併消失,變數輸出清空)
-- **WHEN** 面板開啟時使用者按下關閉鈕
-- **THEN** detail 面板關閉;selection 維持——選取高亮、selection-focus 淡化與右上角釘選 tooltip 持續顯示,selected-pod-export 變數值不變
+- **WHEN** the user clicks the graph background or an edge
+- **THEN** the detail panel closes and the selection clears (the selection highlight, the focus fade, and the pinned top-right tooltip all disappear, and the variable output empties)
+- **WHEN** the panel is open and the user presses the close button
+- **THEN** the detail panel closes but the selection persists — the selection highlight, the selection-focus fade, and the pinned top-right tooltip stay visible, and the selected-pod-export variable value is unchanged
 
-#### Scenario: 關閉後再點該節點重開且不重發查詢
+#### Scenario: Reopening after close does not re-issue queries
 
-- **WHEN** 使用者以關閉鈕關閉面板後,再次左鍵點擊該(仍選取中的)節點
-- **THEN** 面板重新開啟,內容與關閉前一致;change-report 查詢沿用原選取時間戳,MUST NOT 重新發出查詢
+- **WHEN** the user closed the panel with the close button and then left-clicks that (still-selected) node again
+- **THEN** the panel reopens with the same content as before the close, and the change-report queries reuse the original selection timestamp and MUST NOT be re-issued
 
-#### Scenario: 切換節點
+#### Scenario: Switching nodes
 
-- **WHEN** 面板開啟時使用者點擊另一個節點
-- **THEN** 面板切換為新點擊的節點(釘選 tooltip 同步切換),查詢以新選取當下的時間戳發出
+- **WHEN** the panel is open and the user clicks another node
+- **THEN** the panel switches to the newly clicked node (the pinned tooltip switches with it) and the queries are issued with the timestamp taken at that new selection
 
-#### Scenario: 裸節點仍渲染 header-only 面板
+#### Scenario: A bare node still renders a header-only panel
 
-- **WHEN** 使用者左鍵選取一個 detail-eligible 但無 application / containers / alerts、亦無 ready dashboard URL 的節點(如純 `storageclass`、無 `application` 的 `service` / `pvc`)
-- **THEN** `NodeDetailPanel` **仍渲染**,只含 header(節點 name + kind / status badge + 關閉鈕),無任何 body 區塊
-- **AND** 該節點的 promoted attributes 由右上角釘選 tooltip 承載(不重複於面板)
+- **WHEN** the user left-click selects a detail-eligible node with no application, containers, or alerts and no ready dashboard URL (such as `netapp-aggr` / `netapp-node`, or a `service` / `pvc` with no `application`)
+- **THEN** `NodeDetailPanel` **still renders**, holding only the header (node name + kind / status badge + close button) and no body section at all
+- **AND** that node's promoted attributes are carried by the pinned top-right tooltip and are not duplicated in the panel
 
-#### Scenario: header 顯示 Dashboard 按鈕(後端有 URL 時)
+#### Scenario: The header shows the Dashboard button when the backend supplies a URL
 
-- **WHEN** 使用者左鍵選取的節點 `/dashboard` 查詢回傳 ready + 非空 url(不論是否有 body 內容)
-- **THEN** header 於節點 name 旁顯示 Dashboard 按鈕;若無任何 body 內容則為 header-only 面板
-- **AND** Dashboard 按鈕可達(其僅存在於 header,不在釘選卡片)
+- **WHEN** the `/dashboard` query for the left-click selected node returns ready with a non-empty url (whether or not there is any body content)
+- **THEN** the header shows the Dashboard button beside the node name; with no body content at all this is a header-only panel
+- **AND** the Dashboard button is reachable (it exists only in the header, never in the pinned card)
 
-#### Scenario: Dashboard 按鈕顯示於名稱旁
+#### Scenario: The Dashboard button appears beside the name
 
-- **WHEN** 開啟某 detail-eligible 節點的面板(因其帶 change-report / alerts,或僅因有 ready dashboard 而成 header-only),且其 `/dashboard` 查詢回傳 200 + 非空 url
-- **THEN** header 於節點名稱旁顯示 Dashboard 按鈕
-- **AND** 裝飾性 cluster / namespace / application 群組 `resolveSelectedNode` 回 null、不開啟面板,故無此按鈕;storageclass 等 detail-eligible leaf 若有 dashboard URL 則以 header-only 面板顯示此按鈕
+- **WHEN** a detail-eligible node's panel opens (because it carries change-report / alerts data, or header-only because it merely has a ready dashboard) and its `/dashboard` query returns 200 with a non-empty url
+- **THEN** the header shows the Dashboard button beside the node name
+- **AND** the decorative cluster / storage-cluster / namespace / application groups have no such button, because `resolveSelectedNode` returns null for them and they open no panel; a detail-eligible leaf such as `netapp-aggr` with a dashboard URL shows the button in a header-only panel
 
-#### Scenario: 顯示告警表格(分組,一列一個 alert)
+#### Scenario: The alert table renders grouped, one row per alert
 
-- **WHEN** 選取的節點帶非空 `data.alerts`(一或多筆)
-- **THEN** Alerts 區塊以 `InteractiveTable` 逐列顯示告警,**一列代表一個 alert**,欄位為 Pod / Service / Alert / Severity / Count / Last occurred
+- **WHEN** the selected node carries a non-empty `data.alerts` (one or several)
+- **THEN** the Alerts section shows the alerts row by row in an `InteractiveTable`, **one row per alert**, with the columns Pod / Service / Alert / Severity / Count / Last occurred
 
-#### Scenario: 告警 Pod / Service 缺值顯示 n/a
+#### Scenario: A missing alert Pod / Service shows n/a
 
-- **WHEN** 某告警列的 Pod 或 Service 缺值
-- **THEN** 該格顯示 muted「n/a」(`MISSING_VALUE_PLACEHOLDER`)
+- **WHEN** an alert row's Pod or Service is missing
+- **THEN** that cell shows a muted "n/a" (`MISSING_VALUE_PLACEHOLDER`)
 
-#### Scenario: Count 徽章與發生時間 Tooltip
+#### Scenario: The Count badge and its occurrence-time tooltip
 
-- **WHEN** 某 alert 的 `timeRecords` 含 N 個發生時間
-- **THEN** 該列 Count 欄顯示 `N`(= `timeRecords.length`)
-- **AND** hover Count 時以 `@grafana/ui` `Tooltip` 列出全部 N 個發生時間(依 `timeZone` 格式化)
+- **WHEN** an alert's `timeRecords` holds N occurrence times
+- **THEN** that row's Count column shows `N` (= `timeRecords.length`)
+- **AND** hovering Count lists all N occurrence times in a `@grafana/ui` `Tooltip` (formatted by `timeZone`)
 
-#### Scenario: Severity 著色(自由字串 + SEVERITY_COLOR)
+#### Scenario: Severity colouring (a free string plus SEVERITY_COLOR)
 
-- **WHEN** 告警 `severity` 為 `info` / `warning` / `critical`
-- **THEN** 該列 Severity 以對應 `SEVERITY_COLOR` 著色徽章呈現
-- **WHEN** `severity` 不在 `SEVERITY_COLOR` 中(自訂標籤,如 `fatal`)
-- **THEN** 以 `FALLBACK_SEVERITY_COLOR`(critical 色)著色、且徽章原樣保留該標籤文字,不報錯
+- **WHEN** an alert's `severity` is `info` / `warning` / `critical`
+- **THEN** that row's Severity renders as a badge in the corresponding `SEVERITY_COLOR`
+- **WHEN** `severity` is not in `SEVERITY_COLOR` (a custom label such as `fatal`)
+- **THEN** it renders in `FALLBACK_SEVERITY_COLOR` (the critical colour) with the badge preserving that label's text verbatim, and nothing errors
 
-#### Scenario: 點 Last occurred 倒帶時間範圍
+#### Scenario: Clicking Last occurred rewinds the time range
 
-- **WHEN** 使用者點擊某列的 Last occurred 欄,該 alert `timeRecords` 的最大值為 `t`(Unix 秒)
-- **THEN** panel 呼叫 `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })`(±5 分鐘,毫秒)
-- **AND** dashboard 時間範圍倒帶至該窗(以最後發生時間為中心)
+- **WHEN** the user clicks a row's Last occurred column and that alert's largest `timeRecords` value is `t` (Unix seconds)
+- **THEN** the panel calls `onChangeTimeRange({ from: (t-300)*1000, to: (t+300)*1000 })` (±5 minutes, in milliseconds)
+- **AND** the dashboard time range rewinds to that window, centred on the last occurrence
 
-#### Scenario: 多區塊以單一 body 捲動且不重疊
+#### Scenario: Several sections share one body scroll and never overlap
 
-- **WHEN** 面板同時渲染多個高區塊(如帶 application + 多 container + 多 alert 的 pod,Containers 與 Alerts 區塊皆高於上限)
-- **THEN** 面板 body(`node-detail-scroll`)為唯一捲動容器(`overflowY: auto`),各區塊 `flex-grow: 0`(content-height)且其表格 slot MUST NOT 自帶 `overflowY: auto`
-- **AND** 區塊上下堆疊、彼此 MUST NOT 重疊;內容超過上限時 body 捲動整個堆疊(header 釘住),內容短於上限時不出現捲動
+- **WHEN** the panel renders several tall sections at once (say a pod with an application, many containers, and many alerts, where both the Containers and Alerts sections exceed the ceiling)
+- **THEN** the panel body (`node-detail-scroll`) is the sole scroll container (`overflowY: auto`), every section is `flex-grow: 0` (content-height), and their table slots MUST NOT carry their own `overflowY: auto`
+- **AND** the sections stack vertically and MUST NOT overlap; past the ceiling the body scrolls the whole stack (with the header pinned), and below the ceiling nothing scrolls
 
-#### Scenario: 無告警時 Alerts 區塊整段不渲染
+#### Scenario: With no alerts, the Alerts section renders nothing
 
-- **WHEN** 選取的節點無 `alerts` 欄位或為空陣列
-- **THEN** Alerts 區塊(`node-detail-section-alerts`)MUST NOT 渲染(不顯示表格、亦不顯示舊的「No alerts」訊息);其他有資料區塊照常渲染,若無其他 body 區塊則面板仍渲染 header-only
+- **WHEN** the selected node has no `alerts` field, or it is an empty array
+- **THEN** the Alerts section (`node-detail-section-alerts`) MUST NOT render (no table, and not the old "No alerts" message either); the other data-bearing sections render as usual, and with no other body section the panel still renders header-only
 
 ### Requirement: 容器圖例(NodeContainerLegend)隨 pod-parent 模式切換容器來源
 
@@ -578,331 +580,331 @@ header 除節點 name / kind / status 外,當該節點(任一 detail-eligible �
 - **WHEN** 當前模式下圖中無任何 compound 容器(例:無 owner 的裸 pod 在 controller 模式)
 - **THEN** `NodeContainerLegend` `return null`,不渲染空標題
 
-### Requirement: 收合容器(controller / k8s node)邊框依最差子節點 status 上色
+### Requirement: A collapsed container (controller / k8s node) borders in its worst child status
 
-當一個**容器收合**時(controller 或 k8s `node`),其矩形邊框 MUST 以它**收合後會隱藏的最差 status** 對應的 `STATUS_COLOR`(`normal` 綠 `#73BF69` / `warning` 黃 / `critical` 紅)上色——**含 `normal`**:旗下全健康的容器收合時 MUST 畫 `normal` 綠框(明確的好消息,而非中性無框)。資料來源為 normalize 彙整於該節點的 `data.worstStatus`(見 graph-data-integration:controller = 自子 pod(`pod.parent === controllerId`)聚合之最差 status,**一律寫入**;k8s node = 自身 status 與**其 pod** status 之最差,worst-wins——`controller` 視圖下 pod 不再巢狀於 node,故 node 的 pod 改以**經 `pod-to-node` 邊可達的 pod** 認定(D8),`node` 視圖下 pod 重新巢狀於 node 則沿用子節點認定;**有 status 資訊時寫入**——自身無 status 且無任何(可達或巢狀)pod 的 node 無此欄,收合維持中性邊框,「無資訊」不得偽裝成 normal)。stylesheet MUST 以 `node[worstStatus="<status>"].cy-expand-collapse-collapsed-node` 選擇器實作,宣告於 `statusSelectors`(資料驅動的 `node[status="<s>"]`——**任何帶 `status` 的節點**畫自身 status 邊框,非 pod/node/pvc 白名單;normalize 只在後端實際給 status 時才寫該欄,故 service / external / cluster / storageclass 等無 status 者維持中性邊框)**之後**,使**收合的 k8s node** 的最差子節點 status 能覆寫其自身 status 邊框;controller 無 status 邊框,故此為其唯一上色。`node:selected` 以 outline/underlay 呈現故不影響此邊框色。**展開**的容器不套此選擇器(controller 維持中性 `:parent` 容器邊框、k8s node 維持自身 status 邊框)。採 **status**(非 alert severity):`info` 僅存在於 alert、不在 status 量尺,故收合框永不為 info(`SEVERITY_COLOR` 仍只服務 detail panel 的 alert 表)。
+When a **container is collapsed** (a controller or a k8s `node`), its rectangular border MUST take the `STATUS_COLOR` of **the worst status it hides by collapsing** (`normal` green `#73BF69` / `warning` yellow / `critical` red) — **including `normal`**: a container whose contents are all healthy MUST draw a `normal` green border when collapsed (explicit good news, rather than a neutral borderless box). The data comes from `data.worstStatus`, which normalize aggregates onto that node (see graph-data-integration: for a controller it is the worst status among its child pods (`pod.parent === controllerId`) and is **always written**; for a k8s node it is the worst of its own status and **its pods'** status, worst-wins — in the `controller` view pods no longer nest under the node, so a node's pods are identified as **the pods reachable through a `pod-to-node` edge** (D8), while in the `node` view, where pods nest under the node again, the child-based identification is used. It is **written whenever there is status information** — a node with no status of its own and no pods at all, reachable or nested, has no such field and keeps a neutral border when collapsed, because "no information" must not masquerade as normal). The stylesheet MUST implement this with the `node[worstStatus="<status>"].cy-expand-collapse-collapsed-node` selector, declared **after** `statusSelectors` (the data-driven `node[status="<s>"]` — **any node carrying `status`** draws its own status border, rather than a pod/node/pvc allow-list; normalize writes that field only when the backend actually supplies a status, so service / external / cluster / netapp-aggr / netapp-node and others without one keep a neutral border. NetApp's `health` is a separate field and MUST NOT be mapped onto the status border colour — colour is reserved for the K8s status scale), so that a **collapsed k8s node**'s worst child status can override its own status border. A controller has no status border of its own, so this is its only colouring. `node:selected` is expressed as an outline/underlay and therefore does not affect this border colour. An **expanded** container does not match this selector (a controller keeps the neutral `:parent` container border and a k8s node keeps its own status border). This uses **status**, not alert severity: `info` exists only on alerts and is not on the status scale, so a collapsed border is never `info` (`SEVERITY_COLOR` still serves only the detail panel's alert table).
 
-#### Scenario: 收合 controller 顯示最差子 pod status
+#### Scenario: A collapsed controller shows its worst child pod status
 
-- **WHEN** 某 controller 旗下有 pod `status: critical`,使用者**收合**該 controller
-- **THEN** 收合的 controller 矩形邊框以 `STATUS_COLOR.critical`(紅)上色
-- **WHEN** 同一 controller **展開**
-- **THEN** 邊框回到中性 `:parent` 容器色
+- **WHEN** a controller has a pod with `status: critical` beneath it and the user **collapses** that controller
+- **THEN** the collapsed controller's rectangular border is coloured `STATUS_COLOR.critical` (red)
+- **WHEN** that same controller is **expanded**
+- **THEN** the border returns to the neutral `:parent` container colour
 
-#### Scenario: k8s node worstStatus 經 pod-to-node 邊計算
+#### Scenario: A k8s node's worstStatus is computed through pod-to-node edges
 
-- **WHEN** `controller` 視圖下,某 k8s `node` 自身 `status: normal`、且有 pod 經 `pod-to-node` 邊指向它、該 pod `status: critical`(此時 pod 巢狀於 controller、非 node)
-- **THEN** normalize 將 `data.worstStatus` 寫為 `critical`(自 `pod-to-node` 邊可達 pod 取最差);`node` 視圖下 pod 重新巢狀於 node 時,以子節點認定亦得相同結果
+- **WHEN** in the `controller` view a k8s `node` has `status: normal` of its own and a pod with `status: critical` points at it through a `pod-to-node` edge (that pod nesting under its controller, not the node)
+- **THEN** normalize writes `data.worstStatus` as `critical` (taking the worst among the pods reachable through `pod-to-node` edges); in the `node` view, where pods nest under the node again, the child-based identification yields the same result
 
-#### Scenario: 收合 k8s node 以最差子 status 覆寫自身 status 邊框
+#### Scenario: A collapsed k8s node's worst child status overrides its own status border
 
-- **WHEN** 某 k8s `node` 自身 `status: normal`、旗下有 pod `status: critical`(經 `pod-to-node` 邊或巢狀認定),使用者**收合**該 node
-- **THEN** 收合的 node 矩形邊框以 `STATUS_COLOR.critical`(紅)上色(覆寫其自身 normal 綠)
-- **WHEN** 同一 node **展開**
-- **THEN** 邊框回到自身 status(`normal` 綠);其子 pod 各自顯示自身 status 邊框
+- **WHEN** a k8s `node` has `status: normal` of its own and a pod with `status: critical` beneath it (identified through a `pod-to-node` edge or through nesting), and the user **collapses** that node
+- **THEN** the collapsed node's rectangular border is coloured `STATUS_COLOR.critical` (red), overriding its own normal green
+- **WHEN** that same node is **expanded**
+- **THEN** the border returns to its own status (`normal` green) and each child pod shows its own status border
 
-#### Scenario: 全 normal 容器收合畫 normal 綠框
+#### Scenario: An all-normal container draws a normal green border when collapsed
 
-- **WHEN** 某容器(controller 或 k8s node)收合後會隱藏的最差 status 為 `normal`(子節點皆 normal,缺 status 視為 normal)
-- **THEN** 收合的容器矩形邊框以 `STATUS_COLOR.normal`(綠)上色——controller 一律;k8s node 因自身或子 pod 至少其一帶 status 資訊
+- **WHEN** the worst status a container (a controller or a k8s node) hides by collapsing is `normal` (every child normal, a missing status counting as normal)
+- **THEN** the collapsed container's rectangular border is coloured `STATUS_COLOR.normal` (green) — always for a controller, and for a k8s node whenever it or at least one of its pods carries status information
 
-#### Scenario: 無 status 資訊的 k8s node 收合維持中性邊框
+#### Scenario: A k8s node with no status information keeps a neutral border when collapsed
 
-- **WHEN** 某 k8s `node` 自身無 `status` 且無任何(可達或巢狀)pod
-- **THEN** 該 node 無 `data.worstStatus`,收合時維持中性容器邊框(「無資訊」不是「正常」)
+- **WHEN** a k8s `node` has no `status` of its own and no pods at all, reachable or nested
+- **THEN** that node has no `data.worstStatus` and keeps a neutral container border when collapsed ("no information" is not "normal")
 
-### Requirement: Node-kinds 圖例 collapse-aware(只列實際以 glyph 呈現者)
+### Requirement: Collapse-aware node-kinds legend (listing only what is drawn as a glyph)
 
-icon「Node Kinds」圖例的 kind 集合 MUST 由純函式 `deriveLegendKinds(elements, collapsedIds)` 導出,只列出**目前以 glyph 呈現於畫布**的 kind——而非單純「資料中出現過」的 kind。判定規則(對每個非 cluster、帶 `kind` 的節點):被收合祖先隱藏者**不**計入;**展開的**容器(其 id 為他人 `parent` 且自身未收合)**不**計入(它在 Clusters / Nodes|Controllers swatch 區段呈現);其餘(drawn leaf 或**收合的**容器)計入其 kind。`cluster`(無 kind)永不計入。此規則取代舊有的 `presentKinds` + `deriveContainers.showNodeKindIcon`,使 node / controller 容器一致;`storageclass` 於後端 D6 階層改為 cluster 下的 leaf、**不再是容器**,恆以其 glyph(drawn leaf)計入,不再因「收合 / 展開」而於 Node-kinds 圖例進退。
+The kind set for the "Node Kinds" icon legend MUST be derived by the pure function `deriveLegendKinds(elements, collapsedIds)`, listing only the kinds **currently drawn as a glyph on the canvas** rather than simply the kinds that appear in the data. The rule, for each non-cluster node carrying a `kind`: a node hidden by a collapsed ancestor is **not** counted; an **expanded** container (whose id is someone's `parent` and which is not itself collapsed) is **not** counted (it is presented in the Clusters / Nodes|Controllers swatch section instead); everything else (a drawn leaf or a **collapsed** container) counts its kind. `cluster` (having no kind) is never counted. This rule replaces the former `presentKinds` + `deriveContainers.showNodeKindIcon`, making the node and controller containers consistent. `netapp-aggr` is a leaf beneath `netapp-node` and always counts through its glyph (a drawn leaf); `netapp-node` **is** a real compound container, so the same rule applies to it as to `node` / `controller` — not counted when expanded (it is a frame on the canvas) and counted through its glyph when collapsed. The removed `storageclass` kind has no corresponding rule any more.
 
-#### Scenario: storageclass 恆以 leaf glyph 計入 Node-kinds
+#### Scenario: A NetApp aggregate always counts as a leaf glyph in Node Kinds
 
-- **WHEN** 圖中含 storageclass leaf(後端 D6 階層下 storageclass 為 cluster 下的 leaf,非容器)且其鄰近有 pvc leaf
-- **THEN** Node-kinds 圖例的 `Storage` 大類同時列出 `pvc` 與 `storageclass` 兩個 glyph;`storageclass` 不再因「收合」而與 `pvc` 互換(它從不是容器)
+- **WHEN** the graph holds a `netapp-aggr` leaf (its parent `netapp-node` expanded) alongside a pvc leaf (the storageclass leaf this scenario originally described has been removed from the contract)
+- **THEN** the Node Kinds legend's `Storage` category lists both the `pvc` and the `netapp-aggr` glyph; the expanded `netapp-node` is **not** counted (it is a frame on the canvas) and returns to the Node Kinds legend as a `netapp-node` glyph only once collapsed
 
-#### Scenario: 收合容器時其子 kind 退出、容器 kind 進入(node / controller 同理)
+#### Scenario: Collapsing a container drops its child kinds and adds the container kind (node / controller alike)
 
-- **WHEN** 某 K8s `node`(或 controller)容器被收合,其下 pod 全被聚合隱藏
-- **THEN** `pod` 退出 Node-kinds 圖例、`node`(或對應 controller kind)以其 glyph 進入;展開的容器則不出現在 Node-kinds(僅於其 swatch 區段)
+- **WHEN** a K8s `node` (or controller) container is collapsed and every pod beneath it is aggregated away
+- **THEN** `pod` leaves the Node Kinds legend and `node` (or the corresponding controller kind) enters it through its glyph; an expanded container does not appear in Node Kinds at all (only in its swatch section)
 
-#### Scenario: 收合虛擬 network compound 時 Node-kinds 以 network 取代 switch
+#### Scenario: Collapsing the virtual network compound replaces switch with network in Node Kinds
 
-- **WHEN** 包裹 switch fabric 的虛擬 `network` compound(見 switch-tier-layout 規格)被收合
-- **THEN** 其下 `switch` 因被收合祖先隱藏而退出 Node-kinds 圖例,收合的 `network` 以其 wifi glyph 進入(NETWORKING 大類由 `switch` 變為 `network`,標籤顯示為 `physical network`);展開後還原為 `switch`
+- **WHEN** the virtual `network` compound wrapping the switch fabric (see the switch-tier-layout spec) is collapsed
+- **THEN** the `switch` beneath it leaves the Node Kinds legend for being hidden by a collapsed ancestor, and the collapsed `network` enters through its wifi glyph (the NETWORKING category changing from `switch` to `network`, labelled `physical network`); expanding restores `switch`
 
-### Requirement: Node Detail Application 與 Containers 區塊
+### Requirement: Node-detail Application and Containers sections
 
-Panel SHALL 在 node-detail 面板中提供帶 change-report 查詢的 **Application 區塊**與 **Containers 區塊**,沿用既有面板位置與版型(與 Alerts 區塊同一 sticky section 樣式)。**Application 區塊**對**任一帶 `data.application` 的節點**顯示——pod / workload controller(`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`),屬於某 ArgoCD application 的 `service` / `pvc` leaf,**以及 ArgoCD `application` 群組節點本身**(kind-less,以合成 `kind: application` 解析)——其 `config_changes`(Deployment Changes)查詢以該節點的識別發出(`service` / `pvc` 用自身 kind/name;`application` 群組用 `{ kind: 'application', name: <app> }`)。**Containers 區塊**MUST **僅對 pod 與 workload controller**且帶 `data.containers` 時顯示;`service` / `pvc` / `application` 群組 / `node` / `external` 等無 containers,Containers 區塊永不對其渲染。service / pvc 的 application 名稱**同時**以 promoted attr 出現於右上角釘選 tooltip(見「Hover Tooltip」),兩處互補:tooltip 顯示名稱,Application 區塊提供 config_changes 連結。
+The panel SHALL provide, in the node-detail panel, an **Application section** and a **Containers section** backed by change-report queries, reusing the existing panel position and layout (the same sticky-section styling as the Alerts section). The **Application section** shows for **any node carrying `data.application`** — a pod or workload controller (`kind ∈ { pod, deployment, statefulset, daemonset, job, cronjob }`), a `service` / `pvc` leaf belonging to some ArgoCD application, **and the ArgoCD `application` group node itself** (kind-less, resolved with a synthetic `kind: application`) — and its `config_changes` (Deployment Changes) query is issued with that node's own identity (`service` / `pvc` use their own kind/name; an `application` group uses `{ kind: 'application', name: <app> }`). The **Containers section** MUST show **only for a pod or workload controller** carrying `data.containers`; `service` / `pvc` / `application` groups / `node` / `external` and the like have no containers, and the Containers section never renders for them. A service's or PVC's application name **also** appears as a promoted attr in the pinned top-right tooltip (see "The hover tooltip shows element metadata"); the two are complementary — the tooltip shows the name and the Application section supplies the config_changes link.
 
-面板 body 純以**各區塊資料有無**閘控:**Application 區塊**以 `data.application` 有無閘控(任一帶 application 的節點,含 service / pvc);**Containers 區塊**以 **workload kind + 非空 `data.containers`** 閘控;兩者與 Alerts 區塊(資料閘控)共存於同一**左鍵**面板;面板**不再有恆顯的屬性區塊**(promoted attributes 改由釘選 tooltip 承載,見「Node Detail 面板」),且 header **恆顯**(面板 ALWAYS 渲染,見「Node Detail 面板」)。
+The panel body is gated purely on **whether each section's data exists**: the **Application section** on the presence of `data.application` (any node carrying an application, `service` / `pvc` included); the **Containers section** on **a workload kind plus a non-empty `data.containers`**. Both coexist with the (data-gated) Alerts section in the same **left-click** panel. The panel **no longer has an always-visible Properties section** (promoted attributes are carried by the pinned tooltip — see "Node detail panel") and the header **always renders** (the panel ALWAYS renders — see "Node detail panel").
 
-**資料來源**:application name 來源為節點的 `data.application`(backend 於 pod 節點輸出;controller 由 `normalizeGraph` 自子 pod 聚合);containers 來源為節點的 `data.containers`(`Array<{ name, image }>`)。節點無 `data.application` 時 Application 區塊 MUST NOT 渲染;無 `data.containers`(或為空陣列)時 Containers 區塊 MUST NOT 渲染;兩者互不影響。
+**Data sources.** The application name comes from the node's `data.application` (the backend emits it on pod nodes; a controller's is aggregated from its child pods by `normalizeGraph`); containers come from the node's `data.containers` (`Array<{ name, image }>`). With no `data.application` the Application section MUST NOT render; with no `data.containers` (or an empty array) the Containers section MUST NOT render; neither affects the other.
 
-**觸發**:在 pod/controller 節點上**左鍵**(cytoscape `tap`)MUST(a)選取該節點(沿用既有單選受控狀態,與藍色高亮 / 面板開關同步,面板隨之開啟),(b)**建立**該節點兩個 URL 查詢(application-detail 與 image-detail)所需的 input(application name, controller kind, controller name, time——time 為左鍵選取當下時間,Unix 秒),並以此 input **立即併發預取(eager prefetch)** 兩查詢——`config_changes`(application)與 `code_changes`(containers)MUST 在面板因左鍵選取 workload 節點而開啟(`enabled` 為 true,即 input 與 endpoint 皆可解析)時、**無需任何後續點擊**即同時發出。**右鍵(`cxttap`)不再開啟 detail 面板、不再建立查詢 input、不再發出任何查詢**(舊右鍵 detail 觸發與其原生 context menu 抑制一併移除)。**屬於某 ArgoCD application 的 `service` / `pvc`**(帶 `data.application`)左鍵選取時亦建立查詢 input——`kind` / `name` 取**該節點自身**——並預取 `config_changes`(驅動其 Application 區塊);其 `code_changes` 雖由共用預取一併發出,但 service / pvc 無 containers,回傳結果不被使用(Containers 區塊不渲染)。**無 `data.application` 的非 workload 節點(無 `queryTarget`)左鍵選取 MUST NOT 建立查詢 input、MUST NOT 發出任何查詢**(其屬性由釘選 tooltip 承載,Alerts 視資料顯示)。
+**Trigger.** A **left click** (cytoscape `tap`) on a pod/controller node MUST (a) select that node (reusing the existing single-select controlled state, in sync with the blue highlight and the panel's open state, so the panel opens with it), and (b) **establish** the input that node's two URL queries need (application-detail and image-detail): application name, controller kind, controller name, and time — time being the moment of the left-click selection, in Unix seconds — and **eagerly prefetch both queries concurrently** from that input. `config_changes` (application) and `code_changes` (containers) MUST both be issued **without any further click** the moment the panel opens from a left-click selection of a workload node (that is, whenever `enabled` is true because both the input and the endpoint resolve). **A right click (`cxttap`) no longer opens the detail panel, no longer establishes query input, and no longer issues any query** (the old right-click detail trigger and its native context-menu suppression are both removed). **A `service` / `pvc` belonging to an ArgoCD application** (carrying `data.application`) also establishes query input when left-click selected — with `kind` / `name` taken from **that node itself** — and prefetches `config_changes` (driving its Application section); its `code_changes` is issued too by the shared prefetch, but a service or PVC has no containers so the result goes unused (the Containers section does not render). **A non-workload node with no `data.application` (and therefore no `queryTarget`) MUST NOT establish query input and MUST NOT issue any query** when left-click selected (its attributes are carried by the pinned tooltip, and Alerts show if the data is there).
 
-**查詢契約**:兩個查詢 MUST 共用同一組 input——ArgoCD application name、pod-controller kind、pod-controller name、time。pod 節點的 controller kind/name 取自其 owner(`data.owner`);controller 節點取自身 kind/name;無 owner 的 standalone pod 以自身 kind(`pod`)與 name 帶入。回傳:
+**Query contract.** The two queries MUST share one set of inputs: the ArgoCD application name, the pod-controller kind, the pod-controller name, and time. A pod node's controller kind/name come from its owner (`data.owner`); a controller node uses its own kind/name; a standalone pod with no owner passes its own kind (`pod`) and name. The responses are:
 
-- **application-detail 查詢**(`GET <base>/config_changes`):回 `{ "url": string, "current_time": string, "previous_time": string }`——`url` 為該 ArgoCD application 的外部詳情頁;`current_time` / `previous_time` 為該 deployment diff 的兩個時間戳。
-- **image-detail 查詢**(`GET <base>/code_changes`):回 `{ [containerName]: { "url": string, "current_time": string, "previous_time": string, "result_type": string } }`——map(container name → entry);input MUST NOT 含 image 參數,一次呼叫即涵蓋該節點所有 containers。
-- **時間戳契約**:`current_time` / `previous_time` MUST 為 **RFC 3339 / ISO 8601(UTC)** 字串。兩時間戳為 **best-effort**:缺漏 / 非字串 / 解析失敗時,對應時間欄 MUST 顯示 muted(`theme.colors.text.secondary`)「n/a」(`MISSING_VALUE_PLACEHOLDER`),並 MUST NOT 影響同列的 `url` anchor、其餘欄、或其餘列。
-- **變更型別契約(`result_type`,僅 `code_changes`)**:每個 container entry MAY 帶 `result_type` 字串,已知列舉值為 **`UNCHANGED` / `UPDATED` / `REPLACED` / `ADDED` / `REMOVED` / `RENAMED`**(大寫)。`result_type` 為 **best-effort**:缺漏 / 非字串 / 空字串時,該列 Change Type 欄 MUST 顯示 muted(`theme.colors.text.secondary`)「n/a」(`MISSING_VALUE_PLACEHOLDER`);**未知值**(非上述六個)MUST 照原字串渲染(visible-by-default),以中性灰 fallback 色呈現。`config_changes`(application)**不含** `result_type`,Application 區塊 MUST NOT 有 Change Type 欄。
+- **The application-detail query** (`GET <base>/config_changes`) returns `{ "url": string, "current_time": string, "previous_time": string }` — `url` being that ArgoCD application's external detail page, and `current_time` / `previous_time` the two timestamps of that deployment diff.
+- **The image-detail query** (`GET <base>/code_changes`) returns `{ [containerName]: { "url": string, "current_time": string, "previous_time": string, "result_type": string } }` — a map from container name to entry. The input MUST NOT carry an image parameter; one call covers every container on that node.
+- **The timestamp contract**: `current_time` / `previous_time` MUST be **RFC 3339 / ISO 8601 (UTC)** strings. Both are **best-effort**: when one is missing, is not a string, or fails to parse, its time column MUST show a muted (`theme.colors.text.secondary`) "n/a" (`MISSING_VALUE_PLACEHOLDER`) and MUST NOT affect that row's `url` anchor, its other columns, or any other row.
+- **The change-type contract (`result_type`, `code_changes` only)**: each container entry MAY carry a `result_type` string, whose known enum values are **`UNCHANGED` / `UPDATED` / `REPLACED` / `ADDED` / `REMOVED` / `RENAMED`** (uppercase). `result_type` is **best-effort**: when missing, not a string, or an empty string, that row's Change Type column MUST show a muted (`theme.colors.text.secondary`) "n/a" (`MISSING_VALUE_PLACEHOLDER`); an **unknown value** (anything outside those six) MUST render verbatim (visible-by-default) in a neutral grey fallback colour. `config_changes` (application) carries **no** `result_type`, and the Application section MUST NOT have a Change Type column.
 
-**缺值占位單一來源**:面板內所有「有列但缺格」的缺值占位(change time、Change Type、Alert 的 Pod/Service)MUST 取自單一常數 `MISSING_VALUE_PLACEHOLDER = 'n/a'`,以 muted 樣式呈現(取代舊有分散硬編的 em-dash「—」)。
+**A single source for the missing-value placeholder.** Every "row present, cell missing" placeholder in the panel (a change time, a Change Type, an alert's Pod/Service) MUST come from the single constant `MISSING_VALUE_PLACEHOLDER = 'n/a'`, rendered muted (replacing the previously scattered hard-coded em-dash "—").
 
-**呼叫快取**:panel 開啟期間,`code_changes` 與 `config_changes` 各 MUST **最多呼叫一次**——eager 預取於面板開啟時各發一次,`code_changes` 回的整包 map 由所有 container 列**共用**。僅快取**成功**回應:失敗 MUST NOT 入快取。**換節點 / 換 endpoint / 關閉 panel(unmount / 清除選取)MUST 清除快取**(連同中止 in-flight)。
+**Call caching.** While the panel is open, `code_changes` and `config_changes` MUST each be called **at most once** — the eager prefetch issues one of each when the panel opens, and the whole map `code_changes` returns is **shared** by every container row. Only **successful** responses are cached; a failure MUST NOT be cached. **Switching nodes, switching endpoints, or closing the panel (unmount / clearing the selection) MUST clear the cache** (and abort anything in flight).
 
-**查詢傳輸**:查詢 MUST 透過 Grafana runtime(`@grafana/runtime` `getBackendSrv()`)發往**同一個 graph API backend**;MUST NOT 自 `src/**` 直接以 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend。查詢端點(base path)MUST 依序解析:(1)panel option 非空時以其為準(覆寫);(2)否則 SHALL 自面板查詢請求(`data.request.targets`)自動推導為 graph query 的 **sibling**(取第一個經 Grafana runtime datasource instance settings 解析出非空 proxied base path 的 target,於其後串接 graph query 路徑的目錄,再 append `/config_changes`、`/code_changes`);(3)兩者皆無時,兩區塊照資料渲染但連結欄 MUST 顯示「Not found」提示(`enabled` 為 false → 不發查詢),且 MUST NOT 發出任何查詢。預取查詢 MUST 可中止,MUST NOT 在 unmount 後 setState。
+**Query transport.** Queries MUST go through the Grafana runtime (`@grafana/runtime`'s `getBackendSrv()`) to **the same graph API backend**, and `src/**` MUST NOT connect to an external backend directly through `fetch` / `axios` / `XMLHttpRequest`. The query endpoint (base path) MUST resolve in this order: (1) a non-empty panel option takes precedence (an override); (2) otherwise it SHALL be derived automatically from the panel's query request (`data.request.targets`) as a **sibling** of the graph query (taking the first target whose non-empty proxied base path resolves through the Grafana runtime datasource instance settings, appending the directory of the graph query path, then appending `/config_changes` and `/code_changes`); (3) with neither available, both sections render from their data but their link columns MUST show a "Not found" hint (`enabled` is false → no query is issued) and no query may be issued. The prefetch queries MUST be abortable and MUST NOT setState after unmount.
 
-**呈現**(每個連結欄目標各自獨立狀態,三態之一:**loading / ready / unavailable**):
+**Presentation** (each link-column target holds its own independent state, one of three: **loading / ready / unavailable**):
 
-- **loading**:面板一開啟即併發查詢;回傳前,每個尚未解析的目標 MUST 於該列連結欄顯示 `Spinner` + 提示文字,該位置 MUST NOT 顯示 anchor。
-- **ready**:`config_changes` / `code_changes` 回 200 + 有效 `url` 時,連結欄 MUST 渲染真實 anchor `<a href={url} target="_blank" rel="noopener noreferrer">`(預解析 URL,MUST NOT `window.open`)。
-- **unavailable**:失敗 / 查無 / 無 URL 時,連結欄 MUST 以次要(muted)文字顯示「Not found」提示(過長截斷、完整失敗訊息入 `title`)。
-- **失敗隔離**:任一目標 unavailable MUST NOT 影響 header、另一區塊、或同區塊其他列。
-- **時間欄呈現(Current / Previous)**:兩區塊各新增 **Current Change Time** 與 **Previous Change Time** 兩欄,以 `@grafana/data` `dateTimeFormat` 依面板 `timeZone` 將 RFC 3339 原字串格式化為在地化絕對時間,完整 ISO 入 `title`;無值或非法日期時該格顯示 muted「n/a」(`MISSING_VALUE_PLACEHOLDER`)且 MUST NOT 設 `title`、MUST NOT 顯示 `Invalid date`。
-- **變更型別欄呈現(Change Type,僅 Containers)**:Containers 區塊的 **Change Type** 欄呈現 `result_type`,以單一來源色彩映射(`colorByResultType.ts`)的彩色文字渲染(`ADDED`=綠 / `REMOVED`=紅 / `UPDATED`=藍 / `REPLACED`=橘 / `RENAMED`=紫 / `UNCHANGED`=灰);未知值以中性灰照原字串渲染;缺漏 / 非字串 / 空字串顯示 muted「n/a」。色彩查找對大小寫不敏感、顯示一律大寫。Application 區塊 MUST NOT 有此欄。
-- **對齊**:連結欄內容 MUST 釘於該欄右緣(`disableGrow` + `justifyContent: flex-end`),使兩區塊各列連結欄上下對齊、不左右漂移。
-- **表格版型**:兩區塊 MUST 以帶 column header 的 `InteractiveTable` 渲染——Application 欄位依序 **Name / Current Change Time / Previous Change Time / Deployment Changes**,Containers 欄位依序 **Name / Image / Change Type / Current Change Time / Previous Change Time / Code Changes**;連結欄維持最右(`disableGrow`),`Change Type` / `Current` / `Previous` 亦 `disableGrow`,由 Name / Image 欄填滿剩餘寬度。
-- 兩區塊 MUST 以 `@grafana/ui` + emotion `useStyles2` 實作,元件(ApplicationTable / ContainerTable)共置於 `node-detail` feature 並經其 `index.ts` barrel 匯出。
+- **loading**: the queries fire concurrently the moment the panel opens; until they return, every unresolved target MUST show a `Spinner` plus hint text in its row's link column, and no anchor may appear there.
+- **ready**: when `config_changes` / `code_changes` returns 200 with a valid `url`, the link column MUST render a real anchor `<a href={url} target="_blank" rel="noopener noreferrer">` (a pre-resolved URL — never `window.open`).
+- **unavailable**: on failure, no result, or no URL, the link column MUST show a "Not found" hint in secondary (muted) text (truncated if long, with the full failure message in `title`).
+- **Failure isolation**: one unavailable target MUST NOT affect the header, the other section, or any other row in the same section.
+- **Time columns (Current / Previous)**: both sections gain a **Current Change Time** and a **Previous Change Time** column, formatting the raw RFC 3339 string into a localised absolute time through `@grafana/data`'s `dateTimeFormat` using the panel's `timeZone`, with the full ISO string in `title`. With no value or an invalid date the cell shows a muted "n/a" (`MISSING_VALUE_PLACEHOLDER`), MUST NOT set `title`, and MUST NOT show `Invalid date`.
+- **The Change Type column (Containers only)**: the Containers section's **Change Type** column presents `result_type` as coloured text from a single-source colour mapping (`colorByResultType.ts`) — `ADDED`=green / `REMOVED`=red / `UPDATED`=blue / `REPLACED`=orange / `RENAMED`=violet / `UNCHANGED`=grey. An unknown value renders verbatim in neutral grey; missing, non-string, or empty shows a muted "n/a". The colour lookup is case-insensitive and the display is always uppercase. The Application section MUST NOT have this column.
+- **Alignment**: link-column content MUST be pinned to that column's right edge (`disableGrow` + `justifyContent: flex-end`) so both sections' link columns line up vertically without drifting horizontally.
+- **Table layout**: both sections MUST render as an `InteractiveTable` with column headers — Application's columns in the order **Name / Current Change Time / Previous Change Time / Deployment Changes**, and Containers' in the order **Name / Image / Change Type / Current Change Time / Previous Change Time / Code Changes**. The link column stays rightmost (`disableGrow`), `Change Type` / `Current` / `Previous` are `disableGrow` too, and Name / Image fill the remaining width.
+- Both sections MUST be implemented with `@grafana/ui` plus emotion's `useStyles2`, and their components (ApplicationTable / ContainerTable) MUST be co-located in the `node-detail` feature and exported through its `index.ts` barrel.
 
-#### Scenario: 左鍵 pod/controller 選取並立即併發預取兩查詢
+#### Scenario: Left-clicking a pod/controller selects it and immediately prefetches both queries concurrently
 
-- **WHEN** 使用者於一個帶 `data.application` 的 pod(或 controller)節點按**左鍵**,且 endpoint 可解析(`enabled`)
-- **THEN** 該節點被選取(藍色高亮與面板開啟同步),系統建立兩查詢所需 input(application name, controller kind, controller name, time)
-- **AND** 系統 MUST **無需任何後續點擊**,即經 `getBackendSrv()` **同時併發**發出 application-detail(`config_changes`)與 image-detail(`code_changes`)兩查詢
+- **WHEN** the user **left-clicks** a pod (or controller) node carrying `data.application`, with a resolvable endpoint (`enabled`)
+- **THEN** that node is selected (the blue highlight and the panel opening in sync) and the system establishes the input both queries need (application name, controller kind, controller name, time)
+- **AND** the system MUST issue the application-detail (`config_changes`) and image-detail (`code_changes`) queries **concurrently** through `getBackendSrv()` **with no further click required**
 
-#### Scenario: 右鍵不再開啟 detail 面板或查詢
+#### Scenario: A right click no longer opens the detail panel or queries
 
-- **WHEN** 使用者於 pod/controller 節點按**右鍵**(`cxttap`)
-- **THEN** 系統 MUST NOT 因此開啟 detail 面板、MUST NOT 建立查詢 input、MUST NOT 發出任何 change-report 查詢(右鍵 detail 觸發已移除)
+- **WHEN** the user **right-clicks** (`cxttap`) a pod/controller node
+- **THEN** the system MUST NOT open the detail panel, MUST NOT establish query input, and MUST NOT issue any change-report query (the right-click detail trigger has been removed)
 
-#### Scenario: pod 的 controller kind/name 取自 owner
+#### Scenario: A pod's controller kind/name come from its owner
 
-- **WHEN** 左鍵的節點為 pod 且其 `data.owner` 為 `{ kind: "deployment", name: "gateway" }`
-- **THEN** 該節點預取查詢的 input 之 controller kind/name 為 `deployment` / `gateway`
+- **WHEN** the left-clicked node is a pod whose `data.owner` is `{ kind: "deployment", name: "gateway" }`
+- **THEN** the controller kind/name in that node's prefetch input are `deployment` / `gateway`
 
-#### Scenario: controller 節點以自身 kind/name 查詢
+#### Scenario: A controller node queries with its own kind/name
 
-- **WHEN** 左鍵的節點為 controller(如 `statefulset` `mongo`)
-- **THEN** 該節點預取查詢的 input 之 controller kind/name 為 `statefulset` / `mongo`
+- **WHEN** the left-clicked node is a controller (say `statefulset` `mongo`)
+- **THEN** the controller kind/name in that node's prefetch input are `statefulset` / `mongo`
 
-#### Scenario: 區塊僅對 pod/controller 顯示
+#### Scenario: The sections show only for pods and controllers
 
-- **WHEN** 使用者**左鍵**選取的節點 `kind` 為 `pod` 或 controller 且帶對應資料(`data.application` / 非空 `data.containers`)
-- **THEN** 面板渲染 change-report 的 Application 區塊與 Containers 區塊
+- **WHEN** the node the user **left-click** selects has `kind` of `pod` or a controller kind and carries the corresponding data (`data.application` / a non-empty `data.containers`)
+- **THEN** the panel renders the change-report Application section and Containers section
 
-#### Scenario: Containers 僅對 workload;service/pvc 帶 application 顯示 Application
+#### Scenario: Containers is workload-only; a service/pvc with an application shows Application
 
-- **WHEN** 選取的節點 `kind` 為 `service` / `pvc` 且帶 `data.application`
-- **THEN** **Application 區塊**(`node-detail-section-application`)渲染並預取 `config_changes`(以該節點自身 kind/name);**Containers 區塊**(`node-detail-section-containers`)MUST NOT 渲染(service/pvc 無 containers,即使資料偶帶 `containers`)
-- **WHEN** 選取的節點 `kind` 為 `node` / `external` / `switch` / `cluster` / `storageclass`,或為無 `data.application` 的 `service` / `pvc`
-- **THEN** Application 與 Containers 區塊皆 MUST NOT 渲染
+- **WHEN** the selected node's `kind` is `service` / `pvc` and it carries `data.application`
+- **THEN** the **Application section** (`node-detail-section-application`) renders and prefetches `config_changes` (with that node's own kind/name), and the **Containers section** (`node-detail-section-containers`) MUST NOT render (a service or PVC has no containers, even if the data happens to carry `containers`)
+- **WHEN** the selected node's `kind` is `node` / `external` / `switch` / `cluster` / `netapp-aggr` / `netapp-node`, or it is a `service` / `pvc` with no `data.application`
+- **THEN** neither the Application nor the Containers section may render
 
-#### Scenario: 無 application 時僅隱藏 Application 區塊
+#### Scenario: With no application, only the Application section hides
 
-- **WHEN** **左鍵**選取的 pod/controller 節點無 `data.application`,但帶非空 `data.containers`
-- **THEN** Application 區塊 MUST NOT 渲染,Containers 區塊照常渲染並預取 `code_changes`
+- **WHEN** the **left-click** selected pod/controller node has no `data.application` but carries a non-empty `data.containers`
+- **THEN** the Application section MUST NOT render and the Containers section renders as usual, prefetching `code_changes`
 
-#### Scenario: 無 containers 時僅隱藏 Containers 區塊
+#### Scenario: With no containers, only the Containers section hides
 
-- **WHEN** **左鍵**選取的 pod/controller 節點帶 `data.application`,但無 `data.containers`(或為空陣列)
-- **THEN** Containers 區塊 MUST NOT 渲染,Application 區塊照常渲染並預取 `config_changes`
+- **WHEN** the **left-click** selected pod/controller node carries `data.application` but no `data.containers` (or an empty array)
+- **THEN** the Containers section MUST NOT render and the Application section renders as usual, prefetching `config_changes`
 
-#### Scenario: 預取進行中顯示 loading spinner
+#### Scenario: An in-flight prefetch shows a loading spinner
 
-- **WHEN** 左鍵開啟面板且 endpoint 可解析,預取查詢尚未回傳
-- **THEN** Application 與 Containers 兩區塊每列連結欄顯示 `Spinner` + 提示文字,該位置不顯示 anchor
+- **WHEN** a left click opens the panel with a resolvable endpoint and the prefetch queries have not returned
+- **THEN** every row's link column in both the Application and Containers sections shows a `Spinner` plus hint text, and no anchor appears there
 
-#### Scenario: Application 預取成功渲染 anchor
+#### Scenario: A successful Application prefetch renders an anchor
 
-- **WHEN** application-detail(`config_changes`)查詢成功回傳有效 URL `u`
-- **THEN** Application 區塊連結欄(header「Deployment Changes」)渲染 `<a href="u" target="_blank" rel="noopener noreferrer">`,點擊以一般使用者手勢於新分頁開啟 `u`(MUST NOT `window.open`)
+- **WHEN** the application-detail (`config_changes`) query returns a valid URL `u`
+- **THEN** the Application section's link column (headed "Deployment Changes") renders `<a href="u" target="_blank" rel="noopener noreferrer">`, which opens `u` in a new tab on an ordinary user gesture (never `window.open`)
 
-#### Scenario: Container 預取成功為有 URL 的列渲染 anchor
+#### Scenario: A successful Container prefetch renders an anchor for each row with a URL
 
-- **WHEN** 節點 `data.containers` 含 `{ name: "app", image: "repo/app:1.2" }`,且 image-detail(`code_changes`)成功回傳 `{ "app": { "url": "https://x/app" } }`
-- **THEN** `app` 列連結欄(header「Code Changes」)渲染 `<a href="https://x/app" target="_blank" rel="noopener noreferrer">`
+- **WHEN** the node's `data.containers` holds `{ name: "app", image: "repo/app:1.2" }` and image-detail (`code_changes`) returns `{ "app": { "url": "https://x/app" } }`
+- **THEN** the `app` row's link column (headed "Code Changes") renders `<a href="https://x/app" target="_blank" rel="noopener noreferrer">`
 
-#### Scenario: Application 區塊以帶 header 表格渲染
+#### Scenario: The Application section renders as a table with headers
 
-- **WHEN** 左鍵開啟的面板渲染 Application 區塊(節點帶 `data.application`)
-- **THEN** 區塊以 `InteractiveTable` 依序呈現 column headers **Name** / **Current Change Time** / **Previous Change Time** / **Deployment Changes**
+- **WHEN** a left-click-opened panel renders the Application section (the node carrying `data.application`)
+- **THEN** the section presents, through an `InteractiveTable`, the column headers **Name** / **Current Change Time** / **Previous Change Time** / **Deployment Changes** in that order
 
-#### Scenario: Containers 區塊以帶 header 表格渲染且沿欄對齊
+#### Scenario: The Containers section renders as a table with headers and stays column-aligned
 
-- **WHEN** 左鍵開啟的面板渲染 Containers 區塊(節點帶兩個以上、name 長度不一的 containers)
-- **THEN** 區塊以 `InteractiveTable` 依序呈現 column headers **Name** / **Image** / **Change Type** / **Current Change Time** / **Previous Change Time** / **Code Changes**,沿欄對齊(欄界不隨 name 長度漂移)
+- **WHEN** a left-click-opened panel renders the Containers section (the node carrying two or more containers with names of differing length)
+- **THEN** the section presents, through an `InteractiveTable`, the column headers **Name** / **Image** / **Change Type** / **Current Change Time** / **Previous Change Time** / **Code Changes** in that order, column-aligned (the column boundaries do not drift with name length)
 
-#### Scenario: 連結欄 header 正名
+#### Scenario: The link column headers are named correctly
 
-- **WHEN** 面板同時渲染 Application 與 Containers 區塊
-- **THEN** Application 區塊連結欄 header 為「Deployment Changes」,Containers 區塊連結欄 header 為「Code Changes」(皆 MUST NOT 顯示「Change Report」)
+- **WHEN** the panel renders both the Application and Containers sections
+- **THEN** the Application section's link column header is "Deployment Changes" and the Containers section's is "Code Changes" (neither may show "Change Report")
 
-#### Scenario: config_changes 帶兩時間戳時 Application 顯示在地化絕對時間
+#### Scenario: With two timestamps, Application shows localised absolute times
 
-- **WHEN** application-detail(`config_changes`)成功回傳 `{ "url": "u", "current_time": "2026-06-16T10:30:00Z", "previous_time": "2026-06-10T08:00:00Z" }`
-- **THEN** Application 列 Current / Previous 欄顯示依面板 `timeZone` 格式化的在地化絕對時間,各以完整 ISO 入 `title`,同列連結欄仍渲染 `u` 的 anchor
+- **WHEN** the application-detail (`config_changes`) query returns `{ "url": "u", "current_time": "2026-06-16T10:30:00Z", "previous_time": "2026-06-10T08:00:00Z" }`
+- **THEN** the Application row's Current / Previous columns show localised absolute times formatted by the panel's `timeZone`, each with the full ISO string in `title`, and that row's link column still renders the anchor for `u`
 
-#### Scenario: code_changes 某 container entry 帶兩時間戳時該列顯示之
+#### Scenario: A code_changes container entry with two timestamps shows them on its row
 
-- **WHEN** image-detail(`code_changes`)成功回傳 `{ "app": { "url": "https://x/app", "current_time": "2026-06-16T10:30:00Z", "previous_time": "2026-06-10T08:00:00Z" } }`,節點 `data.containers` 含 `{ name: "app", image: "repo/app:1.2" }`
-- **THEN** `app` 列 Current / Previous 欄分別顯示兩時間戳在地化絕對時間、各以完整 ISO 入 `title`,該列連結欄渲染 `https://x/app` 的 anchor
+- **WHEN** image-detail (`code_changes`) returns `{ "app": { "url": "https://x/app", "current_time": "2026-06-16T10:30:00Z", "previous_time": "2026-06-10T08:00:00Z" } }` and the node's `data.containers` holds `{ name: "app", image: "repo/app:1.2" }`
+- **THEN** the `app` row's Current / Previous columns show those two timestamps as localised absolute times, each with the full ISO string in `title`, and that row's link column renders the anchor for `https://x/app`
 
-#### Scenario: code_changes entry 帶 result_type 時該列 Change Type 顯示彩色型別
+#### Scenario: A code_changes entry with a result_type shows a coloured change type
 
-- **WHEN** image-detail(`code_changes`)成功回傳 `{ "app": { "url": "https://x/app", "result_type": "UPDATED" } }`,節點 `data.containers` 含 `{ name: "app", image: "repo/app:1.2" }`
-- **THEN** `app` 列 Change Type 欄顯示 `UPDATED`,以該已知列舉值對應的語義色(藍)彩色文字渲染,該列連結欄仍渲染 anchor
+- **WHEN** image-detail (`code_changes`) returns `{ "app": { "url": "https://x/app", "result_type": "UPDATED" } }` and the node's `data.containers` holds `{ name: "app", image: "repo/app:1.2" }`
+- **THEN** the `app` row's Change Type column shows `UPDATED` in that known enum value's semantic colour (blue), and that row's link column still renders its anchor
 
-#### Scenario: result_type 為未知值時照原字串以中性灰渲染
+#### Scenario: An unknown result_type renders verbatim in neutral grey
 
-- **WHEN** 某 container `code_changes` entry 的 `result_type` 為非列舉值(如 `"MIGRATED"`)
-- **THEN** 該列 Change Type 欄照原字串顯示 `MIGRATED`(MUST NOT 靜默丟棄),以中性灰 fallback 色渲染
+- **WHEN** a container's `code_changes` entry has a `result_type` outside the enum (say `"MIGRATED"`)
+- **THEN** that row's Change Type column shows `MIGRATED` verbatim (it MUST NOT be silently dropped), rendered in the neutral grey fallback colour
 
-#### Scenario: result_type 缺漏 / 非字串 / 空字串時 Change Type 降級為 muted「n/a」
+#### Scenario: A missing / non-string / empty result_type degrades Change Type to a muted "n/a"
 
-- **WHEN** 某 container `code_changes` entry 成功回傳有效 `url` 但 `result_type` 缺漏 / 為非字串 / 為空字串
-- **THEN** 該列 Change Type 欄顯示 muted(`theme.colors.text.secondary`)「n/a」(`MISSING_VALUE_PLACEHOLDER`),同列 url anchor、時間欄、其餘欄與其餘列 MUST NOT 受影響
+- **WHEN** a container's `code_changes` entry returns a valid `url` but its `result_type` is missing, is not a string, or is an empty string
+- **THEN** that row's Change Type column shows a muted (`theme.colors.text.secondary`) "n/a" (`MISSING_VALUE_PLACEHOLDER`), and that row's url anchor, time columns, other columns, and every other row MUST NOT be affected
 
-#### Scenario: Application 區塊無 Change Type 欄
+#### Scenario: The Application section has no Change Type column
 
-- **WHEN** 面板渲染 Application 區塊
-- **THEN** Application 區塊欄位依序為 Name / Current Change Time / Previous Change Time / Deployment Changes,MUST NOT 含 Change Type 欄
+- **WHEN** the panel renders the Application section
+- **THEN** the Application section's columns are Name / Current Change Time / Previous Change Time / Deployment Changes in that order, and it MUST NOT hold a Change Type column
 
-#### Scenario: 時間戳缺漏或非 RFC 3339 時時間欄降級為 muted「n/a」
+#### Scenario: A missing or non-RFC-3339 timestamp degrades its column to a muted "n/a"
 
-- **WHEN** `config_changes`(或某 container 的 `code_changes` entry)成功回傳有效 `url`,但 `current_time` 缺漏 / 為非字串 / 為非 RFC 3339 字串(如 `"not-a-date"`),`previous_time` 正常
-- **THEN** 該目標 Current 欄顯示 muted(`theme.colors.text.secondary`)「n/a」(`MISSING_VALUE_PLACEHOLDER`)且無 `title`,Previous 欄照常顯示在地化絕對時間,同列 url anchor 與其餘欄、其餘列皆 MUST NOT 受影響(MUST NOT 顯示 `Invalid date`)
+- **WHEN** `config_changes` (or some container's `code_changes` entry) returns a valid `url` but its `current_time` is missing, is not a string, or is not an RFC 3339 string (say `"not-a-date"`), while `previous_time` is fine
+- **THEN** that target's Current column shows a muted (`theme.colors.text.secondary`) "n/a" (`MISSING_VALUE_PLACEHOLDER`) with no `title`, its Previous column shows the localised absolute time as usual, and that row's url anchor, other columns, and every other row MUST NOT be affected (`Invalid date` MUST NOT appear)
 
-#### Scenario: 開啟期間 code_changes 只呼叫一次、各 container 共用結果
+#### Scenario: While open, code_changes is called once and every container shares the result
 
-- **WHEN** 面板開啟、`code_changes` 預取完成,且有多個 container 列
-- **THEN** 系統僅對 `code_changes` 發出**一次**呼叫,所有 container 列以該次回傳的 map 取值
-- **AND** 關閉 panel / 換節點後快取 MUST 清除,下次開啟重新呼叫一次
+- **WHEN** the panel is open, the `code_changes` prefetch has completed, and there are several container rows
+- **THEN** the system issues **one** call to `code_changes` and every container row takes its value from that one returned map
+- **AND** closing the panel or switching nodes MUST clear the cache, so the next open calls it once again
 
-#### Scenario: 失敗的查詢不入快取(remount 重取)
+#### Scenario: A failed query is not cached (a remount refetches)
 
-- **WHEN** 某次 `code_changes`(或 `config_changes`)失敗,其後面板對同節點重新掛載(remount)
-- **THEN** 系統重新發出該查詢(失敗結果未被快取)
+- **WHEN** a `code_changes` (or `config_changes`) call fails and the panel later remounts for the same node
+- **THEN** the system issues that query again (the failure was not cached)
 
-#### Scenario: 連結欄跨區塊與跨狀態上下對齊
+#### Scenario: Link columns align across sections and across states
 
-- **WHEN** 面板同時顯示 Application 與 Containers 區塊,且部分目標為 loading、部分為 ready、部分為 unavailable(混合狀態)
-- **THEN** 兩區塊每列的連結欄內容皆釘於欄右緣、彼此上下對齊
+- **WHEN** the panel shows both the Application and Containers sections with some targets loading, some ready, and some unavailable (a mixed state)
+- **THEN** every row's link-column content in both sections is pinned to the column's right edge and lines up vertically
 
-#### Scenario: map 缺 container key 時顯示「Not found」
+#### Scenario: A container key missing from the map shows "Not found"
 
-- **WHEN** `code_changes` 成功,但某 container name 不存在於回傳 map(或該 name 無有效 URL)
-- **THEN** 該列連結欄顯示「Not found」提示(無 anchor),name 與 image 仍照常顯示
+- **WHEN** `code_changes` succeeds but a container name is absent from the returned map (or that name has no valid URL)
+- **THEN** that row's link column shows the "Not found" hint (no anchor) while its name and image still show as usual
 
-#### Scenario: 查詢失敗顯示「Not found」且不波及其餘
+#### Scenario: A failed query shows "Not found" without affecting the rest
 
-- **WHEN** `config_changes`(或 `code_changes`)查詢失敗
-- **THEN** 對應目標連結欄以次要色顯示「Not found」提示(無 anchor;過長截斷、完整失敗訊息入 `title`)
-- **AND** 面板 header 與另一區塊 / 其他列仍正常顯示
+- **WHEN** the `config_changes` (or `code_changes`) query fails
+- **THEN** the corresponding target's link column shows the "Not found" hint in the secondary colour (no anchor; truncated if long, with the full failure message in `title`)
+- **AND** the panel header and the other section / rows still show normally
 
-#### Scenario: endpoint 自 panel datasource 自動推導(預取發往 sibling 段)
+#### Scenario: The endpoint is derived from the panel datasource (prefetching the sibling segment)
 
-- **WHEN** panel option 未設定查詢 endpoint,且面板查詢 target 帶 datasource ref(`access: proxy`)、其 graph query 路徑為 `/api/v1/graph/service_graph`,使用者左鍵開啟 workload 節點面板
-- **THEN** 預取查詢發往與 graph query 同目錄的 sibling 段(`…/api/v1/graph/config_changes` 與 `…/api/v1/graph/code_changes`)
+- **WHEN** no query endpoint is set in the panel options, the panel's query target carries a datasource ref (`access: proxy`) with a graph query path of `/api/v1/graph/service_graph`, and the user left-clicks open a workload node's panel
+- **THEN** the prefetch queries go to the sibling segments in the same directory as the graph query (`…/api/v1/graph/config_changes` and `…/api/v1/graph/code_changes`)
 
-#### Scenario: panel option 覆寫自動推導
+#### Scenario: A panel option overrides the automatic derivation
 
-- **WHEN** panel option 設定 endpoint 為 `/foo`,使用者左鍵開啟 workload 節點面板
-- **THEN** 預取查詢發往 `/foo/config_changes` 與 `/foo/code_changes`(option 優先)
+- **WHEN** the panel option sets the endpoint to `/foo` and the user left-clicks open a workload node's panel
+- **THEN** the prefetch queries go to `/foo/config_changes` and `/foo/code_changes` (the option takes precedence)
 
-#### Scenario: 未設定 endpoint 且無法推導時不查詢並顯示「Not found」
+#### Scenario: With no endpoint set and none derivable, nothing is queried and "Not found" shows
 
-- **WHEN** panel option 未設定查詢 endpoint,且自查詢 targets 推導不出 datasource proxy path
-- **THEN** 左鍵開啟的面板中兩區塊照資料渲染,連結欄顯示「Not found」提示(`enabled` 為 false),且 MUST NOT 發出任何查詢
+- **WHEN** no query endpoint is set in the panel options and no datasource proxy path can be derived from the query targets
+- **THEN** in the left-click-opened panel both sections render from their data, their link columns show the "Not found" hint (`enabled` is false), and no query may be issued
 
-#### Scenario: 帶 application 的 service/pvc 左鍵預取 config_changes
+#### Scenario: A left-clicked service/pvc with an application prefetches config_changes
 
-- **WHEN** 使用者左鍵選取一個帶 `data.application` 的 `service` 或 `pvc`,且 endpoint 可解析
-- **THEN** 系統以該節點**自身 kind/name** + application 建立查詢 input,預取 `config_changes`(驅動 Application 區塊的 Deployment Changes 連結)
-- **AND** Containers 區塊不渲染(無 containers;`code_changes` 的回傳結果不被使用)
+- **WHEN** the user left-click selects a `service` or `pvc` carrying `data.application`, with a resolvable endpoint
+- **THEN** the system establishes query input from **that node's own kind/name** plus the application and prefetches `config_changes` (driving the Application section's Deployment Changes link)
+- **AND** the Containers section does not render (there are no containers; the `code_changes` result goes unused)
 
-#### Scenario: 選取 application 群組預取其 config_changes
+#### Scenario: Selecting an application group prefetches its config_changes
 
-- **WHEN** 使用者左鍵選取一個 ArgoCD `application` 群組節點(kind-less,帶 `application`),且 endpoint 可解析
-- **THEN** 系統以 `{ application: <app>, kind: 'application', name: <app>, time }` 建立查詢 input,預取 `config_changes`;Application 區塊渲染該 application 的 Deployment Changes 連結(header badge 顯示合成 `application` kind)
-- **AND** Containers 區塊不渲染(application 群組無 containers)
+- **WHEN** the user left-click selects an ArgoCD `application` group node (kind-less, carrying `application`), with a resolvable endpoint
+- **THEN** the system establishes the query input `{ application: <app>, kind: 'application', name: <app>, time }` and prefetches `config_changes`; the Application section renders that application's Deployment Changes link (the header badge showing the synthetic `application` kind)
+- **AND** the Containers section does not render (an application group has no containers)
 
-#### Scenario: 無 application 的非 workload 節點左鍵不觸發查詢
+#### Scenario: A left-clicked non-workload node with no application triggers no query
 
-- **WHEN** 使用者以左鍵 `tap` 選取一個非 workload、**無 `data.application`** 的節點(如 `node` / `external`,或無 application 的 `service` / `pvc`;無 `queryTarget`)
-- **THEN** 面板仍渲染(header-only 或含 Alerts),節點屬性由右上角釘選 tooltip 承載,但 MUST NOT 建立查詢 input、MUST NOT 發出 application-detail / image-detail 查詢
+- **WHEN** the user left-click `tap`s a non-workload node with **no `data.application`** (say a `node` / `external`, or a `service` / `pvc` with no application; that is, no `queryTarget`)
+- **THEN** the panel still renders (header-only, or with Alerts) and the node's attributes are carried by the pinned top-right tooltip, but the system MUST NOT establish query input and MUST NOT issue the application-detail / image-detail queries
 
-#### Scenario: 換節點 / 關閉 panel 清除狀態與快取並中止 in-flight
+#### Scenario: Switching nodes or closing the panel clears state and cache and aborts in-flight work
 
-- **WHEN** 面板開啟且預取 in-flight,使用者切換到另一節點、或關閉 panel(unmount / 清除選取)
-- **THEN** 系統中止 in-flight 查詢(`AbortController`)、清除兩端點快取與每目標狀態,且中止後 MUST NOT 對舊節點 setState
+- **WHEN** the panel is open with a prefetch in flight and the user switches to another node or closes the panel (unmount / clearing the selection)
+- **THEN** the system aborts the in-flight queries (`AbortController`), clears both endpoints' caches and every per-target state, and MUST NOT setState for the old node after aborting
 
-#### Scenario: 查詢經 Grafana runtime 而非直連外部
+#### Scenario: Queries go through the Grafana runtime rather than directly outside
 
-- **WHEN** 對 `src/**` 進行 source code 掃描
-- **THEN** 查詢僅經 `getBackendSrv()`;`src/**` 內無任何直接 `fetch` / `axios` / `XMLHttpRequest` 連線外部 backend 的程式碼
+- **WHEN** scanning the source code under `src/**`
+- **THEN** queries go only through `getBackendSrv()`, and there is no code under `src/**` connecting to an external backend directly through `fetch` / `axios` / `XMLHttpRequest`
 
-### Requirement: 圖例節點種類顯示/隱藏切換
+### Requirement: Show/hide toggle per node kind in the legend
 
-Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**顯示/隱藏切換按鈕**(`eye` / `eye-slash`),點擊切換該 kind 節點在畫布上的可見性。切換 MUST 寫入 panel option `visibleKinds`(經 `onOptionsChange` 部分更新)——options editor 的 kind multi-select 與圖例按鈕為**同一狀態**的兩個介面,MUST 雙向同步。隱藏一個 kind 時,**任一端點為該 kind 節點的邊** MUST 隨之隱藏(既有 `computeVisibility` 端點規則),且無可見邊與可見子節點的節點 MUST 被孤兒級聯隱藏(既有 `hideOrphans`)。
+The panel SHALL provide a **show/hide toggle button** (`eye` / `eye-slash`) on **every row** of the Node Kinds legend (icon + name), toggling that kind's node visibility on the canvas. The toggle MUST write to the panel option `visibleKinds` (through a partial `onOptionsChange` update) — the options editor's kind multi-select and the legend buttons are two interfaces onto **one state** and MUST stay in two-way sync. When a kind is hidden, **any edge with an endpoint of that kind** MUST hide with it (the existing `computeVisibility` endpoint rule), and a node left with no visible edge and no visible child MUST be hidden by the orphan cascade (the existing `hideOrphans`).
 
-**圖例列表**:圖例 kind 列表 MUST 為「實際以 glyph 渲染的 kinds」(既有收合感知推導)與「存在於當前(mode 轉換後)elements 但被 `visibleKinds` 濾掉的 kinds」之**聯集**——被隱藏的 kind 其圖例列 MUST 保留(淡化樣式 + `eye-slash`),否則無法從圖例還原。切換按鈕 MUST 僅渲染於**可過濾的已知 kind**:`network` 虛擬 wrapper(永不 kind-過濾)與未知 kind(預設恆可見)的列 MUST NOT 帶按鈕。
+**The legend list.** The legend's kind list MUST be the **union** of "the kinds actually rendered as a glyph" (the existing collapse-aware derivation) and "the kinds present in the current (post-mode-transform) elements but filtered out by `visibleKinds`" — a hidden kind MUST keep its legend row (in a faded style with `eye-slash`), otherwise it could never be restored from the legend. The toggle button MUST render only on **filterable known kinds**: the `network` virtual wrapper (never kind-filtered) and unknown kinds (visible by default) MUST NOT carry a button.
 
-**與既有切換的互動**:
+**Interaction with the existing toggles:**
 
-- **收合切換(cluster / nodes-or-controllers / storage classes 的 collapse-all 與單一容器收合)**:收合狀態(`collapsedIds`)與可見性(`visibleKinds`)為獨立兩層——隱藏 kind MUST NOT 變更任何容器的收合狀態;重新顯示後收合狀態 MUST 原樣呈現。
-- **收合互換語意不變**:收合容器在圖例以容器 kind 列代表(如收合 storageclass → 列 `storageclass` 非 `pvc`),按鈕切換的是該列的 kind;容器 kind 隱藏時其後代節點 MUST 一併不可見(有效可見性 = 自身 AND 祖先)。
-- **pod-parent 模式切換**:`visibleKinds` 為跨模式全域集合,作用於 mode 轉換後的 elements;模式切換 MUST NOT 清除隱藏設定——在另一模式無對應節點的設定無視覺效果但保留,切回後恢復生效。
+- **Collapse toggles** (the collapse-all for clusters / nodes-or-controllers / storage classes, and single-container collapse): collapsed state (`collapsedIds`) and visibility (`visibleKinds`) are two independent layers — hiding a kind MUST NOT change any container's collapsed state, and re-showing it MUST restore the collapsed state verbatim.
+- **Collapse interchange semantics are unchanged**: a collapsed container is represented in the legend by its container kind's row (collapsing a `netapp-node` gives a `netapp-node` row, not a `netapp-aggr` one), and the button toggles that row's kind; hiding a container kind MUST also make its descendants invisible (effective visibility = its own AND its ancestors').
+- **pod-parent mode switching**: `visibleKinds` is a global set across modes, applied to the post-mode-transform elements; a mode switch MUST NOT clear the hidden settings — a setting with no corresponding node in the other mode has no visual effect but is retained, and takes effect again on switching back.
 
-切換寫回 option 時 MUST 維持 canonical kind 順序(以全 kind 宇宙的固定順序重建陣列)——隱藏/還原往返不得重排持久化的 `visibleKinds`(dashboard JSON 與 editor multi-select 順序穩定)。
+Writing a toggle back to the option MUST preserve the canonical kind order (rebuilding the array in the fixed order of the full kind universe) — a hide/restore round trip must not reorder the persisted `visibleKinds` (keeping the dashboard JSON and the editor multi-select order stable).
 
-全部可切換 kind 均隱藏時,畫布 MUST 顯示既有 `All node types filtered` 空狀態,圖例 MUST 仍列出全部(隱藏的)kind 供還原;畫布因**邊類型過濾**(孤兒級聯)而清空、但仍有可切換 kind 未隱藏時,MUST NOT 歸咎節點種類——顯示一般化的 `All elements filtered out`。
+When every toggleable kind is hidden, the canvas MUST show the existing `All node types filtered` empty state and the legend MUST still list every (hidden) kind so they can be restored. When the canvas empties because of **edge-type filtering** (an orphan cascade) while some toggleable kind is still shown, it MUST NOT blame node kinds — it shows the generic `All elements filtered out` instead.
 
-#### Scenario: 切換隱藏一個 kind 及其相關邊
+#### Scenario: Toggling hides a kind and its related edges
 
-- **WHEN** 圖中有 `service` 節點與 `service-selects-pod` 邊,使用者點擊圖例 `service` 列的切換按鈕
-- **THEN** 所有 `service` 節點與所有以 `service` 節點為端點的邊(如 `pod-calls-service` / `service-selects-pod`)自畫布隱藏
-- **AND** `service` 列保留於圖例(淡化 + `eye-slash`),再次點擊後節點與邊恢復顯示
+- **WHEN** the graph holds `service` nodes and `service-selects-pod` edges and the user clicks the toggle button on the legend's `service` row
+- **THEN** every `service` node and every edge with a `service` node as an endpoint (`pod-calls-service` / `service-selects-pod`) hides from the canvas
+- **AND** the `service` row stays in the legend (faded, with `eye-slash`), and clicking again restores the nodes and edges
 
-#### Scenario: 圖例按鈕與 options editor 同步
+#### Scenario: The legend button and the options editor stay in sync
 
-- **WHEN** 使用者點擊圖例 `pvc` 列的切換按鈕隱藏 `pvc`
-- **THEN** panel option `visibleKinds` 不再含 `pvc`(editor multi-select 同步反映);反之自 editor 取消勾選某 kind 時,圖例對應列同步呈現隱藏狀態
+- **WHEN** the user clicks the toggle on the legend's `pvc` row to hide `pvc`
+- **THEN** the panel option `visibleKinds` no longer holds `pvc` (the editor multi-select reflecting it in sync); conversely, unchecking a kind in the editor makes the legend's corresponding row show the hidden state
 
-#### Scenario: 隱藏不清除收合狀態
+#### Scenario: Hiding does not clear the collapsed state
 
-- **WHEN** 某 K8s `node` 容器處於收合狀態,使用者隱藏 `node` kind 後再重新顯示
-- **THEN** 該 node 容器恢復顯示且**維持收合**(收合狀態未被切換動作清除)
+- **WHEN** a K8s `node` container is collapsed and the user hides and then re-shows the `node` kind
+- **THEN** that node container reappears and **stays collapsed** (the toggle action did not clear its collapsed state)
 
-#### Scenario: controller 模式隱藏 pod 觸發孤兒級聯
+#### Scenario: Hiding pods in controller mode triggers the orphan cascade
 
-- **WHEN** controller 模式下使用者隱藏 `pod` kind,且某 controller 盒自身無 incident drawn edge(pod 巢狀於其中,`pod-to-node` 由 pod 指向 K8s node、不經 controller),其子 pod 全數被隱藏
-- **THEN** 該 controller 盒因無可見子節點且無可見邊而被孤兒級聯一併隱藏
+- **WHEN** in controller mode the user hides the `pod` kind and a controller box has no incident drawn edge of its own (its pods nest inside it, and `pod-to-node` runs from the pod to the K8s node rather than through the controller), so all of its child pods hide
+- **THEN** that controller box hides too through the orphan cascade, having no visible child and no visible edge
 
-#### Scenario: 模式切換保留隱藏設定
+#### Scenario: A mode switch preserves the hidden settings
 
-- **WHEN** controller 模式下隱藏 `deployment`,切換至 node 模式再切回 controller 模式
-- **THEN** node 模式期間設定無視覺效果(圖中無 controller 節點),切回 controller 模式後 `deployment` 仍為隱藏
+- **WHEN** `deployment` is hidden in controller mode, the user switches to node mode and back to controller mode
+- **THEN** the setting has no visual effect while in node mode (the graph holds no controller node) and `deployment` is still hidden on returning to controller mode
 
-#### Scenario: 不可過濾的列無按鈕
+#### Scenario: A non-filterable row has no button
 
-- **WHEN** 圖例列出 `network`(虛擬 fabric wrapper)或一個未知 kind(backend 新增、不在已知 kind 集合)
-- **THEN** 該列照常顯示 glyph 與名稱,但不渲染顯示/隱藏切換按鈕
+- **WHEN** the legend lists `network` (the virtual fabric wrapper) or an unknown kind (newly added by the backend, outside the known kind set)
+- **THEN** that row shows its glyph and name as usual but renders no show/hide toggle button
 
-#### Scenario: 全部隱藏顯示空狀態且可還原
+#### Scenario: Hiding everything shows the empty state and stays restorable
 
-- **WHEN** 使用者將圖例列出的全部 kind 切換為隱藏
-- **THEN** 畫布顯示 `All node types filtered` 空狀態,圖例仍列出全部 kind(淡化 + `eye-slash`),點擊任一列即可還原該 kind
+- **WHEN** the user toggles every kind the legend lists to hidden
+- **THEN** the canvas shows the `All node types filtered` empty state and the legend still lists every kind (faded, with `eye-slash`), so clicking any row restores that kind
 
-#### Scenario: 邊類型過濾清空畫布不歸咎節點種類
+#### Scenario: An edge-type filter emptying the canvas does not blame node kinds
 
-- **WHEN** 全部 kind 均為顯示,但使用者於 options editor 取消全部邊類型,孤兒級聯使所有節點自畫布消失
-- **THEN** 畫布顯示 `All elements filtered out`(而非 `All node types filtered`),圖例 kind 列維持顯示狀態(`Hide` affordance)
+- **WHEN** every kind is shown but the user unchecks every edge type in the options editor, and the orphan cascade makes every node vanish from the canvas
+- **THEN** the canvas shows `All elements filtered out` (rather than `All node types filtered`) and the legend's kind rows keep their shown state (the `Hide` affordance)
 
-#### Scenario: 隱藏/還原往返不重排 visibleKinds
+#### Scenario: A hide/restore round trip does not reorder visibleKinds
 
-- **WHEN** 使用者隱藏再還原同一 kind
-- **THEN** 寫回的 `visibleKinds` 與原陣列逐項相等(canonical 順序,不在尾端追加)
+- **WHEN** the user hides and then restores the same kind
+- **THEN** the `visibleKinds` written back is element-for-element equal to the original array (canonical order, not appended at the end)
 
 ### Requirement: 左鍵選取非 normal pod 匯出至 selectedPodVariable
 
@@ -918,34 +920,34 @@ Panel SHALL 在 Node Kinds 圖例的**每一列**(icon + 名稱)提供一顆**�
 - **WHEN** 使用者左鍵點擊一個 `status:'normal'` 的 pod
 - **THEN** detail 面板照常開啟,但 `selectedPodVariable` 被清除(不寫入該 pod 名)
 
-### Requirement: 裝飾性 compound 群組使用 per-kind 固定色彩與 kind 前綴標籤
+### Requirement: Decorative compound groups use fixed per-kind colours and a kind-prefixed label
 
-裝飾性 `cluster` / `namespace` / `application` 群組的 accent 色(`clusterColor` / `namespaceColor` / `applicationColor`)MUST 為**依群組種類(kind)固定的單一色彩**——同種類的所有群組節點(不論其名稱)共用同一色彩,不再依名稱雜湊(hash)產生每一實例各異的色彩。三種 kind 的色彩 MUST 彼此不同,且 MUST 與既有邊色彩表(`EDGE_STYLE_BY_TYPE`)及 status 色彩(normal 綠、warning 黃、critical 紅)有足夠對比,確保邊線經過任一 compound 背板時仍清晰可辨。
+The accent colours of the decorative `cluster` / `namespace` / `application` groups (`clusterColor` / `namespaceColor` / `applicationColor`) MUST be **a single colour fixed per group kind** — every group node of the same kind shares one colour regardless of its name, rather than hashing the name into a per-instance colour. The three kinds' colours MUST differ from one another and MUST contrast sufficiently with the existing edge colour table (`EDGE_STYLE_BY_TYPE`) and the status colours (normal green, warning yellow, critical red), so an edge line stays legible as it crosses any compound backdrop.
 
-裝飾性 `cluster` / `namespace` / `application` 群組的**畫布標籤**MUST 以**首字大寫 kind 前綴詞 + `: `**(冒號後接一空格)為前綴,格式為 `${PREFIX}: ${name}`(例如名稱 `prod` 的 `cluster` 群組畫布標籤為 `Cluster: prod`,名稱 `checkout` 的 `namespace` 為 `Namespace: checkout`,名稱 `mongo` 的 `application` 為 `Release Unit: mongo`)。**`application` 群組的顯示前綴詞為「Release Unit」**——此僅為顯示文字,內部 `type`/`kind` 字串、`isApplication` flag、`applicationColor`、CSS selector(`node[?isApplication]`)皆維持 `application` 不變。
+The **canvas label** of a decorative `cluster` / `namespace` / `application` group MUST be prefixed with a **capitalised kind word followed by `: `** (a colon and one space), in the form `${PREFIX}: ${name}` — a `cluster` group named `prod` gets the canvas label `Cluster: prod`, a `namespace` named `checkout` gets `Namespace: checkout`, and an `application` named `mongo` gets `Release Unit: mongo`. **The `application` group's display prefix is "Release Unit"** — display text only; the internal `type` / `kind` strings, the `isApplication` flag, `applicationColor`, and the CSS selector (`node[?isApplication]`) all stay `application`.
 
-此前綴 MUST 以 **stylesheet 的 render-only function `label` mapper** 實作(選擇器 `node[?isCluster]` / `node[?isNamespace]` / `node[?isApplication]`),**MUST NOT** 由 `normalizeGraph` 寫入 `data.label`——`data.label` MUST 維持上游裸名稱(與 `data.cluster` / `data.namespace` / `data.application` 一致)。如此 hover / pinned tooltip 的 name title、以及其他讀取 `data.label` 作為 identity / 顯示名的路徑,皆取得裸名稱;前綴**僅**出現在畫布 compound naming。此要求僅適用於三種裝飾性 compound 群組,不影響任何 leaf 節點(pod / service / pvc / node / storageclass)或 `controller` compound 的標籤格式。整段畫布標籤(前綴 + 名稱)沿用既有 `font-weight: 600` 樣式——cytoscape 單一 label 不支援同節點內混合字重的局部粗體,故前綴與名稱共用同一字重。
+This prefix MUST be implemented as a **render-only function `label` mapper in the stylesheet** (selectors `node[?isCluster]` / `node[?isStorageCluster]` / `node[?isNamespace]` / `node[?isApplication]`) and **MUST NOT** be written into `data.label` by `normalizeGraph` — `data.label` MUST stay the bare upstream name (consistent with `data.cluster` / `data.namespace` / `data.application`). That way the hover / pinned tooltip's name title, and every other path reading `data.label` as an identity or display name, gets the bare name, and the prefix appears **only** in the canvas compound naming. This requirement applies only to the decorative compound groups (`cluster` / `storage-cluster` / `namespace` / `application`) and does not affect the label format of any leaf node (pod / service / pvc / node / netapp-aggr) or of the `controller` / `netapp-node` compounds. The whole canvas label (prefix + name) keeps the existing `font-weight: 600` styling — a single cytoscape label does not support mixed weights within one node, so the prefix and the name share one weight.
 
-#### Scenario: 同 kind 的多個 cluster 群組共用同一色彩
+#### Scenario: Several cluster groups of the same kind share one colour
 
-- **WHEN** 圖中存在兩個以上不同名稱的 `cluster` 群組節點
-- **THEN** 所有 `cluster` 群組節點的 `data.clusterColor` 皆為同一固定值,不因名稱不同而異
+- **WHEN** the graph holds two or more `cluster` group nodes with different names
+- **THEN** every `cluster` group node's `data.clusterColor` is the same fixed value, unaffected by their differing names
 
-#### Scenario: 三種 kind 的固定色彩彼此不同且與邊色彩有對比
+#### Scenario: The three kinds' fixed colours differ from each other and contrast with the edge colours
 
-- **WHEN** Panel 渲染 `cluster` / `namespace` / `application` 群組
-- **THEN** 三者的固定色彩彼此互異,且皆非 `EDGE_STYLE_BY_TYPE` 中任一邊色彩或 status 色彩(綠 `#73BF69` / 黃 `#F2CC0C` / 紅 `#E02F44`)的完全相同色值
+- **WHEN** the panel renders the `cluster` / `namespace` / `application` groups
+- **THEN** their three fixed colours differ from one another and none is an exact match for any edge colour in `EDGE_STYLE_BY_TYPE` or for a status colour (green `#73BF69` / yellow `#F2CC0C` / red `#E02F44`)
 
-#### Scenario: 裝飾性群組畫布標籤以 kind 為前綴,data.label 為裸名
+#### Scenario: A decorative group's canvas label is kind-prefixed while data.label stays bare
 
-- **WHEN** 一個名稱為 `prod` 的 `cluster` 群組、名稱為 `checkout` 的 `namespace` 群組、名稱為 `mongo` 的 `application` 群組被正規化並渲染
-- **THEN** 三者的 `data.label` 依序為 `prod`、`checkout`、`mongo`(裸名)
-- **AND** 畫布上 stylesheet 渲染的標籤依序為 `Cluster: prod`、`Namespace: checkout`、`Release Unit: mongo`
+- **WHEN** a `cluster` group named `prod`, a `namespace` group named `checkout`, and an `application` group named `mongo` are normalized and rendered
+- **THEN** their `data.label` values are `prod`, `checkout`, and `mongo` respectively (bare names)
+- **AND** the labels the stylesheet renders on the canvas are `Cluster: prod`, `Namespace: checkout`, and `Release Unit: mongo` respectively
 
-#### Scenario: 非裝飾性節點標籤不受影響
+#### Scenario: Non-decorative node labels are unaffected
 
-- **WHEN** 一個 `pod` / `service` / `pvc` / `node` / `storageclass` leaf 節點或 `controller` compound 節點被正規化
-- **THEN** 其 `data.label` 維持原名稱,不套用任何 kind 前綴
+- **WHEN** a `pod` / `service` / `pvc` / `node` / `netapp-aggr` leaf node or a `controller` / `netapp-node` compound node is normalized
+- **THEN** its `data.label` stays the original name with no kind prefix applied
 
 ### Requirement: physical-network 與 k8s node compound header 標籤對齊
 
@@ -988,74 +990,214 @@ k8s node 的此對齊 MUST **僅在該 node 為 compound 時**套用:選擇器�
 - **WHEN** 圖中同時存在未收合的一般邊(含 fabric `taxi` 與非 fabric `bezier`)與收合產生的 meta-edge
 - **THEN** 一般邊維持其既有 routing;`taxi` / `bezier` 選擇器行為不變
 
-### Requirement: Hover Tooltip 顯示邊 RED metrics
+### Requirement: The hover tooltip shows an edge's RED metrics
 
-當使用者 hover 於一條**帶有 `data.metrics`** 的邊時,`HoverTooltip` MUST 在既有 `edgeType` row **之後**、`labels` 分隔線**之前**,依序追加最多三個 promoted attr rows(key 名為固定英文 UI 字串):
+When the user hovers an edge **carrying `data.metrics`**, `HoverTooltip` MUST append that edge's family's promoted attr rows, in order, **after** the existing `edgeType` row and **before** the `labels` divider (row keys being fixed English UI strings). `metrics` is a union of two mutually exclusive families (see graph-data-integration, "Upstream kube-state-graph payload contract"), and the tooltip MUST discriminate with **`'rate' in metrics`**, rendering only that family's rows — it **MUST NOT** assume `rate` exists on an arbitrary `metrics` object (the requirement's name keeps the word RED only to stay aligned with the existing requirement it modifies; the contract covers both families).
 
-| row key | 來源欄位 | 顯示格式 |
+**The RED family** (trace-derived call edges), at most three rows:
+
+| row key | source field | display format |
 | --- | --- | --- |
 | `rate` | `metrics.rate` | `<value> req/s` |
 | `errorRate` | `metrics.errorRate` | `<value×100>%` |
-| `duration(p90)` | `metrics.p90ServerMs` | `< 1000` 時 `<value> ms`;`>= 1000` 時換算為 `<value/1000> s` |
+| `duration(p90)` | `metrics.p90ServerMs` | `<value> ms` below `1000`; converted to `<value/1000> s` at `>= 1000` |
 
-數值格式化規則(three 個 row 共用同一組純函式):
+**The I/O family** (`pvc-to-netapp-aggr` edges only), at most eight rows in this fixed order — the six **measurement** rows first, the two **declared-ceiling** rows last:
 
-- 數值 MUST 以最多 **3 位有效數字**呈現,尾隨的零 MUST 去除(`5` 不是 `5.00`、`3.2` 不是 `3.20`)。
-- **非零值 MUST NOT 被格式化為 `0`**:捨入只可損失位數,MUST NOT 損失量級。極小值(例如 `3.86e-7` req/s、`6.7e-8` 比例)MUST 以完整小數或指數表示法保留其量級,由該值的數量級決定採用何者。
-- `errorRate` 為比例(`[0,1]`),顯示前 MUST 乘以 100 並附 `%`;`0` MUST 顯示為 `0%`(代表「已量測且無失敗」)。
+| row key | source field | display format |
+| --- | --- | --- |
+| `read` | `metrics.readOps` | `<value> ops/s` |
+| `write` | `metrics.writeOps` | `<value> ops/s` |
+| `read latency` | `metrics.readLatencyUs` | `<value> µs` below `1000`; converted to `<value/1000> ms` at `>= 1000` |
+| `write latency` | `metrics.writeLatencyUs` | as above |
+| `read throughput` | `metrics.readBytesPerSec` | `<decimal byte unit>/s` (for example `5.24 MB/s`) |
+| `write throughput` | `metrics.writeBytesPerSec` | as above |
+| `max iops` | `metrics.maxIops` | `<value> ops/s` |
+| `max throughput` | `metrics.maxBytesPerSec` | `<decimal byte unit>/s` (for example `250 MB/s`) |
 
-失敗強調規則:`errorRate` 為**已量測且非零**(`errorRate !== 0`)時,該 row 的**值** MUST 以 theme 的 error 色呈現,key 維持 secondary 色以免整列脫離清單節奏。判斷 MUST 依**數值本身**而非格式化後的字串——`6.7e-8` 呈現為 `0.0000067%`,仍是真實的失敗比例。`errorRate: 0` MUST 維持中性色;`errorRate` 缺席時 MUST 不產生任何 row(故亦無顏色)。其餘 row(`rate` / `duration(p90)`)MUST NOT 著色。
+The two ceiling rows sit **after** the measurements because they are a **configured value** of the volume's QoS policy group rather than something observed: the reader's first question is what the volume is doing now, not what it is allowed to do. Each ceiling row MUST use **exactly the same** formatter as its corresponding measurement row (`max iops` on the ops ladder, `max throughput` on the decimal byte ladder), so `read throughput: 5.24 MB/s` and `max throughput: 250 MB/s` compare at a glance — which is the whole reason the backend converts `max_bytes_per_sec` into bytes per second.
 
-省略規則:
+Number-formatting rules:
 
-- 邊**無** `data.metrics` 時,tooltip MUST 與現況完全一致——不顯示任何 RED row、不顯示標題、不顯示 `N/A` 之類的 placeholder。
-- `metrics` 存在但 `errorRate` 不存在時 MUST NOT 顯示 `errorRate` row(**尤其 MUST NOT 顯示 `0%`**:省略代表「未能量測」,與量測到 0 是不同狀態)。`p90ServerMs` 不存在時同理不顯示 `duration(p90)` row。
-- RED 值 MUST NOT 出現在 `labels` 區塊——它們來自 `data.metrics`,不是後端 labels map。
+- `rate` / `errorRate` / `duration(p90)` / `read` / `write` / `read latency` / `write latency` / `max iops` share one set of pure functions (`formatEdgeMetrics.ts`): a value MUST render at no more than **3 significant digits** with trailing zeros removed (`5`, not `5.00`; `3.2`, not `3.20`).
+- **`read throughput` / `write throughput` / `max throughput` are the exception** (the three bytes-per-second rows): their values are bytes/s, where a bare 3-significant-digit rendering degenerates into an unreadable exponent at realistic magnitudes, so they MUST use the **decimal byte-unit ladder the node `usage` row already uses** (`B` / `KB` / `MB` / `GB` / `TB` … in `src/shared/format/measurements.ts`) with a `/s` suffix. One shared ladder means a `700 GB` aggregate and a `5.24 MB/s` edge read on the same scale.
+- **A non-zero value MUST NOT be formatted as `0`**: rounding may lose digits but MUST NOT lose magnitude. Tiny values (say `3.86e-7` req/s, a ratio of `6.7e-8`, or `12 B/s`) MUST keep their magnitude.
+- `errorRate` is a ratio in `[0,1]` and MUST be multiplied by 100 and suffixed with `%` before display; `0` MUST render as `0%` (meaning "measured, with no failures").
 
-RED 僅影響 hover 浮動模式下的**邊** tooltip。pinned 釘選模式僅適用於被選取的**節點**,故不受本需求影響;畫布上的邊顏色、線寬、線型與 label MUST NOT 因 RED 而改變。
+The failure-emphasis rule: when `errorRate` is **measured and non-zero** (`errorRate !== 0`), that row's **value** MUST render in the theme's error colour while the key stays the secondary colour, so the row does not break the list's rhythm. The decision MUST be made on **the number itself** rather than on the formatted string — `6.7e-8` renders as `0.0000067%` and is still a real failure ratio. `errorRate: 0` MUST stay the neutral colour, and an absent `errorRate` MUST render no row at all (and therefore no colour). Every other row (RED's `rate` / `duration(p90)` and **all** of the I/O rows, the two ceilings included) MUST NOT be coloured — an I/O measurement has no notion of "failure", and high throughput or high latency MUST NOT be coloured as an error. Approaching or exceeding a declared ceiling MUST NOT trigger colouring or a warning either: a ceiling is configuration, not a threshold, and QoS throttling is normal operation rather than a fault.
 
-#### Scenario: Hover 帶完整 RED 的邊顯示三列
+Omission rules:
 
-- **WHEN** 使用者 hover 於一條 `edgeType: 'pod-calls-service'`、`data.metrics = { rate: 5, errorRate: 0.2, p90ServerMs: 45 }` 的邊
-- **THEN** tooltip 依序顯示 `edgeType: pod-calls-service`、`rate: 5 req/s`、`errorRate: 20%`、`duration(p90): 45 ms`
-- **AND** 三個 RED row 位於 `edgeType` 之後、`labels` 分隔線之前
+- When an edge has **no** `data.metrics`, the tooltip MUST look exactly as it does today — no metrics row, no heading, and no `N/A`-style placeholder.
+- When any optional field within a family is absent, its row MUST NOT render (**and above all MUST NOT show `0`**: absence means "could not be measured", which is a different state from a measured zero). This applies to RED's `errorRate` / `p90ServerMs` and to all eight I/O fields. For the two ceiling fields the distinction has the same shape but a different reading: absence means the volume has no declared ceiling at all, which MUST NOT surface as `0` or as an unlimited sentinel.
+- Metrics values MUST NOT appear in the `labels` block — they come from `data.metrics`, not the backend's labels map.
 
-#### Scenario: 無 metrics 的邊維持現況
+Both families affect only the **edge** tooltip in floating hover mode. Pinned mode applies only to a selected **node** and is therefore unaffected by this requirement, and an edge's colour, width, line style, and label on the canvas MUST NOT change because of either family's metrics.
 
-- **WHEN** 使用者 hover 於一條 `pod-mounts-pvc` 邊(無 `data.metrics`)
-- **THEN** tooltip 僅顯示 `source → target` title、`edgeType` row 與既有 labels,無任何 RED row、無 placeholder
+#### Scenario: Hovering an edge with complete RED shows three rows
 
-#### Scenario: 省略的 errorRate 不顯示為 0%
+- **WHEN** the user hovers an edge with `edgeType: 'pod-calls-service'` and `data.metrics = { rate: 5, errorRate: 0.2, p90ServerMs: 45 }`
+- **THEN** the tooltip shows, in order, `edgeType: pod-calls-service`, `rate: 5 req/s`, `errorRate: 20%`, and `duration(p90): 45 ms`
+- **AND** the three RED rows sit after `edgeType` and before the `labels` divider
 
-- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 3 }` 的邊(`errorRate` / `p90ServerMs` 皆不存在)
-- **THEN** tooltip 僅追加 `rate: 3 req/s` 一列;MUST NOT 出現 `errorRate` 或 `duration(p90)` row
+#### Scenario: An edge with no metrics looks as it does today
 
-#### Scenario: 量測到零失敗顯示 0%
+- **WHEN** the user hovers a `pod-mounts-pvc` edge (with no `data.metrics`)
+- **THEN** the tooltip shows only the `source → target` title, the `edgeType` row, and the existing labels — no metrics row of either family, and no placeholder
 
-- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 1, errorRate: 0 }` 的邊
-- **THEN** tooltip 顯示 `errorRate: 0%`(與上一情境的「不顯示」明確區分)
-- **AND** 該值以中性文字色呈現,MUST NOT 使用 error 色
+#### Scenario: An omitted errorRate does not render as 0%
 
-#### Scenario: 非零失敗率以 error 色標示
+- **WHEN** the user hovers an edge with `data.metrics = { rate: 3 }` (neither `errorRate` nor `p90ServerMs` present)
+- **THEN** the tooltip appends only the `rate: 3 req/s` row; no `errorRate` or `duration(p90)` row may appear
 
-- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 5, errorRate: 0.2 }` 的邊
-- **THEN** `errorRate` row 的**值**以 theme 的 error 色呈現,key 維持既有 secondary 色
-- **AND** 同一 tooltip 中的 `rate` 與 `duration(p90)` row MUST NOT 被著色
+#### Scenario: A measured zero failure rate shows 0%
 
-#### Scenario: 極小值不被格式化為 0
+- **WHEN** the user hovers an edge with `data.metrics = { rate: 1, errorRate: 0 }`
+- **THEN** the tooltip shows `errorRate: 0%` (explicitly distinct from the previous scenario's "no row")
+- **AND** that value renders in the neutral text colour, never in the error colour
 
-- **WHEN** 使用者 hover 於一條 `data.metrics = { rate: 3.86e-7, errorRate: 6.7e-8 }` 的邊
-- **THEN** `rate` row 顯示 `3.86e-7 req/s`(指數表示法),`errorRate` row 顯示 `0.0000067%`(完整小數)
-- **AND** 兩者 MUST NOT 顯示為 `0 req/s` / `0%`
-- **AND** 該 `errorRate` 仍以 error 色呈現(著色依數值 `6.7e-8 !== 0`,非依格式化字串)
+#### Scenario: A non-zero failure rate is marked in the error colour
 
-#### Scenario: 長耗時以秒呈現
+- **WHEN** the user hovers an edge with `data.metrics = { rate: 5, errorRate: 0.2 }`
+- **THEN** the `errorRate` row's **value** renders in the theme's error colour while its key keeps the existing secondary colour
+- **AND** the `rate` and `duration(p90)` rows in the same tooltip MUST NOT be coloured
 
-- **WHEN** 使用者 hover 於一條 `data.metrics.p90ServerMs = 2500` 的邊
-- **THEN** `duration(p90)` row 顯示 `2.5 s`(而非 `2500 ms`)
+#### Scenario: Tiny values are not formatted as 0
 
-#### Scenario: RED 不改變畫布視覺
+- **WHEN** the user hovers an edge with `data.metrics = { rate: 3.86e-7, errorRate: 6.7e-8 }`
+- **THEN** the `rate` row shows `3.86e-7 req/s` (in exponent form) and the `errorRate` row shows `0.0000067%` (in full decimal)
+- **AND** neither may render as `0 req/s` / `0%`
+- **AND** that `errorRate` still renders in the error colour (the colouring decided by the number `6.7e-8 !== 0`, not by the formatted string)
 
-- **WHEN** 圖中同時存在帶 RED 與不帶 RED 的邊
-- **THEN** 兩者的線色、線寬、線型、箭頭與 canvas label 完全依既有 edge-type / ingressPath / relation 規則決定,與 `metrics` 無關
+#### Scenario: A long duration renders in seconds
 
+- **WHEN** the user hovers an edge with `data.metrics.p90ServerMs = 2500`
+- **THEN** the `duration(p90)` row shows `2.5 s` (rather than `2500 ms`)
+
+#### Scenario: Metrics do not change the canvas visuals
+
+- **WHEN** the graph holds both edges with metrics (RED or I/O) and edges without
+- **THEN** the line colour, width, style, arrowhead, and canvas label of both are decided entirely by the existing edge-type / ingressPath / relation rules, independently of `metrics`
+
+#### Scenario: Storage edge shows all eight I/O rows
+
+- **WHEN** the user hovers an edge with `edgeType: 'pvc-to-netapp-aggr'` and `data.metrics = { readOps: 150, writeOps: 40, readLatencyUs: 830, writeLatencyUs: 1200, readBytesPerSec: 5242880, writeBytesPerSec: 1048576, maxIops: 5000, maxBytesPerSec: 262144000 }` (no `rate`)
+- **THEN** the tooltip shows, in order, `read: 150 ops/s`, `write: 40 ops/s`, `read latency: 830 µs`, `write latency: 1.2 ms`, `read throughput: 5.24 MB/s`, `write throughput: 1.05 MB/s`, `max iops: 5000 ops/s`, `max throughput: 262 MB/s`, and no `rate` / `errorRate` / `duration(p90)` row
+
+#### Scenario: Absent I/O field renders no row
+
+- **WHEN** a storage edge's `data.metrics` holds only `{ readOps: 150, readBytesPerSec: 5242880 }`
+- **THEN** the tooltip shows only the `read` and `read throughput` rows; `write` / `read latency` / `write latency` / `write throughput` / `max iops` / `max throughput` render nothing (no `0`, no placeholder)
+
+#### Scenario: Measured volume with no declared ceiling
+
+- **WHEN** a storage edge carries the six measurement fields but neither `maxIops` nor `maxBytesPerSec`
+- **THEN** the tooltip shows the six measurement rows and **no** ceiling row — absence is never rendered as `0`, as `unlimited`, or as a `max …: —` placeholder
+
+#### Scenario: Ceiling row shares its measurement row's formatter
+
+- **WHEN** a storage edge carries `readBytesPerSec: 5242880` and `maxBytesPerSec: 262144000`
+- **THEN** the two rows render as `5.24 MB/s` and `262 MB/s` — the same decimal byte ladder on both, so the reader compares them without mentally converting units
+
+#### Scenario: Throughput uses the byte-unit ladder rather than a bare 3-significant-digit value
+
+- **WHEN** a storage edge's `readBytesPerSec` is `5242880` and its `writeBytesPerSec` is `12`
+- **THEN** the two rows render as `5.24 MB/s` and `12 B/s` respectively — the same decimal unit ladder the node `usage` row uses; they MUST NOT render as `5.24e6 B/s` and MUST NOT round the small value to `0`
+
+#### Scenario: No I/O row takes the failure colour
+
+- **WHEN** a storage edge carries all eight I/O fields and its measured throughput sits above the declared ceiling
+- **THEN** every one of the eight row values renders in the neutral colour — the error colour stays reserved for a measured, non-zero `errorRate`, and exceeding a ceiling is never styled as a fault
+
+### Requirement: Node usage visual (data-driven on usage, independent of kind)
+
+The system SHALL draw a usage visual on the canvas for **any node carrying `data.usageRatio`**, so an operator can spot storage approaching its capacity ceiling at a glance without opening a tooltip. In practice that set is `pvc` (kubelet volume stats) and `netapp-aggr` (Harvest aggregate space), but the rule MUST trigger **solely on the presence of `usageRatio`** and **MUST NOT** hard-code any kind list — when the backend adds `usage` to another kind in future it applies automatically, with no stylesheet change.
+
+`usageRatio` is flattened by normalize into a top-level numeric field of the node's `data` (see graph-data-integration, "Normalization of NetApp nodes and PVC storage fields"), because a cytoscape selector can read neither nested `data` nor perform division inside a selector.
+
+The visual encoding rules:
+
+- Usage MUST be drawn **inside the cylinder silhouette of the kind SVG** (bottom-up, its height proportional to `usageRatio`) and **MUST NOT** fill the 40px node box through cytoscape's `background-fill` — a box fill spills outside the cylinder silhouette and, at high utilisation, covers `netapp-aggr`'s internal layer lines.
+- The liquid colour MUST be `STATUS_COLOR` on Grafana's three thresholds and MUST be drawn at **fill-opacity 0.4** (painted before the line art, which stays opaque, so the aggregate's layer lines stay readable):
+  - `usageRatio < 0.8` → `STATUS_COLOR.normal` (`#73BF69`)
+  - `usageRatio >= 0.8` → `STATUS_COLOR.warning` (`#F2CC0C`)
+  - `usageRatio >= 0.9` → `STATUS_COLOR.critical` (`#E02F44`)
+- The node's kind icon MUST keep its original size (`NODE_SIZE` / `background-fit: contain`), and its label MUST stay `data(label)` rather than being rewritten as a percentage.
+- A node with no `usageRatio` (every non-storage node, and any storage node whose `usage` is incomplete) MUST keep its existing background and unfilled icon with no liquid applied — **missing data MUST NOT render as 0%**.
+- The k8s `status` border rule MUST be unaffected: the liquid occupies the interior colour channel and status the border, and both can appear on one node at once.
+
+This visual is **presentation only**: it MUST NOT affect selection, filtering, layout, or tooltip content, and MUST NOT write back to any `data` field. The textual `usage` row in the tooltip (see "The hover tooltip shows element metadata") and this visual are two presentations of the same data and MUST coexist.
+
+#### Scenario: A node with usageRatio renders a cylinder liquid
+
+- **WHEN** a `netapp-aggr` node carries `usageRatio: 0.7` and a `pvc` node carries `usageRatio: 0.5`
+- **THEN** both have a bottom-up cylinder liquid inside their kind SVG, at roughly 70% and 50% of the cylinder's height respectively; the node box itself MUST NOT apply `background-fill: linear-gradient`; and both go through **one** `usageRatio` trigger rule rather than a per-kind trigger
+
+#### Scenario: A node with no usageRatio gets no liquid
+
+- **WHEN** a `pvc` node has no `usage` (or its `usage` holds only `capacityBytes`, so normalize wrote no `usageRatio`)
+- **THEN** that node keeps its existing background and unfilled icon, MUST NOT render any liquid, and MUST NOT be rendered as 0% full
+
+#### Scenario: The usage liquid applies STATUS_COLOR on the 80/90 thresholds
+
+- **WHEN** three nodes carry `usageRatio` values of `0.7`, `0.8`, and `0.9`
+- **THEN** their liquid colours are `STATUS_COLOR.normal` / `warning` / `critical` (`#73BF69` / `#F2CC0C` / `#E02F44`) respectively, all at fill-opacity 0.4; `0.79` MUST still be green
+
+#### Scenario: The usage liquid obscures neither the kind line art nor the status border
+
+- **WHEN** a `netapp-aggr` carrying `usageRatio: 0.7` (with its two internal layer lines) and a `status` is rendered
+- **THEN** its cylinder outline and internal layer lines stay visible (the liquid sits beneath the line art and is semi-transparent), the icon size is unchanged, and its status border colour still follows the existing rules (the liquid affects only the SVG interior, never the border)
+
+#### Scenario: The usage visual affects neither interaction nor layout
+
+- **WHEN** the user selects, filters, or switches pod-parent mode on a node carrying `usageRatio`
+- **THEN** the behaviour is identical to a node of the same kind without that field (the fill is purely presentational and takes no part in `computeVisibility`, layout, or the `resolveSelectedNode` decision)
+### Requirement: Promoted attribute rows for `role`, `ready`, `volumename`, and `svm`
+
+`buildNodeAttributes` — the single source feeding both the floating hover tooltip and the
+pinned selection card — SHALL emit these additional rows, each only when its source value is
+a non-empty string, and never as an empty or placeholder row:
+
+| Row key | Source | Emitted on |
+| --- | --- | --- |
+| `role` | `data.labels.role` | any node carrying the label, no kind restriction |
+| `ready` | `data.readyStatus` | the K8s nodes the backend sends it on |
+| `volumename` | `data.labels.volumename` | claims carrying the label |
+| `svm` | `data.labels.svm` | claims carrying the label |
+
+Row order SHALL be: `kind`, `role`, `namespace`, `application`, `ipAddress`, `storageclass`,
+`volumename`, `svm`, `health`, `ready`, `usage`. `role` reads directly under `kind` because it
+qualifies **what the node is**; the two storage label rows sit with `storageclass` and
+`usage` because they are read together.
+
+`role` SHALL be promoted for **any** value, not only the ingress pair. It is load-bearing for
+the two ingress shapes — both are ordinary `type="service"` nodes and this label is the only
+thing distinguishing them, while they behave differently under the ingress toggle — but an
+unrecognised role must stay legible rather than be filtered to nothing.
+
+`volumename` and `svm` are the keys the NetApp join hinges on: `volumename` is what Harvest's
+relabel rule matches a FlexVol to, and `svm` scopes the QoS reads. When a claim fails to
+reach an aggregate they are the first things an operator checks, so they belong beside the
+storage rows rather than buried in the raw label list. A claim carrying `volumename` and
+**no** `svm` is itself the signal that no Harvest label series matched it; the absent row
+MUST NOT be filled in.
+
+Every label key promoted to a row SHALL be suppressed from the raw label list below the
+tooltip divider, driven by **one** exported list (`PROMOTED_LABEL_KEYS`) shared by the
+promotion and the suppression — so adding a promotion cannot leave a duplicate row behind.
+
+#### Scenario: Both ingress shapes read apart at a glance
+
+- **WHEN** the user hovers a `service` node carrying `labels.role = "ingress-lb"`
+- **THEN** the tooltip shows a `role: ingress-lb` row directly under `kind`, and no duplicate `role` row appears under the labels divider
+
+#### Scenario: A K8s node's Ready condition is shown, and its absence is not
+
+- **WHEN** the user hovers a K8s node carrying `readyStatus: "NotReady"`
+- **THEN** the tooltip shows `ready: NotReady`
+- **AND** hovering a K8s node with no `readyStatus` shows no `ready` row — not `ready: Unknown` and not an empty row
+
+#### Scenario: A claim that resolved a PV but joined no aggregate
+
+- **WHEN** the user hovers a `pvc` carrying `labels.volumename` and no `labels.svm`
+- **THEN** the tooltip shows the `volumename` row and no `svm` row

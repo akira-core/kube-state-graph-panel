@@ -22,7 +22,7 @@ Against that backend the panel renders a broken storage half. `storageclass` nod
 - **The `storageclass` node kind** and everything keyed to it: its icon, its `Storage` category entry, its `provisioner` / `parameters` data fields and tooltip rows, its detail-panel / dashboard-URL applicability carve-out, and its `applyPodParentMode` re-homing case.
 - **The `pvc-to-storageclass` edge type** — its style entry, its traffic-map entry, and its membership in both modes' drawn sets.
 
-The panel drops all support for the pre-change backend wire in one cut (no dual-model compatibility): a panel build after this change requires a backend built from `replace-storageclass-with-netapp-nodes` or later, and the demo's `KSG_BACKEND_TAG` must move with it.
+The panel drops all support for the pre-change backend wire in one cut (no dual-model compatibility): a panel build after this change reads the `replace-storageclass-with-netapp-nodes` wire and nothing older. (The original text also required the demo's `KSG_BACKEND_TAG` to move with it; `render-from-fixture-only` later removed the backend stack from the demo altogether, so no image tag is involved any more.)
 
 ## Capabilities
 
@@ -37,7 +37,12 @@ None — every behaviour lands in an existing capability.
 - `node-icon-encoding`: the `NodeKind` enum membership and the two new icons; removal of the `storageclass` glyph.
 - `node-dashboard-url`: NetApp leaves' detail-panel and `/dashboard` applicability (`netapp-node` is a compound container that is nonetheless a real, selectable kind), replacing the `storageclass` carve-out.
 - `pod-parent-mode`: the master edge-type set and both modes' drawn sets; `applyPodParentMode`'s treatment of the NetApp subtree under group teardown in `node` mode.
-- `dev-environment`: the demo seeder must push the NetApp Harvest and kubelet series so the local stack exercises every new node kind, edge type, and numeric field.
+- ~~`dev-environment`~~: **withdrawn.** This change originally required the VictoriaMetrics
+  seeder to push the Harvest and kubelet series so a real backend would produce the storage
+  half locally. `render-from-fixture-only` deleted the seeder, the backend stack, and the
+  backend-driven dashboard outright — the demo's storage half now comes from the typed
+  fixture, which covers the same node kinds, edge types, and numeric fields without a
+  backend image to match. Nothing in that requirement survives to be modified.
 
 ## Impact
 
