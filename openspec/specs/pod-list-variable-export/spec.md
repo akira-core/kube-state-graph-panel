@@ -3,7 +3,9 @@
 ## Purpose
 
 TBD - created by archiving change pod-list-variable-export. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: 變數寫入(Grafana 多值 URL 同步)
 
 寫入模組 SHALL 以 `locationService.partial({ ['var-' + name]: names }, true)` 將名稱清單(alert pod 清單或 alert 名稱清單)寫入目標變數,其中 `names` 為字串陣列(Grafana 序列化為重複參數 `var-x=a&var-x=b`,即官方多值格式,消費端可用 `${alert_names:lucene}`、`${alert_pod_list:singlequote}` 等格式修飾符);第二參數 MUST 為 `true`(history replace,不產生瀏覽歷史條目)。此模組 MUST 是 `src/features/variable-export/` 內唯一 import `@grafana/runtime` 的檔案。兩個變數 MUST 各自獨立寫入(其一停用不影響另一)。
@@ -67,13 +69,13 @@ panel 處於查詢錯誤(`seriesError`)、初次載入中(loading 且尚無元�
 
 #### Scenario: demo dashboard 隔離佈建
 
-- **WHEN** 檢視 `ksg-demo.json` 與 `ksg-switch-demo.json` 中本 panel 的查詢 target
+- **WHEN** 檢視 `ksg-switch-demo.json` 中本 panel 的查詢 target
 - **THEN** target 不含 `alert_pod_list` / `alert_names` 的任何引用,而兩變數定義存在於 dashboard templating 清單(custom + multi + allowCustomValue)且 panel options 含 `"alertPodListVariable"` / `"alertNameListVariable"` 對應值
 
-#### Scenario: backend demo 無 alert 資料時誠實呈現
+#### Scenario: 圖中無 alert 時誠實呈現零筆
 
-- **WHEN** `ksg-demo`(backend seed 無 alert 契約)載入完成
-- **THEN** 兩變數為 `$__empty`(零筆哨兵),dashboard 說明文字載明此為 seed 資料限制而非故障
+- **WHEN** 一張不含任何 `data.alerts` 的圖載入完成(部署上的常態——`alerts` 為 panel 自有的擴充欄位,後端不產出)
+- **THEN** 兩變數為 `$__empty`(零筆哨兵)而非留空,消費端 panel 因此能分辨「已載入但無 alert」與「尚未載入」
 
 ### Requirement: Panel options 指定兩個目標變數(預設停用)
 
@@ -141,4 +143,3 @@ Panel options SHALL 提供兩個文字輸入:`alertPodListVariable`(帶 alert �
 
 - **WHEN** 成功載入的 graph 中沒有任何節點帶 `alerts`
 - **THEN** 擷取結果為 `[]`(寫入端轉為 `$__empty` 哨兵)
-

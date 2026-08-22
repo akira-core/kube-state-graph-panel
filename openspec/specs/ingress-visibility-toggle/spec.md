@@ -1,7 +1,9 @@
 # ingress-visibility-toggle Specification
 
 ## Purpose
+
 TBD - created by archiving change ingress-gateway-toggle. Update Purpose after archive.
+
 ## Requirements
 
 ### Requirement: Ingress gateway 節點集合辨識
@@ -17,11 +19,11 @@ gateway 節點,**不限 kind**。集合的推導 MUST 為單一函式 `collectIn
 或任何「看起來像 ingress」的判斷。後端以**同一個 `role` key** 標記**兩種** ingress 形狀,而
 兩者並不對稱:
 
-| | `ingress-gateway` | `ingress-lb` |
-| --- | --- | --- |
-| 是什麼 | 已路由 chain 的入口 hop(Istio) | 非 Istio 的 LB fallback 目的地 |
-| 其後方 | gateway pods,再一跳合成邊至 backend service | 無——沒有被路由的 backend |
-| 呼叫方另有 | 一條**直連** backend service 的邊 | 沒有其他邊 |
+|            | `ingress-gateway`                           | `ingress-lb`                   |
+| ---------- | ------------------------------------------- | ------------------------------ |
+| 是什麼     | 已路由 chain 的入口 hop(Istio)              | 非 Istio 的 LB fallback 目的地 |
+| 其後方     | gateway pods,再一跳合成邊至 backend service | 無——沒有被路由的 backend       |
+| 呼叫方另有 | 一條**直連** backend service 的邊           | 沒有其他邊                     |
 
 因此 `ingress-lb` 節點 MUST NOT 進入本集合(常數 `INGRESS_LB_LABEL_VALUE` 記錄此決定及其
 理由)。藏掉一個 `ingress-gateway` 節點移除的是一條**繞路**,直連邊保住了依賴關係;藏掉一個
@@ -180,7 +182,7 @@ Stylesheet SHALL 以 `edge[?ingressPath]` 選擇器將這些 edge 畫成虛線,�
 
 Panel SHALL 提供持久化 option `showIngress: boolean`(預設 `true`),於 options editor 以 boolean switch 呈現;讀取 MUST 以 `options.showIngress ?? defaultOptions.showIngress` 向後相容舊 dashboard。左側 legend SHALL 於 node-kinds 圖例(`NodeLegend`)之後渲染獨立的 `IngressToggle` 區塊:文字 "Ingress Gateway"(Title Case,與其餘區段標題一致)+ eye(顯示中)/ eye-slash(隱藏中)IconButton;點擊 MUST 經 `onOptionsChange` 寫入 `showIngress` 的反值且 MUST NOT 動到其他 option。`IngressToggle` MUST 為受控元件(狀態由 panel 持有),不塞入 `NodeLegend` 的 kind-based row。
 
-**Toggle 渲染閘控**:`IngressToggle` MUST 僅在圖中確實存在 ingress 集合(集合非空)時渲染,與其餘 legend 區段「無內容則 `return null`」的慣例一致(`NodeLegend` / `ClusterLegend` / `EdgeLegend` / `NodeContainerLegend` 皆然)。後端目前無 generic labels contract,故多數圖(含 `/d/ksg-demo`)不含該 label;若無條件渲染,使用者會看到一顆按了畫面毫無變化、卻仍把 `showIngress: false` 寫進 dashboard JSON 的死按鈕。該閘控所用集合 MUST 與 `computeVisibility` 取用者同源(見「showIngress 可見性語意」的 `baseElements` 要求)。
+**Toggle 渲染閘控**:`IngressToggle` MUST 僅在圖中確實存在 ingress 集合(集合非空)時渲染,與其餘 legend 區段「無內容則 `return null`」的慣例一致(`NodeLegend` / `ClusterLegend` / `EdgeLegend` / `NodeContainerLegend` 皆然)。後端只在 Istio route resolution 命中時才標記該 label,故多數部署的圖不含它;若無條件渲染,使用者會看到一顆按了畫面毫無變化、卻仍把 `showIngress: false` 寫進 dashboard JSON 的死按鈕。該閘控所用集合 MUST 與 `computeVisibility` 取用者同源(見「showIngress 可見性語意」的 `baseElements` 要求)。
 
 **虛線圖例**:`IngressToggle` 區塊 MUST 附一條虛線樣本(`EdgeGlyph`)說明畫布上的虛線語意。其顏色與 dash 樣式 MUST 取自與 stylesheet `edge[?ingressPath]` 規則相同的常數(`INGRESS_DASH_COLOR` / `INGRESS_DASH_PATTERN`)——`EdgeLegend` 刻意省略了服務型別的列(由 `pod ↔ pod/service` 單列代表)且其樣本一律實線,故若無此樣本,畫布上的虛線在 legend 中無任何對應說明。顏色 MUST NOT 取 fallback 灰:唯一可能被畫成虛線的是「流量」類型,而它們共用同一橘色,fallback 灰恰是保證永不畫虛線的未知類型之色。
 
@@ -196,7 +198,7 @@ Panel SHALL 提供持久化 option `showIngress: boolean`(預設 `true`),於 opt
 
 #### Scenario: 圖中無 ingress 節點時不渲染 toggle
 
-- **WHEN** 圖中無任何節點帶 `labels.role = "ingress-gateway"`(例如後端驅動的 `/d/ksg-demo`)
+- **WHEN** 圖中無任何節點帶 `labels.role = "ingress-gateway"`(部署上的常態——後端僅在 route resolution 命中時標記)
 - **THEN** legend MUST NOT 渲染 `IngressToggle` 區段(無死按鈕)
 
 #### Scenario: 虛線圖例與畫布同源
@@ -206,14 +208,29 @@ Panel SHALL 提供持久化 option `showIngress: boolean`(預設 `true`),於 opt
 
 ### Requirement: Showcase demo 雙路徑 fixture
 
-Showcase inline fixture(`provisioning/dashboards/ksg-switch-demo.json` 的 `panels[0].targets[0].data`)SHALL 同時包含經 ingress 與直連兩條路徑:`pod/gateway →(pod-calls-service) service/ingress-svc →(service-selects-pod) pod/ingress-0 →(pod-calls-service) service/mongo-svc` 與既有直連 `pod/gateway →(pod-calls-service) service/mongo-svc →(service-selects-pod) mongo pods`。`service/ingress-svc` MUST 帶 `labels.role = "ingress-gateway"`;`pod/ingress-0` MUST NOT 帶該 label(驗證 select-expansion 而非 label 命中)。backend seeder(`dev/victoriametrics/`)MUST NOT 加入此拓撲——後端無 generic labels contract,該路徑在 `ksg-demo` 將無法被 toggle 隱藏。
+Demo fixture(`src/shared/fixtures/showcaseGraph.ts`,由 `npm run fixture:build` 編入
+`provisioning/dashboards/ksg-switch-demo.json`)SHALL 同時包含經 ingress 與直連兩條路徑:
+`pod/gateway →(pod-calls-service) service/ingress-svc →(service-selects-pod) pod/ingress-0
+→(pod-calls-service) service/mongo-svc` 與既有直連
+`pod/gateway →(pod-calls-service) service/mongo-svc →(service-selects-pod) mongo pods`。
+`service/ingress-svc` MUST 帶 `labels.role = "ingress-gateway"`;`pod/ingress-0` MUST NOT 帶該
+label(驗證 select-expansion 而非 label 命中)。
+
+fixture SHALL 另含 `ingress-lb` 對照組:`service/nginx-lb`(帶 `labels.role = "ingress-lb"`)、
+其 `service-selects-pod` 所指的 `pod/nginx-lb-0`,以及 `pod/reporting`——後者除 `pod-to-node`
+外**唯一**的邊即為 `pod/reporting →(pod-calls-service) service/nginx-lb`。兩組並存正是本規格的
+可視證明:關閉 toggle 時 chain 那組消失而 `pod/gateway` 仍有直連邊,`ingress-lb` 那組則原樣留在
+畫面上——若它也被藏,`pod/reporting` 會被畫成完全沒有依賴。
+
+`showcaseGraph.test.ts` MUST 釘住這兩組的 `ingressPath` 標記差異(chain 三條邊為虛線,fallback
+兩條邊無此旗標),使「藏得掉 / 畫虛線」的不對稱不會在重構中悄悄消失。
 
 #### Scenario: 關閉 toggle 後 demo 只剩直連路徑
 
 - **WHEN** 在 `/d/ksg-switch-demo` 將 Ingress gateway toggle 關閉
 - **THEN** `service/ingress-svc`、`pod/ingress-0`、其三條相連 edge,以及清空的 `prod/app/ingress` application 與 `prod/ctrl/Deployment/ingress` controller 容器皆自畫面消失;直連路徑 `pod/gateway → service/mongo-svc → mongo pods` 完整保留
 
-#### Scenario: 開啟 toggle 時雙路徑並存
+#### Scenario: 關閉 toggle 不影響 ingress-lb 對照組
 
-- **WHEN** `showIngress` 為 `true`(預設)
-- **THEN** 兩條路徑皆可見,與加入本 fixture 前的其餘節點/edge 完全相同(既有 6 node kinds / 4 edge types 覆蓋不受影響)
+- **WHEN** 在同一畫面關閉 Ingress gateway toggle
+- **THEN** `service/nginx-lb`、`pod/nginx-lb-0` 與 `pod/reporting → service/nginx-lb` 邊皆維持可見且為實線,`pod/reporting` 的唯一依賴不被抹除

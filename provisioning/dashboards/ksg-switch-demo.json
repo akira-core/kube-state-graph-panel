@@ -43,17 +43,13 @@
   "preload": false,
   "refresh": "",
   "schemaVersion": 39,
-  "tags": [
-    "ksg",
-    "demo",
-    "showcase"
-  ],
+  "tags": ["ksg", "demo", "showcase"],
   "templating": {
     "list": [
       {
         "name": "alert_pod_list",
         "label": "Alert pod list (exported)",
-        "description": "Written by the KSG panel after each graph load — pod names that currently have at least one alert (any severity); $__empty means a loaded graph with zero alerting pods (and is the pre-first-write placeholder, so consumers never match a literal placeholder name). custom + multi + allowCustomValue so it can carry the multi-value writes this produces — this showcase has two alerting pods (mesh-gateway-0, mongo-2) and a plain textbox variable cannot hold multiple values. Consume it from other panels, e.g. an ES logs query via ${alert_pod_list:lucene}. Deliberately NOT referenced by the KSG panel's own query (no self-filtering feedback loop). Replaces the removed podListVariable/pod_list (which was all pods, unconditional).",
+        "description": "Written by the KSG panel after each graph load — pod names that currently have at least one alert (any severity); $__empty means a loaded graph with zero alerting pods (and is the pre-first-write placeholder, so consumers never match a literal placeholder name). custom + multi + allowCustomValue so it can carry the multi-value writes this produces — this showcase has three alerting pods (mesh-gateway-0, mongo-2) and a plain textbox variable cannot hold multiple values. Consume it from other panels, e.g. an ES logs query via ${alert_pod_list:lucene}. Deliberately NOT referenced by the KSG panel's own query (no self-filtering feedback loop). Replaces the removed podListVariable/pod_list (which was all pods, unconditional).",
         "type": "custom",
         "query": "$__empty",
         "multi": true,
@@ -77,7 +73,7 @@
       {
         "name": "alert_names",
         "label": "Alert names (exported)",
-        "description": "Written by the KSG panel after each graph load — distinct alert names found across all node kinds (pod/node/pvc/service/controller), any severity; $__empty means zero alerts in the loaded graph. custom + multi + allowCustomValue for the same reason as alert_pod_list — this showcase surfaces ~12 distinct alert names across mongo-2, mesh-gateway-0, worker-1 and data-mongo-2. Consume it from other panels, e.g. a VictoriaMetrics alertname query via ${alert_names:lucene}. Deliberately NOT referenced by the KSG panel's own query (no self-filtering feedback loop).",
+        "description": "Written by the KSG panel after each graph load — distinct alert names found across all node kinds (pod/node/pvc/service/controller), any severity; $__empty means zero alerts in the loaded graph. custom + multi + allowCustomValue for the same reason as alert_pod_list — this showcase surfaces 13 distinct alert names across mongo-2, mesh-gateway-0, nightly-backup-28471, worker-1 and data-mongo-2. Consume it from other panels, e.g. a VictoriaMetrics alertname query via ${alert_names:lucene}. Deliberately NOT referenced by the KSG panel's own query (no self-filtering feedback loop).",
         "type": "custom",
         "query": "$__empty",
         "multi": true,
