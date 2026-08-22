@@ -3,7 +3,7 @@ import type { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
 import React, { useLayoutEffect, useRef, useState } from 'react';
 
-import { buildNodeAttributes } from '../../../../shared/nodeAttributes/buildNodeAttributes';
+import { PROMOTED_LABEL_KEYS, buildNodeAttributes } from '../../../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../../../shared/theme/themeColors';
 import {
   formatDurationMs,
@@ -128,7 +128,7 @@ function toLabelRows(labels: unknown, promoted: ReadonlySet<string>): TooltipRow
   return rows;
 }
 
-const NODE_PROMOTED_LABELS: ReadonlySet<string> = new Set(['namespace']);
+const NODE_PROMOTED_LABELS: ReadonlySet<string> = new Set(['namespace', ...PROMOTED_LABEL_KEYS]);
 const EDGE_PROMOTED_LABELS: ReadonlySet<string> = new Set<string>();
 
 function isFiniteNumber(v: unknown): v is number {
@@ -177,8 +177,16 @@ function buildMetricRows(metrics: unknown): TooltipRow[] {
 // ops, then latency, then throughput. Values are Harvest's verbatim per-second ops,
 // average microsecond latencies, and bytes-per-second rates.
 function buildIoMetricRows(metrics: object): TooltipRow[] {
-  const { readOps, writeOps, readLatencyUs, writeLatencyUs, readBytesPerSec, writeBytesPerSec } =
-    metrics as Partial<cytoscape.EdgeIoMetrics>;
+  const {
+    readOps,
+    writeOps,
+    readLatencyUs,
+    writeLatencyUs,
+    readBytesPerSec,
+    writeBytesPerSec,
+    maxIops,
+    maxBytesPerSec,
+  } = metrics as Partial<cytoscape.EdgeIoMetrics>;
   const rows: TooltipRow[] = [];
   if (isFiniteNumber(readOps)) {
     rows.push({ key: 'read', value: formatOps(readOps) });
@@ -197,6 +205,16 @@ function buildIoMetricRows(metrics: object): TooltipRow[] {
   }
   if (isFiniteNumber(writeBytesPerSec)) {
     rows.push({ key: 'write throughput', value: formatThroughputBytesPerSec(writeBytesPerSec) });
+  }
+  // The declared ceilings close the block, each routed through the SAME formatter as the
+  // reading it caps so the two are comparable at a glance. Deliberately uncoloured even
+  // when a reading exceeds one: ONTAP throttles rather than fails, and the error tint is
+  // reserved for a measured RED errorRate.
+  if (isFiniteNumber(maxIops)) {
+    rows.push({ key: 'max iops', value: formatOps(maxIops) });
+  }
+  if (isFiniteNumber(maxBytesPerSec)) {
+    rows.push({ key: 'max throughput', value: formatThroughputBytesPerSec(maxBytesPerSec) });
   }
   return rows;
 }

@@ -107,6 +107,8 @@ function parseIoMetrics(v: Record<string, unknown>): cytoscape.EdgeIoMetrics | u
     write_latency_us: writeLatencyUs,
     read_bytes_per_sec: readBytesPerSec,
     write_bytes_per_sec: writeBytesPerSec,
+    max_iops: maxIops,
+    max_bytes_per_sec: maxBytesPerSec,
   } = v;
   const io: cytoscape.EdgeIoMetrics = {
     ...(isFiniteNumber(readOps) ? { readOps } : {}),
@@ -115,6 +117,12 @@ function parseIoMetrics(v: Record<string, unknown>): cytoscape.EdgeIoMetrics | u
     ...(isFiniteNumber(writeLatencyUs) ? { writeLatencyUs } : {}),
     ...(isFiniteNumber(readBytesPerSec) ? { readBytesPerSec } : {}),
     ...(isFiniteNumber(writeBytesPerSec) ? { writeBytesPerSec } : {}),
+    // The ceilings ride the policy-group families, so a volume in no group carries
+    // measurements and no ceiling. Either one alone still keeps the family alive: "a
+    // ceiling never appears alone" is the BACKEND's invariant, and re-enforcing a
+    // contract this layer does not own would let an upstream change silently drop data.
+    ...(isFiniteNumber(maxIops) ? { maxIops } : {}),
+    ...(isFiniteNumber(maxBytesPerSec) ? { maxBytesPerSec } : {}),
   };
   return Object.keys(io).length > 0 ? io : undefined;
 }
@@ -449,6 +457,10 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     // pvc (kubelet) and a netapp-aggr (Harvest), so one parser serves both.
     const storageclass = isString(d.storageclass) ? d.storageclass : undefined;
     const health = isString(d.health) ? d.health : undefined;
+    // Kubernetes' Ready condition on a K8s node. Guarded for non-empty like `health` and
+    // passed through verbatim, so an upstream that grows a fourth condition value surfaces
+    // it instead of vanishing. Absence stays absence — never defaulted to 'Unknown'.
+    const readyStatus = isString(d.ready_status) && d.ready_status.length > 0 ? d.ready_status : undefined;
     const usage = parseUsage(d.usage);
     const usageRatio = deriveUsageRatio(usage);
     nodeIds.add(d.id);
@@ -475,6 +487,7 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
         ...(owner !== undefined ? { owner } : {}),
         ...(storageclass !== undefined ? { storageclass } : {}),
         ...(health !== undefined ? { health } : {}),
+        ...(readyStatus !== undefined ? { readyStatus } : {}),
         ...(usage !== undefined ? { usage } : {}),
         ...(usageRatio !== undefined ? { usageRatio } : {}),
         ...(nodeHasStatusInfo ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),

@@ -120,4 +120,47 @@ describe('collectIngressNodeIds', () => {
     const elements = [node('weird', 'pod', { labels: ['role', 'ingress-gateway'] })];
     expect(collectIngressNodeIds(elements).size).toBe(0);
   });
+
+  // The backend marks TWO ingress shapes with the same `role` key. Only the chain's entry
+  // hop belongs to this set — see the exclusion rationale in collectIngressNodeIds.
+  describe('the ingress-lb fallback destination is a different shape', () => {
+    const LB_LABELS = { labels: { role: 'ingress-lb' } };
+
+    it('never collects an ingress-lb node', () => {
+      // An ingress-lb node has NO routed backend behind it, so the caller's edge to it is
+      // the caller's ONLY dependency edge. Collecting it would let the toggle hide that
+      // edge and erase the dependency outright, and would dash it as if it were a detour
+      // around a direct edge that does not exist.
+      const elements = [node('nginxSvc', 'service', LB_LABELS), node('caller', 'pod')];
+      expect(collectIngressNodeIds(elements).size).toBe(0);
+    });
+
+    it('does not expand from an ingress-lb service to the pods it selects', () => {
+      const elements = [
+        node('nginxSvc', 'service', LB_LABELS),
+        node('nginxPod', 'pod'),
+        edge('e', 'nginxSvc', 'nginxPod', 'service-selects-pod'),
+      ];
+      expect(collectIngressNodeIds(elements).size).toBe(0);
+    });
+
+    it('keeps the two shapes apart when both are present in one graph', () => {
+      const elements = [
+        node('igwSvc', 'service', INGRESS_LABELS),
+        node('igwPod', 'pod'),
+        edge('e1', 'igwSvc', 'igwPod', 'service-selects-pod'),
+        node('nginxSvc', 'service', LB_LABELS),
+        node('nginxPod', 'pod'),
+        edge('e2', 'nginxSvc', 'nginxPod', 'service-selects-pod'),
+      ];
+      expect([...collectIngressNodeIds(elements)].sort()).toEqual(['igwPod', 'igwSvc']);
+    });
+
+    it('does not collect an unrecognised role value either', () => {
+      // Membership is an exact match on the one declared value, not a prefix or a
+      // "looks ingress-ish" test — a future third role must opt in deliberately.
+      const elements = [node('x', 'service', { labels: { role: 'ingress-gateway-canary' } })];
+      expect(collectIngressNodeIds(elements).size).toBe(0);
+    });
+  });
 });

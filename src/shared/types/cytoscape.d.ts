@@ -29,6 +29,14 @@ declare module 'cytoscape' {
     // failing the build. ABSENCE IS NOT 'degraded': the backend omits it when it has no
     // status data at all, and consumers MUST NOT default it.
     health?: string;
+    // The K8s node's Kubernetes Ready condition (upstream `ready_status`), normally
+    // 'Ready' | 'NotReady' | 'Unknown' but typed as a bare string so an unknown backend
+    // value passes through. A THIRD axis, independent of `status` (alert severity) and
+    // `worstStatus` (what a collapsed box hides) — a NotReady node with no alerts is
+    // still status-normal. ABSENCE IS NOT 'Unknown': the backend reserves that literal
+    // for a kubelet that stopped reporting and omits the field when it has no Ready
+    // series at all, so a monitoring gap must never render as an outage.
+    readyStatus?: string;
     // Storage usage in bytes, on `pvc` (kubelet volume stats) and `netapp-aggr` (Harvest
     // aggregate space) — the SAME shape for both, so one formatter and one visual rule
     // serve them. Each field is independently optional; the object is omitted when
@@ -118,6 +126,13 @@ declare module 'cytoscape' {
     writeLatencyUs?: number; // average write latency, MICROseconds
     readBytesPerSec?: number; // read throughput, bytes per second (not a cumulative counter)
     writeBytesPerSec?: number; // write throughput, bytes per second (not a cumulative counter)
+    // The volume's DECLARED QoS ceilings, from the policy-group families rather than the
+    // workload ones — a limit, not a reading. ABSENCE MEANS NO DECLARED CEILING (the volume
+    // is in no policy group): never 0, never an unlimited sentinel. `maxBytesPerSec` is
+    // bytes per second, already converted upstream from Harvest's MB/s, so it shares the
+    // throughput ladder with the two readings above.
+    maxIops?: number; // ceiling on combined read+write ops per second
+    maxBytesPerSec?: number; // ceiling on combined throughput, bytes per second
   }
 
   // The two families are mutually exclusive by provenance — a trace-derived call edge or a

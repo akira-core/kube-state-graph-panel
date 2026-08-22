@@ -708,5 +708,55 @@ describe('HoverTooltip pinned mode (left-click selection)', () => {
         expect(screen.getByText(value)).not.toHaveStyle({ color: errorTextColor });
       }
     });
+
+    it('appends the two QoS ceilings after the throughput rows', () => {
+      hoverStorageEdgeWith({
+        metrics: {
+          readOps: 150,
+          writeOps: 40,
+          readLatencyUs: 830,
+          writeLatencyUs: 1200,
+          readBytesPerSec: 5242880,
+          writeBytesPerSec: 1048576,
+          maxIops: 5000,
+          maxBytesPerSec: 104857600,
+        },
+      });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      // The ceilings run through the same formatters as the measurements they cap, so
+      // `150 ops/s` against `5000 ops/s` is comparable at a glance.
+      expect(screen.getByText('5000 ops/s')).toBeInTheDocument();
+      expect(screen.getByText('105 MB/s')).toBeInTheDocument();
+      expect(renderedKeys()).toEqual([
+        'edgeType',
+        'read',
+        'write',
+        'read latency',
+        'write latency',
+        'read throughput',
+        'write throughput',
+        'max iops',
+        'max throughput',
+      ]);
+    });
+
+    it('renders a measured but uncapped volume with no ceiling rows', () => {
+      hoverStorageEdgeWith({ metrics: { readOps: 150, readBytesPerSec: 5242880 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(renderedKeys()).toEqual(['edgeType', 'read', 'read throughput']);
+      expect(screen.queryByText(/max/)).not.toBeInTheDocument();
+    });
+
+    it('leaves an over-ceiling reading uncoloured — exceeding a QoS ceiling is not an error', () => {
+      // ONTAP throttles rather than fails, and a burst over a soft ceiling is normal. The
+      // error tint stays reserved for a measured RED errorRate.
+      hoverStorageEdgeWith({ metrics: { readOps: 6000, maxIops: 5000 } });
+      render(<HoverTooltip cyRef={cyRefStub} />);
+
+      expect(screen.getByText('6000 ops/s')).not.toHaveStyle({ color: errorTextColor });
+      expect(screen.getByText('5000 ops/s')).not.toHaveStyle({ color: errorTextColor });
+    });
   });
 });

@@ -787,6 +787,58 @@ describe('normalizeGraph', () => {
     });
   });
 
+  // The K8s node's Ready condition — a THIRD status axis, independent of the panel's own
+  // `status` (alert severity) and `worstStatus` (what a collapsed box hides).
+  describe('K8s node ready_status', () => {
+    const withReadyStatus = (readyStatus: unknown): Record<string, unknown> | undefined => {
+      const data: Record<string, unknown> = { id: 'prod/worker-0', type: 'node', name: 'worker-0' };
+      if (readyStatus !== undefined) {
+        data.ready_status = readyStatus;
+      }
+      const { elements } = normalizeGraph({ elements: { nodes: [{ data }], edges: [] } });
+      return elements.find((e) => e.data.id === 'prod/worker-0')?.data;
+    };
+
+    it.each(['Ready', 'NotReady', 'Unknown'])('carries %s through under the panel field name', (value) => {
+      expect(withReadyStatus(value)?.readyStatus).toBe(value);
+    });
+
+    it('omits the field entirely when the backend sent none — absence is NOT Unknown', () => {
+      // The backend reserves the literal "Unknown" for the genuine Kubernetes state where
+      // the kubelet stopped reporting. A node whose Ready condition was never scraped must
+      // stay blank, or a monitoring gap would render as a cluster-wide kubelet outage.
+      const node = withReadyStatus(undefined);
+      expect(node !== undefined && 'readyStatus' in node).toBe(false);
+    });
+
+    it('omits an empty string rather than rendering a blank row', () => {
+      const node = withReadyStatus('');
+      expect(node !== undefined && 'readyStatus' in node).toBe(false);
+    });
+
+    it('drops a non-string value without sinking the node', () => {
+      const node = withReadyStatus(false);
+      expect(node?.kind).toBe('node');
+      expect(node !== undefined && 'readyStatus' in node).toBe(false);
+    });
+
+    it('passes an unrecognised value through rather than normalizing it away', () => {
+      // Same tolerance as `health`: an upstream that grows a fourth condition value must
+      // surface it, not vanish.
+      expect(withReadyStatus('SchedulingDisabled')?.readyStatus).toBe('SchedulingDisabled');
+    });
+
+    it('leaves the panel status axes untouched', () => {
+      // Ready is Kubernetes' word about the kubelet; `status` / `worstStatus` are the
+      // panel's words about alert severity. A NotReady node with no alerts must colour
+      // exactly as it did before — comparing against the same node WITHOUT ready_status
+      // pins that rather than restating whatever the status default happens to be.
+      const { readyStatus, ...withReady } = withReadyStatus('NotReady') ?? {};
+      expect(readyStatus).toBe('NotReady');
+      expect(withReady).toEqual(withReadyStatus(undefined));
+    });
+  });
+
   describe('node alerts', () => {
     const withAlerts = (alerts: unknown): ReturnType<typeof normalizeGraph> =>
       normalizeGraph({
@@ -1607,6 +1659,63 @@ describe('normalizeGraph — edge RED metrics', () => {
     it('never reports an I/O problem through the errors channel', () => {
       const { errors } = normalizeGraph(withMetrics({ read_ops: 'lots' }));
       expect(errors).toEqual([]);
+    });
+
+    // ── The QoS ceilings, which ride the policy-group families rather than the workload ones ──
+    describe('QoS ceilings', () => {
+      it('carries both ceilings through alongside the measurements', () => {
+        const data = edgeData(
+          withMetrics({
+            read_ops: 150,
+            write_ops: 40,
+            read_latency_us: 830,
+            write_latency_us: 1200,
+            read_bytes_per_sec: 5242880,
+            write_bytes_per_sec: 1048576,
+            max_iops: 5000,
+            max_bytes_per_sec: 104857600,
+          })
+        );
+        expect(data.metrics).toEqual({
+          readOps: 150,
+          writeOps: 40,
+          readLatencyUs: 830,
+          writeLatencyUs: 1200,
+          readBytesPerSec: 5242880,
+          writeBytesPerSec: 1048576,
+          maxIops: 5000,
+          maxBytesPerSec: 104857600,
+        });
+      });
+
+      it('leaves a volume in no policy group uncapped rather than defaulting a ceiling', () => {
+        // Absence means "no declared ceiling" — never 0, never an unlimited sentinel.
+        const data = edgeData(withMetrics({ read_ops: 150, read_bytes_per_sec: 5242880 }));
+        expect(data.metrics).toEqual({ readOps: 150, readBytesPerSec: 5242880 });
+      });
+
+      it.each([
+        ['NaN', Number.NaN],
+        ['Infinity', Number.POSITIVE_INFINITY],
+        ['non-numeric', 'unlimited'],
+      ])('drops only the unusable ceiling (%s), keeping its sibling and the measurements', (_label, bad) => {
+        const data = edgeData(withMetrics({ read_ops: 150, max_iops: bad, max_bytes_per_sec: 104857600 }));
+        expect(data.metrics).toEqual({ readOps: 150, maxBytesPerSec: 104857600 });
+      });
+
+      it('keeps the I/O family alive from a ceiling alone', () => {
+        // The backend owns the "a ceiling never appears alone" invariant; normalize must not
+        // re-enforce it, or a contract it does not control could silently sink the object.
+        expect(edgeData(withMetrics({ max_iops: 5000 })).metrics).toEqual({ maxIops: 5000 });
+        expect(edgeData(withMetrics({ max_bytes_per_sec: 104857600 })).metrics).toEqual({
+          maxBytesPerSec: 104857600,
+        });
+      });
+
+      it('passes the throughput ceiling through unconverted (the backend already left Harvest MB/s)', () => {
+        const data = edgeData(withMetrics({ max_bytes_per_sec: 104857600 }));
+        expect(data.metrics).toEqual({ maxBytesPerSec: 104857600 });
+      });
     });
   });
 });

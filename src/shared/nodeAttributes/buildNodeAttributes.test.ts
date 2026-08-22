@@ -80,6 +80,59 @@ describe('buildNodeAttributes', () => {
     expect(buildNodeAttributes(data({ kind: 'netapp-node' }))).toEqual([{ key: 'kind', value: 'netapp-node' }]);
   });
 
+  it.each(['ingress-gateway', 'ingress-lb'])('promotes the %s role so the two ingress shapes read apart', (role) => {
+    // Both ingress shapes are ordinary `type="service"` nodes carrying only this label to
+    // tell them apart, and they behave differently under the ingress toggle — so the value
+    // has to be legible without expanding the raw label list.
+    expect(buildNodeAttributes(data({ kind: 'service', labels: { role } }))).toEqual([
+      { key: 'kind', value: 'service' },
+      { key: 'role', value: role },
+    ]);
+  });
+
+  it("promotes a K8s node's Ready condition", () => {
+    expect(buildNodeAttributes(data({ kind: 'node', readyStatus: 'NotReady' }))).toEqual([
+      { key: 'kind', value: 'node' },
+      { key: 'ready', value: 'NotReady' },
+    ]);
+  });
+
+  it('emits no ready row when the Ready condition was never scraped (absence is not Unknown)', () => {
+    expect(buildNodeAttributes(data({ kind: 'node' }))).toEqual([{ key: 'kind', value: 'node' }]);
+  });
+
+  it("promotes a claim's backing PV name and SVM from its labels", () => {
+    // The two keys the NetApp join hinges on: `volumename` is what Harvest's relabel rule
+    // matches a FlexVol to, and `svm` scopes the QoS reads. When a claim fails to reach an
+    // aggregate these are the first things an operator checks, so they sit beside the
+    // storage rows rather than buried in the raw label list.
+    expect(
+      buildNodeAttributes(
+        data({ kind: 'pvc', storageclass: 'netapp-nas', labels: { volumename: 'pvc-9f3a', svm: 'svm-prod' } })
+      )
+    ).toEqual([
+      { key: 'kind', value: 'pvc' },
+      { key: 'storageclass', value: 'netapp-nas' },
+      { key: 'volumename', value: 'pvc-9f3a' },
+      { key: 'svm', value: 'svm-prod' },
+    ]);
+  });
+
+  it('promotes a bound claim that never joined an aggregate without inventing an svm', () => {
+    // The blind-spot case the storage capability documents: the PV is bound but no
+    // Harvest label series matched it, so there is no SVM. The absent row IS the signal.
+    expect(buildNodeAttributes(data({ kind: 'pvc', labels: { volumename: 'pvc-9f3a' } }))).toEqual([
+      { key: 'kind', value: 'pvc' },
+      { key: 'volumename', value: 'pvc-9f3a' },
+    ]);
+  });
+
+  it('ignores non-string label values rather than rendering "[object Object]"', () => {
+    expect(buildNodeAttributes(data({ kind: 'pvc', labels: { volumename: 42, svm: '' } }))).toEqual([
+      { key: 'kind', value: 'pvc' },
+    ]);
+  });
+
   it('returns no rows for data carrying no promoted attrs (no empty rows)', () => {
     expect(buildNodeAttributes(data({}))).toEqual([]);
   });
