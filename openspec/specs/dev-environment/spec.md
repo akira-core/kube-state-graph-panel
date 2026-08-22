@@ -3,6 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archive.
+
 ## Requirements
 
 ### Requirement: Plugin Scaffold 來源
@@ -75,23 +76,32 @@ nothing to wait for, fail against, or configure a tag for.
 
 ### Requirement: Pre-commit 與 Pre-push Hook
 
-專案 SHALL 透過 `husky` + `lint-staged` 設定 git hook:`pre-commit` 對 staged 檔案執行 `eslint --fix` + `prettier --write`;`pre-push` 執行完整 `npm run lint`、`npm run typecheck`、`npm run test:ci`;任一失敗 MUST 阻擋 commit / push。
+專案 SHALL 以**版本控管的** `.githooks/` 腳本設定 git hook,由 `prepare` npm script 於 `npm install` 時把 `core.hooksPath` 指向該目錄(亦可手動 `npm run init-hooks`)。**不使用 `husky`** —— hook 進版本庫即可被 review、跨機一致,且少一個相依。
+
+`pre-commit` SHALL 對 staged 檔案執行 `lint-staged`(`eslint --cache --fix` + `prettier --write`);`pre-push` SHALL 執行 `npm run lint`、`npm run typecheck`、`npm run fixture:check`、`npm run test:ci`;任一失敗 MUST 阻擋 commit / push。
+
+`fixture:check` MUST 在 hook 鏈中,因為 demo dashboard 是 generated output:改了 fixture 卻忘記 `npm run fixture:build`,若不在此攔下就要等到 CI 才會發現。**generated 檔案 MUST 列入 `.prettierignore`** —— `pre-commit` 的 prettier 與 generator 的輸出格式若不一致(prettier 會把短陣列收成一行,`JSON.stringify(…, null, 2)` 一律展開),兩者會在每次 commit 互相覆寫,使 `fixture:check` 永遠失敗。
 
 #### Scenario: Pre-commit 阻擋 lint error
 
 - **WHEN** 開發者 commit 一個含 ESLint error 的 staged 變更
 - **THEN** Hook 執行 `lint-staged`,失敗並阻擋 commit,終端顯示 ESLint 錯誤訊息
 
+#### Scenario: Pre-push 攔下未編譯的 fixture 變更
+
+- **WHEN** 開發者改了 `src/shared/fixtures/showcaseGraph.ts` 卻未執行 `npm run fixture:build` 便 push
+- **THEN** `pre-push` 於 `fixture:check` 失敗並阻擋 push,訊息指出補救指令
+
 ### Requirement: CI Workflow(精簡版)
 
-GitHub Actions CI workflow SHALL 提供單一 job 依序執行 `lint` → `typecheck` → `test:ci` → `build`;失敗 MUST 標記 PR check failed,阻擋 merge。Node 版本鎖定於 `.nvmrc` 對應之 LTS。
+GitHub Actions CI workflow SHALL 提供單一 job 依序執行 `typecheck` → `lint` → `fixture:check` → `test:ci` → `build`;失敗 MUST 標記 PR check failed,阻擋 merge。Node 版本鎖定於 `.nvmrc` 對應之 LTS。
 
 **精簡版:取消 5-job 平行矩陣 + 獨立 E2E workflow + 獨立 knip job —— 小 plugin 一個 job 即足夠;E2E 由開發者本機觸發,待後續穩定再加入 CI。**
 
 #### Scenario: CI 通過所有檢查
 
 - **WHEN** PR 被推送
-- **THEN** GitHub Actions 「Checks」清單顯示一個 `ci` job,完成 lint/typecheck/test/build 四步皆通過
+- **THEN** GitHub Actions 「Checks」清單顯示一個 `ci` job,typecheck / lint / fixture:check / test / build 五步皆通過
 
 ### Requirement: E2E tests (reduced scope)
 
