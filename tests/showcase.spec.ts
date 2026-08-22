@@ -1,11 +1,15 @@
 import { test, expect } from '@grafana/plugin-e2e';
 
-// The showcase dashboard carries its graph inline (source: "inline"), so unlike ksg-demo
-// this renders real elements with no backend running. Edge strokes themselves are drawn on
-// a <canvas> and cannot be selected from the DOM — dashedEdges.integration.test.ts pins
-// those. What this proves is the wiring around them: the provisioned payload (including the
-// broker `relation` labels) parses, the panel mounts a real graph from it, and the legend
-// row explaining the dashed strokes reaches the rail.
+// The only e2e spec, and the only one there can be: this repository has no backend to run
+// one against. The showcase dashboard carries its graph inline, generated from
+// src/shared/fixtures/showcaseGraph.ts, so the panel renders real elements from a plain
+// `docker compose up`.
+//
+// Edge strokes are drawn on a <canvas> and cannot be selected from the DOM —
+// dashedEdges.integration.test.ts pins those. What this proves is the wiring around them:
+// the generated payload (including the broker `relation` labels) survives the round trip
+// through the dashboard JSON and the Infinity inline target, the panel mounts a real graph
+// from it, and the legend rows reach the rail.
 test('showcase dashboard renders the provisioned graph without a backend', async ({
   gotoPanelEditPage,
   readProvisionedDashboard,

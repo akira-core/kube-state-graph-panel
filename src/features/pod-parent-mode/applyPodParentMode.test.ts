@@ -9,9 +9,14 @@ const node = (id: string, kind: string, parent?: string, extra?: Record<string, 
   data: { id, kind, ...(parent !== undefined ? { parent } : {}), ...extra },
 });
 const cluster = (id: string): El => ({ group: 'nodes', data: { id, isCluster: true } });
-const group = (id: string, flag: 'isNamespace' | 'isApplication' | 'isController', parent: string, extra?: Record<string, unknown>): El => ({
+const group = (
+  id: string,
+  flag: 'isNamespace' | 'isApplication' | 'isController' | 'isStorageCluster',
+  parent: string | undefined,
+  extra?: Record<string, unknown>
+): El => ({
   group: 'nodes',
-  data: { id, [flag]: true, parent, ...extra },
+  data: { id, [flag]: true, ...(parent !== undefined ? { parent } : {}), ...extra },
 });
 const edge = (id: string, source: string, target: string, edgeType: string): El => ({
   group: 'edges',
@@ -26,20 +31,24 @@ const hasEdge = (els: El[], edgeType: string, source: string, target: string): b
   edgeDatas(els).some((d) => d.edgeType === edgeType && d.source === source && d.target === target);
 
 // A representative backend D6 payload: cluster > namespace > application > controller > pod;
-// node + storageclass leaves under the cluster; pvc / service under the namespace.
+// node leaves under the cluster; pvc / service under the namespace; plus the separate
+// physical storage chain storage-cluster > netapp-node > netapp-aggr, which belongs to no
+// K8s cluster and is reached only by the pvc's storage edge.
 const d6Graph = (): El[] => [
   cluster('cl'),
   group('ns', 'isNamespace', 'cl'),
   group('app', 'isApplication', 'ns'),
   group('c1', 'isController', 'app', { kind: 'statefulset' }),
   node('n1', 'node', 'cl'),
-  node('sc', 'storageclass', 'cl'),
+  group('scl', 'isStorageCluster', undefined),
+  node('filer', 'netapp-node', 'scl'),
+  node('aggr', 'netapp-aggr', 'filer'),
   node('p1', 'pod', 'c1', { labels: { node: 'n1' } }),
   node('pv1', 'pvc', 'ns'),
   node('svc', 'service', 'ns'),
   edge('e-ptn', 'p1', 'n1', 'pod-to-node'),
   edge('e-pmp', 'p1', 'pv1', 'pod-mounts-pvc'),
-  edge('e-pts', 'pv1', 'sc', 'pvc-to-storageclass'),
+  edge('e-pts', 'pv1', 'aggr', 'pvc-to-netapp-aggr'),
   edge('e-ssp', 'svc', 'p1', 'service-selects-pod'),
   edge('e-pcs', 'p1', 'svc', 'pod-calls-service'),
 ];
@@ -57,13 +66,11 @@ describe('applyPodParentMode', () => {
 
     it('synthesizes no edges and re-parents nothing', () => {
       const out = applyPodParentMode(d6Graph(), 'controller');
-      expect(edgeDatas(out).map((d) => d.edgeType).sort()).toEqual([
-        'pod-calls-service',
-        'pod-mounts-pvc',
-        'pod-to-node',
-        'pvc-to-storageclass',
-        'service-selects-pod',
-      ]);
+      expect(
+        edgeDatas(out)
+          .map((d) => d.edgeType)
+          .sort()
+      ).toEqual(['pod-calls-service', 'pod-mounts-pvc', 'pod-to-node', 'pvc-to-netapp-aggr', 'service-selects-pod']);
     });
 
     it('returns every element as a fresh object (referentially distinct from the input)', () => {
@@ -89,16 +96,22 @@ describe('applyPodParentMode', () => {
       // pvc / service members of the dropped namespace re-home under the cluster.
       expect(nodeData(out, 'pv1')?.parent).toBe('cl');
       expect(nodeData(out, 'svc')?.parent).toBe('cl');
-      // node + storageclass leaves under the cluster keep their parent.
+      // The node leaf under the cluster keeps its parent.
       expect(nodeData(out, 'n1')?.parent).toBe('cl');
-      expect(nodeData(out, 'sc')?.parent).toBe('cl');
+      // The whole storage chain is untouched: storage-cluster is not one of the dropped
+      // workload tiers, and the two NetApp nodes are real nodes rather than groups. The
+      // resulting storage edge crosses from the K8s cluster box into the ONTAP box, which
+      // is correct — the storage genuinely lives outside the cluster.
+      expect(nodeData(out, 'scl')).toBeDefined();
+      expect(nodeData(out, 'filer')?.parent).toBe('scl');
+      expect(nodeData(out, 'aggr')?.parent).toBe('filer');
     });
 
     it('drops every pod-to-node edge (now expressed as nesting); keeps service / storage edges', () => {
       const out = applyPodParentMode(d6Graph(), 'node');
       expect(edgeDatas(out).some((d) => d.edgeType === 'pod-to-node')).toBe(false);
       expect(hasEdge(out, 'pod-mounts-pvc', 'p1', 'pv1')).toBe(true);
-      expect(hasEdge(out, 'pvc-to-storageclass', 'pv1', 'sc')).toBe(true);
+      expect(hasEdge(out, 'pvc-to-netapp-aggr', 'pv1', 'aggr')).toBe(true);
       expect(hasEdge(out, 'service-selects-pod', 'svc', 'p1')).toBe(true);
       expect(hasEdge(out, 'pod-calls-service', 'p1', 'svc')).toBe(true);
     });

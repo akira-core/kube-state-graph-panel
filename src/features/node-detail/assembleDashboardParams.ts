@@ -19,19 +19,25 @@ const DENYLIST: ReadonlySet<string> = new Set([
   'clusterColor',
   'namespaceColor',
   'applicationColor',
-  // storageclass leaf structural fields (D6) — node info for the detail panel's Storage
-  // Class section, NOT query params.
-  'provisioner',
-  'parameters',
+  'isStorageCluster',
+  'storageClusterColor',
+  // Storage facts (the claim's class name, ONTAP health, byte usage) — node info for the
+  // pinned tooltip, NOT query params. usageRatio is derived presentation state and is
+  // likewise never a query param.
+  'storageclass',
+  'health',
+  'usage',
+  'usageRatio',
   'labels',
   'status',
 ]);
 
-// Eligible = any node except the cluster / namespace / application decorative groups (a
-// storageclass is a D6 leaf and IS eligible). Shared with resolveSelectedNode (KsgPanel)
-// so the two scopes cannot drift.
+// Eligible = any node except the decorative groups (cluster / storage-cluster / namespace /
+// application). The NetApp nodes ARE eligible: netapp-aggr is a leaf and netapp-node, while
+// a compound parent, is a real kind-ful selectable node. Shared with resolveSelectedNode
+// (KsgPanel) so the two scopes cannot drift.
 export function isDashboardEligible(d: cytoscape.NodeDataDefinition): boolean {
-  return d.isCluster !== true && d.isNamespace !== true && d.isApplication !== true;
+  return d.isCluster !== true && d.isStorageCluster !== true && d.isNamespace !== true && d.isApplication !== true;
 }
 
 // `cluster` param: nearest `isCluster` ancestor's `data.cluster` (walked via `data.parent` —

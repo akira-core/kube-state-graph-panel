@@ -3,7 +3,9 @@
 ## Purpose
 
 TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Plugin Scaffold 來源
 
 專案 SHALL 以 `@grafana/create-plugin` 產出的 panel scaffold 為基礎,語言為 TypeScript,框架為 React 18(或更高);scaffold 內含的 `.config/` webpack 設定 MUST 保留,以便享有官方升級路徑。
@@ -13,19 +15,26 @@ TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archi
 - **WHEN** 對比 `package.json`、`.config/`、`plugin.json`
 - **THEN** 三者皆符合 `@grafana/create-plugin` 最新穩定版本之結構與必要欄位(`type: panel`、`backend: false`)
 
-### Requirement: Docker Compose 編排
+### Requirement: Docker Compose orchestration
 
-`docker-compose.yaml` SHALL 編排一個恆啟的 `grafana` service(官方 image),以及置於 **Compose `backend` profile** 的 backend 三件組(`kube-state-graph`(`marz32one/kube-state-graph` Docker Hub image)+ `victoriametrics` + `ksg-seeder`)作為**可選**啟用;所有 service 位於同一 docker network,Grafana 可以 `http://kube-state-graph:8080` 解析到 backend。預設 `docker compose up`(無 profile)只起 `grafana`(供 backend-free 的 inline showcase 使用);`docker compose --profile backend up` 額外起 backend 三件組(`KSG Demo` 改由真實 backend 驅動)。`grafana` MUST NOT 對 backend 設 `depends_on`(否則無 profile 啟動會因相依未啟用之 service 而報錯;datasource 為延遲解析)。**精簡版:不再要求 kind cluster + bootstrap 腳本;backend 連線目標由開發者環境決定。**
+`docker-compose.yaml` SHALL orchestrate exactly **one** service: `grafana` (the official
+image), with the plugin's `dist/` bind-mounted into its plugin path and the Infinity
+datasource plugin auto-installed via `GF_INSTALL_PLUGINS`. There SHALL be no Compose
+profiles, no backend service, no metrics store, and no seeder.
 
-#### Scenario: 啟動後 service 健康
+A plain `docker compose up -d` SHALL bring the demo fully to life. Because the only dashboard
+target is `source: "inline"`, Grafana issues no request on the panel's behalf and there is
+nothing to wait for, fail against, or configure a tag for.
 
-- **WHEN** 執行 `docker compose up -d` 後等待 30 秒
-- **THEN** `docker compose ps` 顯示 `grafana` 為 `running` 狀態,且 Grafana 健康檢查端點 `http://localhost:3000/api/health` 回傳 200
+#### Scenario: One service, no profiles
 
-#### Scenario: backend profile 為可選
+- **WHEN** running `docker compose config --services`
+- **THEN** the output is exactly `grafana`, and `docker compose --profile backend config --services` prints the same single service
 
-- **WHEN** 比對 `docker compose config --services` 與 `docker compose --profile backend config --services`
-- **THEN** 前者只列出 `grafana`;後者另列出 `kube-state-graph` / `victoriametrics` / `ksg-seeder`
+#### Scenario: Healthy after start with no other container
+
+- **WHEN** running `docker compose up -d` and waiting 30 seconds
+- **THEN** `docker compose ps` shows `grafana` running and `http://localhost:3000/api/health` returns 200
 
 ### Requirement: Plugin 熱重載
 
@@ -67,78 +76,159 @@ TBD - created by archiving change scaffold-ksg-panel. Update Purpose after archi
 
 ### Requirement: Pre-commit 與 Pre-push Hook
 
-專案 SHALL 透過 `husky` + `lint-staged` 設定 git hook:`pre-commit` 對 staged 檔案執行 `eslint --fix` + `prettier --write`;`pre-push` 執行完整 `npm run lint`、`npm run typecheck`、`npm run test:ci`;任一失敗 MUST 阻擋 commit / push。
+專案 SHALL 以**版本控管的** `.githooks/` 腳本設定 git hook,由 `prepare` npm script 於 `npm install` 時把 `core.hooksPath` 指向該目錄(亦可手動 `npm run init-hooks`)。**不使用 `husky`** —— hook 進版本庫即可被 review、跨機一致,且少一個相依。
+
+`pre-commit` SHALL 對 staged 檔案執行 `lint-staged`(`eslint --cache --fix` + `prettier --write`);`pre-push` SHALL 執行 `npm run lint`、`npm run typecheck`、`npm run fixture:check`、`npm run test:ci`;任一失敗 MUST 阻擋 commit / push。
+
+`fixture:check` MUST 在 hook 鏈中,因為 demo dashboard 是 generated output:改了 fixture 卻忘記 `npm run fixture:build`,若不在此攔下就要等到 CI 才會發現。**generated 檔案 MUST 列入 `.prettierignore`** —— `pre-commit` 的 prettier 與 generator 的輸出格式若不一致(prettier 會把短陣列收成一行,`JSON.stringify(…, null, 2)` 一律展開),兩者會在每次 commit 互相覆寫,使 `fixture:check` 永遠失敗。
 
 #### Scenario: Pre-commit 阻擋 lint error
 
 - **WHEN** 開發者 commit 一個含 ESLint error 的 staged 變更
 - **THEN** Hook 執行 `lint-staged`,失敗並阻擋 commit,終端顯示 ESLint 錯誤訊息
 
+#### Scenario: Pre-push 攔下未編譯的 fixture 變更
+
+- **WHEN** 開發者改了 `src/shared/fixtures/showcaseGraph.ts` 卻未執行 `npm run fixture:build` 便 push
+- **THEN** `pre-push` 於 `fixture:check` 失敗並阻擋 push,訊息指出補救指令
+
 ### Requirement: CI Workflow(精簡版)
 
-GitHub Actions CI workflow SHALL 提供單一 job 依序執行 `lint` → `typecheck` → `test:ci` → `build`;失敗 MUST 標記 PR check failed,阻擋 merge。Node 版本鎖定於 `.nvmrc` 對應之 LTS。
+GitHub Actions CI workflow SHALL 提供單一 job 依序執行 `typecheck` → `lint` → `fixture:check` → `test:ci` → `build`;失敗 MUST 標記 PR check failed,阻擋 merge。Node 版本鎖定於 `.nvmrc` 對應之 LTS。
 
 **精簡版:取消 5-job 平行矩陣 + 獨立 E2E workflow + 獨立 knip job —— 小 plugin 一個 job 即足夠;E2E 由開發者本機觸發,待後續穩定再加入 CI。**
 
 #### Scenario: CI 通過所有檢查
 
 - **WHEN** PR 被推送
-- **THEN** GitHub Actions 「Checks」清單顯示一個 `ci` job,完成 lint/typecheck/test/build 四步皆通過
+- **THEN** GitHub Actions 「Checks」清單顯示一個 `ci` job,typecheck / lint / fixture:check / test / build 五步皆通過
 
-### Requirement: E2E 測試(精簡版)
+### Requirement: E2E tests (reduced scope)
 
-E2E 測試 SHALL 使用 `@grafana/plugin-e2e`(Playwright 包裝)撰寫一個 smoke spec:啟動 grafana(docker-compose) → 開啟 demo dashboard → 斷言 `[data-testid="graph-canvas"]` DOM 存在。**精簡版:取消 kind cluster + 多 journey + CI 跑 E2E 的要求,改為本機開發者觸發。**
+E2E tests SHALL use `@grafana/plugin-e2e` and consist of a smoke spec against the **showcase**
+dashboard: open the provisioned `ksg-switch-demo.json`, assert `[data-testid="graph-canvas"]`
+mounts, and assert the legend controls that depend on the fixture's content are present.
 
-#### Scenario: 本機 E2E 跑通
+This is the only e2e spec the repository can have, and that is a property of the design
+rather than a gap: with no backend, there is no second data path to smoke-test. What the spec
+proves that unit tests cannot is the round trip — that the generated payload survives the
+dashboard JSON and the Infinity inline target and reaches a mounted cytoscape graph.
 
-- **WHEN** 開發者於已啟動 grafana 環境執行 `npm run e2e`
-- **THEN** Playwright 完成 smoke spec 並通過
+Developer-triggered locally (`npm run e2e`); not run in CI.
 
-### Requirement: 開發者文件
+#### Scenario: Showcase smoke spec passes against a plain `docker compose up`
 
-`README.md` SHALL 包含以下章節:Prerequisites(Node 22+、Docker)、Quick Start(`npm install` → `docker compose up -d` → `npm run dev` → 開瀏覽器)、Architecture overview、Linting & testing、Troubleshooting(常見問題:unsigned plugin 警告、port 衝突、backend 無法連線 cluster)。
+- **WHEN** a developer runs `npm run e2e` against a Grafana started with no profile
+- **THEN** the showcase spec passes with no backend container running
 
-#### Scenario: README 包含必要章節
+### Requirement: Developer documentation
 
-- **WHEN** 檢視 `README.md`
-- **THEN** 上述五個章節皆存在,且 Quick Start 步驟可被新開發者照做完成本機環境啟動
+`README.md` SHALL contain: Prerequisites (Node 22+, Docker), Quick Start
+(`npm install` → `npm run build` → `docker compose up -d` → open the showcase dashboard),
+Architecture overview, Linting & testing, and Troubleshooting.
 
-### Requirement: Demo seeder 推送 RED 來源序列
+Quick Start MUST be completable on a clean checkout with **no** image to pull beyond Grafana
+and no credentials, and MUST NOT reference a backend service, a metrics store, a seeder, an
+image tag, or a Compose profile. The documentation SHALL state where the demo data comes
+from and how to change it (edit the fixture, run `npm run fixture:build`).
 
-`dev/victoriametrics/seed.sh` MUST 於每個 tick 除既有的 `traces_service_graph_request_total` 之外,額外推送兩組 RED 來源序列,使 `docker compose --profile backend up` 的 `KSG Demo` 能實際產生 `data.metrics`:
+Troubleshooting SHALL cover the unsigned-plugin warning, port conflicts, and a stale
+generated dashboard.
 
-- `traces_service_graph_request_failed_total` —— 失敗計數器。
-- `traces_service_graph_request_server_seconds_bucket` —— server 端耗時的 **classic histogram**(累積式 bucket,含 `le` label)。
+#### Scenario: Quick Start works offline of any backend
 
-後端以**完整 label set 的精確比對**(除 `__name__`;histogram 另除 `le`)把三組序列 join 到同一條邊,因此:
+- **WHEN** a new developer follows Quick Start on a clean checkout
+- **THEN** the showcase dashboard renders a populated graph, and no step mentions a backend
 
-- 兩組新序列的 label set MUST 與其對應的 `traces_service_graph_request_total` 序列**逐字完全一致**(histogram 僅可多出 `le`)。任何多出、少掉或拼字不同的 label 都會使 join 落空,`error_rate` 與 `p90_server_ms` 靜默消失。
-- 三組序列 MUST 與既有 total 一樣**每 tick 遞增**(至少兩個樣本落在查詢視窗內),否則 `rate()` 為 0,後端不產生量測值。
-- 失敗計數 MUST 嚴格小於對應的 total 計數且大於 0,使 `error_rate` 落在開區間 `(0,1)`,demo 才看得出非零錯誤率。
-- histogram MUST 至少提供兩個 `le` 邊界並**必定包含 `le="+Inf"`**,且值為累積(單調不減),否則後端無法計算 p90 而省略 `p90_server_ms`。
+### Requirement: The typed fixture is the single source of the panel's demo data
 
-seeder MUST NOT 為任一序列加上 `edge_relation="link"` label(後端對 RED 來源序列排除該值,加上會使該邊失去量測)。
+`src/shared/fixtures/showcaseGraph.ts` SHALL export `SHOWCASE_GRAPH`, annotated with the
+`WireGraph` type from `src/shared/types/wire.ts`, as **the** graph the local demo, the
+Playwright showcase spec, and the fixture coverage suite all read. The repository SHALL
+contain no service, script, or dashboard that obtains graph data from a running
+kube-state-graph server, a Prometheus-compatible store, or a Kubernetes cluster.
 
-fixture MUST 同時涵蓋**有 RED** 與**無 RED** 兩種邊,使前端的「省略即不顯示」行為在 demo 中可被肉眼驗證:指向 `external` 節點的那條邊(`api.payments.io`)依後端契約永不帶 `metrics`,故其存在即滿足此要求,無須額外新增序列。
+The `WireGraph` annotation is the mechanism, not decoration: because `normalizeGraph`
+accepts `unknown` and validates at runtime, a field the panel learns to read would otherwise
+be invisible to every compile-time check. Typing the fixture makes teaching normalize a new
+field and forgetting the demo a `npm run typecheck` failure instead of a blank spot nobody
+re-reads.
 
-#### Scenario: 每 tick 三組序列一併推送
+The fixture SHALL carry the complete response envelope the backend sends — `apiVersion`,
+`clusters`, and `elements` — not `elements` alone, so the demo exercises the same body shape
+a deployment would receive. `clusters` SHALL list Kubernetes cluster names only; an ONTAP
+cluster name MUST NOT appear in it.
 
-- **WHEN** `ksg-seeder` 容器完成一次 tick
-- **THEN** 該次 push 的 payload 同時含 `traces_service_graph_request_total`、`traces_service_graph_request_failed_total` 與 `traces_service_graph_request_server_seconds_bucket` 三種 metric,且三者的計數值皆較上一 tick 增加
+The fixture MAY carry fields no backend release emits — `status`, `alerts`, `time_records`,
+and the `switch` / `network` kinds with their `switch-to-switch` / `node-to-switch` edges are
+the panel's own extension surface. Where it does, the fixture and the wire types MUST record
+that provenance in a comment, so a reader cannot mistake a panel-only field for part of the
+backend contract and "correct" the backend to match.
 
-#### Scenario: 新序列的 label set 與 total 完全對齊
+#### Scenario: No backend anywhere in the repository
 
-- **WHEN** 檢視 seeder 為某一條邊(例如 `prod/gateway → dr/consumer`)推送的三組序列
-- **THEN** `_failed_total` 的 label set 與該邊的 `_total` 逐字相同;`_server_seconds_bucket` 的 label set 亦相同,僅多一個 `le`
+- **WHEN** inspecting `docker compose config --services`, `provisioning/datasources/`, and every file under `dev/` and `tests/`
+- **THEN** the only Compose service is `grafana`, the provisioned Infinity datasource carries no `url`, and no file addresses a kube-state-graph, VictoriaMetrics, or Kubernetes endpoint
 
-#### Scenario: histogram 具備可計算 p90 的形狀
+#### Scenario: A wire field added to normalize without fixture coverage fails typecheck
 
-- **WHEN** 檢視某條邊的 `_server_seconds_bucket` 序列
-- **THEN** 其含有至少兩個 `le` 邊界並包含 `le="+Inf"`,且 bucket 值沿 `le` 遞增方向單調不減
+- **WHEN** a new field is added to `WireGraph` as required, and `SHOWCASE_GRAPH` is not updated
+- **THEN** `npm run typecheck` fails
 
-#### Scenario: demo 同時呈現有 RED 與無 RED 的邊
+### Requirement: The demo dashboard is generated from the fixture, and drift fails the build
 
-- **WHEN** 開發者以 `docker compose --profile backend up` 啟動全端 demo 並在 `KSG Demo` 上 hover 各條邊
-- **THEN** `pod-calls-service`(gateway → mongo-svc、consumer → nats-svc)與跨叢集 `pod-calls-pod`(prod/gateway → dr/consumer)顯示 RED rows
-- **AND** 指向 `external` 節點 `api.payments.io` 的邊不顯示任何 RED row
+`provisioning/dashboards/ksg-switch-demo.json` SHALL contain exactly one Infinity target with
+`source: "inline"`, whose `data` string is **generated** from `SHOWCASE_GRAPH` by
+`dev/buildFixtureDashboard.mjs` and never hand-edited.
 
+- `npm run fixture:build` SHALL rewrite that target and leave the rest of the dashboard
+  byte-identical.
+- `npm run fixture:check` SHALL exit non-zero when the committed dashboard does not match
+  what the fixture would produce, naming `npm run fixture:build` as the remedy.
+- The check SHALL run in CI and in the `pre-push` hook.
+
+The generator SHALL fail loudly rather than write a partial file when the dashboard does not
+contain exactly one inline target: a dashboard whose shape moved must stop the build, not
+silently publish a demo carrying stale data.
+
+Grafana provisioning reads dashboard JSON from disk, so the payload has to physically live
+in the committed file; the drift gate is what keeps a generated artefact from forking away
+from its source on the first hand-edit.
+
+#### Scenario: Regenerating a committed dashboard is a no-op
+
+- **WHEN** `npm run fixture:build` runs against a tree where the fixture and dashboard agree
+- **THEN** the dashboard file is unchanged and `npm run fixture:check` exits 0
+
+#### Scenario: A fixture edit that was never compiled in fails CI
+
+- **WHEN** `SHOWCASE_GRAPH` is edited and the dashboard is left untouched
+- **THEN** `npm run fixture:check` exits non-zero and prints the `npm run fixture:build` remedy
+
+### Requirement: The fixture covers every kind and edge type the panel can draw
+
+`src/shared/fixtures/showcaseGraph.test.ts` SHALL assert that `normalizeGraph(SHOWCASE_GRAPH)`
+produces:
+
+- an empty `errors` array — the partial-parse channel exists for a real backend having a bad
+  day, so anything landing there is this repository's own mistake;
+- no edge whose `source` or `target` is absent from the fixture's own nodes, and no node
+  whose `parent` is;
+- at least one element for **every** key of `ICON_SVG_BY_KIND` and **every** key of
+  `EDGE_STYLE_BY_TYPE`.
+
+Coverage SHALL be asserted against those two canonical maps rather than the panel's
+filterable subset, so the virtual `network` wrapper counts. Anchoring there makes "add a kind
+to the map" and "show it in the demo" one enforced task.
+
+The suite SHALL additionally pin the demo cases that exist to be looked at rather than
+merely parsed: all three `ready_status` values, a claim that joined an aggregate beside one
+that did not, a QoS-capped storage edge beside an uncapped one, a measured error rate beside
+a measured-clean zero beside an unmeasured edge, a legitimately tiny rate that must not round
+to nothing, and both `labels.role` ingress shapes with their differing dash and visibility
+behaviour.
+
+#### Scenario: A newly drawable kind with no fixture element fails
+
+- **WHEN** a key is added to `ICON_SVG_BY_KIND` and no fixture node carries that kind
+- **THEN** `showcaseGraph.test.ts` fails, naming the uncovered kind

@@ -7,12 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { computeVisibility, isFilterableKind } from '../../features/element-filter';
 import { EmptyState, GraphCanvas, LoadingOverlay, type GraphViewportApi } from '../../features/graph-canvas';
 import { useGraphData, wrapSwitchFabric } from '../../features/graph-data';
-import {
-  computeHits,
-  resolveSearchHits,
-  SearchBar,
-  type SearchResult,
-} from '../../features/graph-search';
+import { computeHits, resolveSearchHits, SearchBar, type SearchResult } from '../../features/graph-search';
 import {
   ApplicationLegend,
   ClusterLegend,
@@ -49,11 +44,7 @@ import {
 import { EDGE_STYLE_BY_TYPE } from '../../shared/constants/colorByEdgeType';
 import { EDGE_RELATION_TRANSPORT } from '../../shared/constants/edgeRelation';
 import type { EdgeType, GraphNodeKind, PodParentMode } from '../../shared/constants/types';
-import {
-  buildParentIndex,
-  collapsedAncestorChain,
-  hasCollapsedAncestor,
-} from '../../shared/graph/collapsedAncestors';
+import { buildParentIndex, collapsedAncestorChain, hasCollapsedAncestor } from '../../shared/graph/collapsedAncestors';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { buildNodeAttributes } from '../../shared/nodeAttributes/buildNodeAttributes';
 import { themeColors } from '../../shared/theme/themeColors';
@@ -213,8 +204,9 @@ export function resolveSelectedNode(
         ...(d.alerts !== undefined ? { alerts: d.alerts } : {}),
         ...(d.application !== undefined ? { application: d.application } : {}),
         ...(d.containers !== undefined ? { containers: d.containers } : {}),
-        ...(d.provisioner !== undefined ? { provisioner: d.provisioner } : {}),
-        ...(d.parameters !== undefined ? { parameters: d.parameters } : {}),
+        ...(d.storageclass !== undefined ? { storageclass: d.storageclass } : {}),
+        ...(d.health !== undefined ? { health: d.health } : {}),
+        ...(d.usage !== undefined ? { usage: d.usage } : {}),
         ...(queryTarget !== undefined ? { queryTarget } : {}),
       };
     }

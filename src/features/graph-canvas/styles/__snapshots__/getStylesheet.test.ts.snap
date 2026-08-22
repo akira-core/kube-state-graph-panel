@@ -63,6 +63,26 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
     },
   },
   {
+    "selector": "node[?isStorageCluster]",
+    "style": {
+      "background-color": "data(storageClusterColor)",
+      "background-image": "none",
+      "background-opacity": 0.07,
+      "border-color": "data(storageClusterColor)",
+      "border-opacity": 0.5,
+      "border-width": 1.5,
+      "color": "data(storageClusterColor)",
+      "font-size": 18,
+      "font-weight": 600,
+      "label": [Function],
+      "padding": "18px",
+      "shape": "round-rectangle",
+      "text-halign": "center",
+      "text-margin-y": -4,
+      "text-valign": "top",
+    },
+  },
+  {
     "selector": "node[?isNamespace]",
     "style": {
       "background-color": "data(namespaceColor)",
@@ -153,6 +173,15 @@ exports[`getStylesheet matches snapshot for default theme 1`] = `
   },
   {
     "selector": "node[?isApplication].cy-expand-collapse-collapsed-node",
+    "style": {
+      "background-clip": "none",
+      "background-fit": "contain",
+      "background-image": [Function],
+      "background-image-opacity": 1,
+    },
+  },
+  {
+    "selector": "node[?isStorageCluster].cy-expand-collapse-collapsed-node",
     "style": {
       "background-clip": "none",
       "background-fit": "contain",

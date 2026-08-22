@@ -9,6 +9,7 @@ import {
 import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation';
 import { FALLBACK_ICON_SVG, FOLDER_ICON_SVG, ICON_SVG_BY_KIND } from '../../../shared/constants/iconSvgByKind';
+import { usageFillPaint } from '../../../shared/icon/paintUsageLiquid';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 
 import { FADED_CLASS, getStylesheet } from './getStylesheet';
@@ -294,32 +295,33 @@ describe('getStylesheet', () => {
     cy.destroy();
   });
 
-  it('renders a backend D6 storageclass leaf with its disk glyph (always — never a compound box)', () => {
+  it('renders a netapp-aggr leaf with its disk glyph (always — never a compound box)', () => {
     const cy = cytoscape({
       headless: true,
       styleEnabled: true,
       style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
       elements: [
         { group: 'nodes', data: { id: 'cluster/prod', label: 'prod', isCluster: true, clusterColor: '#14b8a6' } },
-        // D6: storageclass is a LEAF under the cluster (no children), carrying provisioner/parameters.
+        // A netapp-aggr is a LEAF (its parent is the real netapp-node, or here a cluster
+        // box standing in for one), carrying health/usage rather than provisioner/parameters.
         {
           group: 'nodes',
           data: {
-            id: 'prod/storageclass/fast-ssd',
-            label: 'fast-ssd',
-            kind: 'storageclass',
+            id: 'netapp/ontap-prod/aggr/aggr1',
+            label: 'aggr1',
+            kind: 'netapp-aggr',
             parent: 'cluster/prod',
-            provisioner: 'rook-ceph.rbd.csi.ceph.com',
+            health: 'online',
           },
         },
-        // A PVC nests under its namespace now (not the storageclass).
+        // A PVC nests under its namespace (never under the storage chain).
         { group: 'nodes', data: { id: 'pvc/data-0', label: 'data-0', kind: 'pvc', parent: 'cluster/prod' } },
       ],
     });
-    const sc = cy.getElementById('prod/storageclass/fast-ssd');
-    // A leaf (no children → never :parent) ALWAYS shows its storageclass disk glyph, with
+    const sc = cy.getElementById('netapp/ontap-prod/aggr/aggr1');
+    // A leaf (no children → never :parent) ALWAYS shows its aggregate disk glyph, with
     // no expanded-vs-collapsed compound behaviour.
-    expect(sc.style('background-image')).toBe(tintSvgToDataUri(ICON_SVG_BY_KIND.storageclass, iconColor));
+    expect(sc.style('background-image')).toBe(tintSvgToDataUri(ICON_SVG_BY_KIND['netapp-aggr'], iconColor));
     expect(sc.style('shape')).toBe('round-rectangle');
     // The PVC carries its own kind icon.
     expect(cy.getElementById('pvc/data-0').style('background-image')).toMatch(/^data:image\/svg\+xml,/);
@@ -651,7 +653,7 @@ describe('getStylesheet', () => {
     expect(nsbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#e8833a'));
     expect(appbox.style('background-image')).toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#0ea5e9'));
     // Gap-fill: the folder rule targets isCluster/isNamespace/isApplication ONLY, so it
-    // never leaks onto a kind-ful compound (controller / node / storageclass) — those
+    // never leaks onto a kind-ful compound (controller / node / netapp-node) — those
     // revert to their kind icon on real collapse (children removed → loses :parent).
     expect(ctrl.style('background-image')).not.toBe(tintSvgToDataUri(FOLDER_ICON_SVG, '#14b8a6'));
     cy.destroy();
@@ -666,5 +668,98 @@ describe('getStylesheet', () => {
     const edgeRule = sheet.find((s) => s.selector === `edge.${FADED_CLASS}`);
     expect(nodeRule?.style?.opacity).toBe(0.2);
     expect(edgeRule?.style?.opacity).toBe(0.12);
+  });
+});
+
+describe('storage usage fill', () => {
+  // Triggered by `data.usageRatio`, NOT kind — pvc and netapp-aggr share the mapper,
+  // and a future usage-bearing kind joins for free. The liquid lives in the SVG, not
+  // a node-box gradient (that occluded cylinder strokes).
+  const build = (nodes: cytoscape.NodeDataDefinition[]): cytoscape.Core =>
+    cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: getStylesheet({ theme: createTheme() }) as cytoscape.StylesheetStyle[],
+      elements: nodes.map((data) => ({ group: 'nodes' as const, data })),
+    });
+
+  const decodedIcon = (cy: cytoscape.Core, id: string): string => {
+    const uri = String(cy.getElementById(id).style('background-image'));
+    return decodeURIComponent(uri.replace(/^data:image\/svg\+xml,/, ''));
+  };
+
+  it('does not paint usage as a node-box gradient', () => {
+    const cy = build([
+      { id: 'pvc-1', label: 'pvc-1', kind: 'pvc', usageRatio: 0.7 },
+      { id: 'aggr-1', label: 'aggr-1', kind: 'netapp-aggr', usageRatio: 0.5 },
+    ]);
+    expect(cy.getElementById('pvc-1').style('background-fill')).toBe('solid');
+    expect(cy.getElementById('aggr-1').style('background-fill')).toBe('solid');
+    expect(styleFor('node[usageRatio]')).toEqual({});
+    cy.destroy();
+  });
+
+  it('paints a translucent cylinder liquid into both kinds from the same mapper', () => {
+    const cy = build([
+      { id: 'pvc-1', label: 'pvc-1', kind: 'pvc', usageRatio: 0.7 },
+      { id: 'aggr-1', label: 'aggr-1', kind: 'netapp-aggr', usageRatio: 0.5 },
+    ]);
+    const pvc = decodedIcon(cy, 'pvc-1');
+    const aggr = decodedIcon(cy, 'aggr-1');
+    expect(pvc).toContain(usageFillPaint(0.7));
+    expect(aggr).toContain(usageFillPaint(0.5));
+    expect(aggr).toContain('M5 9.8');
+    expect(aggr).toContain('M5 14.1');
+    cy.destroy();
+  });
+
+  it('leaves a node without a ratio unfilled — absent data is not a 0% reading', () => {
+    const cy = build([{ id: 'pvc-2', label: 'pvc-2', kind: 'pvc' }]);
+    expect(cy.getElementById('pvc-2').style('background-fill')).toBe('solid');
+    expect(decodedIcon(cy, 'pvc-2')).not.toContain('rgba(');
+    cy.destroy();
+  });
+
+  it('uses STATUS_COLOR thresholds: green / yellow / red', () => {
+    const cy = build([
+      { id: 'g', label: 'g', kind: 'pvc', usageRatio: 0.7 },
+      { id: 'y', label: 'y', kind: 'pvc', usageRatio: 0.8 },
+      { id: 'r', label: 'r', kind: 'pvc', usageRatio: 0.9 },
+      { id: 'just-green', label: 'just-green', kind: 'pvc', usageRatio: 0.79 },
+    ]);
+    expect(decodedIcon(cy, 'g')).toContain(usageFillPaint(0.7));
+    expect(decodedIcon(cy, 'y')).toContain(usageFillPaint(0.8));
+    expect(decodedIcon(cy, 'r')).toContain(usageFillPaint(0.9));
+    expect(decodedIcon(cy, 'just-green')).toContain(usageFillPaint(0.79));
+    expect(decodedIcon(cy, 'just-green')).not.toContain(usageFillPaint(0.8));
+    cy.destroy();
+  });
+
+  it('keeps liquid colour theme-independent while strokes follow the theme', () => {
+    const svgFor = (mode: 'light' | 'dark'): string => {
+      const cy = cytoscape({
+        headless: true,
+        styleEnabled: true,
+        style: getStylesheet({ theme: createTheme({ colors: { mode } }) }) as cytoscape.StylesheetStyle[],
+        elements: [{ group: 'nodes', data: { id: 'a', label: 'a', kind: 'pvc', usageRatio: 0.7 } }],
+      });
+      const svg = decodedIcon(cy, 'a');
+      cy.destroy();
+      return svg;
+    };
+    const light = svgFor('light');
+    const dark = svgFor('dark');
+    expect(light).toContain(usageFillPaint(0.7));
+    expect(dark).toContain(usageFillPaint(0.7));
+    expect(light).not.toBe(dark);
+  });
+
+  it('keeps the kind icon at NODE_SIZE with an unchanged label', () => {
+    const cy = build([{ id: 'aggr-3', label: 'aggr-3', kind: 'netapp-aggr', usageRatio: 0.7 }]);
+    expect(String(cy.getElementById('aggr-3').style('background-image'))).toMatch(/^data:image\/svg\+xml,/);
+    expect(cy.getElementById('aggr-3').style('width')).toBe('40px');
+    expect(cy.getElementById('aggr-3').style('height')).toBe('40px');
+    expect(styleFor('node').label).toBe('data(label)');
+    cy.destroy();
   });
 });

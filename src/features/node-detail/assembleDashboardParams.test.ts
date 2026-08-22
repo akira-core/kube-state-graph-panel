@@ -258,24 +258,43 @@ describe('assembleDashboardParams', () => {
     expect(assembleDashboardParams(elements, 'g1')).toBeUndefined();
   });
 
-  it('treats a storageclass leaf as eligible but never sends its structural provisioner / parameters', () => {
+  it('treats a netapp-aggr as eligible but never sends its storage facts as params', () => {
     const elements: cytoscape.ElementDefinition[] = [
       {
         group: 'nodes',
         data: {
           id: 'sc',
-          kind: 'storageclass',
-          label: 'gp3',
-          provisioner: 'ebs.csi.aws.com',
-          parameters: { type: 'gp3' },
+          kind: 'netapp-aggr',
+          label: 'aggr1',
+          health: 'online',
+          usage: { usedBytes: 7e11, capacityBytes: 1e12 },
+          usageRatio: 0.7,
           labels: { cluster: 'prod' },
         },
       },
     ];
     const params = assembleDashboardParams(elements, 'sc');
-    expect(params).toEqual({ kind: 'storageclass', name: 'gp3', cluster: 'prod' });
-    expect(params).not.toHaveProperty('provisioner');
-    expect(params).not.toHaveProperty('parameters');
+    expect(params).toEqual({ kind: 'netapp-aggr', name: 'aggr1', cluster: 'prod' });
+    expect(params).not.toHaveProperty('health');
+    expect(params).not.toHaveProperty('usage');
+    expect(params).not.toHaveProperty('usageRatio');
+  });
+
+  it('never sends a PVC storageclass name as a query param', () => {
+    const elements: cytoscape.ElementDefinition[] = [
+      {
+        group: 'nodes',
+        data: { id: 'pvc', kind: 'pvc', label: 'data-0', storageclass: 'netapp-nas', labels: { cluster: 'prod' } },
+      },
+    ];
+    expect(assembleDashboardParams(elements, 'pvc')).not.toHaveProperty('storageclass');
+  });
+
+  it('excludes the storage-cluster decorative group entirely', () => {
+    const elements: cytoscape.ElementDefinition[] = [
+      { group: 'nodes', data: { id: 'sc-grp', label: 'ontap-prod', isStorageCluster: true } },
+    ];
+    expect(assembleDashboardParams(elements, 'sc-grp')).toBeUndefined();
   });
 
   describe('cluster resolution', () => {

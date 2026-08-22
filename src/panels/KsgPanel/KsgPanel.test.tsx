@@ -732,18 +732,31 @@ describe('KsgPanel', () => {
     expect(screen.queryByTestId('application-legend')).not.toBeInTheDocument();
   });
 
-  it('lists a backend D6 storageclass leaf as a NodeLegend glyph, with NO separate Storage Classes swatch section', () => {
+  it('lists the NetApp storage kinds as NodeLegend glyphs, with NO separate Storage Classes swatch section', () => {
     const payload = {
       elements: {
         nodes: [
           { data: { id: 'cluster:demo', type: 'cluster', name: 'demo' } },
+          { data: { id: 'storage-cluster/ontap-prod', type: 'storage-cluster', name: 'ontap-prod' } },
           {
             data: {
-              id: 'demo/storageclass/fast-ssd',
-              type: 'storageclass',
-              name: 'fast-ssd',
-              parent: 'cluster:demo',
-              provisioner: 'ebs.csi.aws.com',
+              id: 'netapp/ontap-prod/ontap-prod-01',
+              type: 'netapp-node',
+              name: 'ontap-prod-01',
+              parent: 'storage-cluster/ontap-prod',
+              health: 'online',
+              labels: { ontap_cluster: 'ontap-prod' },
+            },
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/aggr/aggr1',
+              type: 'netapp-aggr',
+              name: 'aggr1',
+              parent: 'netapp/ontap-prod/ontap-prod-01',
+              health: 'online',
+              usage: { used_bytes: 7e11, capacity_bytes: 1e12 },
+              labels: { ontap_cluster: 'ontap-prod', node: 'ontap-prod-01' },
             },
           },
           {
@@ -752,13 +765,20 @@ describe('KsgPanel', () => {
               type: 'pvc',
               name: 'data-0',
               parent: 'cluster:demo',
+              storageclass: 'netapp-nas',
               labels: { cluster: 'demo' },
             },
           },
         ],
         edges: [
           {
-            data: { id: 'e0', type: 'pvc-to-storageclass', source: 'demo/pvc-0', target: 'demo/storageclass/fast-ssd' },
+            data: {
+              id: 'e0',
+              type: 'pvc-to-netapp-aggr',
+              source: 'demo/pvc-0',
+              target: 'netapp/ontap-prod/aggr/aggr1',
+              metrics: { read_ops: 150, write_ops: 40 },
+            },
           },
         ],
       },
@@ -776,10 +796,13 @@ describe('KsgPanel', () => {
         })}
       />
     );
-    // The retired Storage Classes swatch section is gone entirely.
+    // The retired Storage Classes swatch section is gone entirely, and no ONTAP swatch
+    // section replaced it — storage-cluster is an accent box, not a legend row.
     expect(screen.queryByTestId('storageclass-legend')).not.toBeInTheDocument();
-    // storageclass shows as a leaf glyph in the Node Kinds legend (Storage category).
-    expect(screen.getByTestId('node-legend-row-storageclass')).toBeInTheDocument();
+    // The aggregate shows as a leaf glyph in the Node Kinds legend (Storage category); the
+    // controller is an EXPANDED container here, so it is represented by its box, not a row.
+    expect(screen.getByTestId('node-legend-row-netapp-aggr')).toBeInTheDocument();
+    expect(screen.queryByTestId('node-legend-row-storageclass')).not.toBeInTheDocument();
   });
 
   it('orders legend sections with the swatch sections (Clusters → Namespaces → Applications → Controllers) AFTER Status', () => {
@@ -1179,21 +1202,27 @@ describe('KsgPanel', () => {
     expect(node?.alerts).toEqual(alerts);
   });
 
-  it('resolveSelectedNode opens for k8s-node + controller + storageclass-leaf + application group, not cluster/namespace', () => {
+  it('resolveSelectedNode opens for k8s-node + controller + netapp nodes + application group, not the decorative groups', () => {
     const elements: cytoscape.ElementDefinition[] = [
       { group: 'nodes', data: { id: 'node1', kind: 'node', label: 'ip-10' } },
       { group: 'nodes', data: { id: 'ctrl', kind: 'statefulset', label: 'mongo', isController: true } },
-      { group: 'nodes', data: { id: 'sc', kind: 'storageclass', label: 'fast', provisioner: 'ebs.csi.aws.com' } },
+      { group: 'nodes', data: { id: 'aggr', kind: 'netapp-aggr', label: 'aggr1', health: 'online' } },
+      { group: 'nodes', data: { id: 'filer', kind: 'netapp-node', label: 'ontap-01', health: 'online' } },
       { group: 'nodes', data: { id: 'cl', label: 'demo', isCluster: true } },
+      { group: 'nodes', data: { id: 'scl', label: 'ontap-prod', isStorageCluster: true } },
       { group: 'nodes', data: { id: 'ns', label: 'shop', isNamespace: true } },
       { group: 'nodes', data: { id: 'app', label: 'checkout', isApplication: true, application: 'checkout' } },
     ];
-    const vis = new Set(['node1', 'ctrl', 'sc', 'cl', 'ns', 'app']);
+    const vis = new Set(['node1', 'ctrl', 'aggr', 'filer', 'cl', 'scl', 'ns', 'app']);
     expect(resolveSelectedNode(elements, 'node1', vis)?.kind).toBe('node');
     expect(resolveSelectedNode(elements, 'ctrl', vis)?.kind).toBe('statefulset');
-    // storageclass is a D6 leaf — now detail-eligible.
-    expect(resolveSelectedNode(elements, 'sc', vis)?.kind).toBe('storageclass');
+    // Both NetApp kinds are detail-eligible — including netapp-node, which is a compound
+    // parent yet still a real selectable node.
+    expect(resolveSelectedNode(elements, 'aggr', vis)?.kind).toBe('netapp-aggr');
+    expect(resolveSelectedNode(elements, 'filer', vis)?.kind).toBe('netapp-node');
     expect(resolveSelectedNode(elements, 'cl', vis)).toBeNull();
+    // storage-cluster is decorative like cluster — never opens the panel.
+    expect(resolveSelectedNode(elements, 'scl', vis)).toBeNull();
     expect(resolveSelectedNode(elements, 'ns', vis)).toBeNull();
     // The application GROUP now opens (config_changes for the app), with a synth kind.
     const app = resolveSelectedNode(elements, 'app', vis);

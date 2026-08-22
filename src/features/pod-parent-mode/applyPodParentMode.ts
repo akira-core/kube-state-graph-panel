@@ -21,9 +21,15 @@ function cloneElement(el: cytoscape.ElementDefinition): cytoscape.ElementDefinit
  *  - `node` (infra view): re-parent each pod under its K8s node (`labels.node`, only
  *    when that id is a present `node`-kind node; otherwise leave it under its cluster),
  *    DROP the `namespace` / `application` / `controller` group tiers and re-parent their
- *    non-pod members (`pvc` / `service` / `storageclass`) directly under the cluster, and
+ *    non-pod members (`pvc` / `service`) directly under the cluster, and
  *    DROP every `pod-to-node` edge (the relationship is now nesting). Result =
- *    `cluster > node > pod`. Service / pvc-to-storageclass edges are preserved.
+ *    `cluster > node > pod`. Service / storage edges are preserved.
+ *
+ *  The physical storage chain (`storage-cluster > netapp-node > netapp-aggr`) survives BOTH
+ *  modes untouched: `storage-cluster` is not one of the dropped workload tiers, and the two
+ *  NetApp kinds are real nodes rather than groups. In `node` mode the pvc re-homes under its
+ *  cluster while its aggregate stays put, so the `pvc-to-netapp-aggr` edge crosses two
+ *  top-level boxes — correct, since the storage genuinely lives outside the K8s cluster.
  *
  * Full rules in pod-parent-mode spec.
  */
@@ -63,7 +69,8 @@ export function applyPodParentMode(
   // Nearest `isCluster` ancestor via the ORIGINAL parent chain (intact even though the
   // workload group tiers are about to be dropped). undefined → no cluster (top-level).
   const clusterAncestor = (startId: string): string | undefined => {
-    let parent = typeof dataById.get(startId)?.parent === 'string' ? (dataById.get(startId)?.parent as string) : undefined;
+    let parent =
+      typeof dataById.get(startId)?.parent === 'string' ? (dataById.get(startId)?.parent as string) : undefined;
     for (let guard = 0; parent !== undefined && guard <= dataById.size; guard++) {
       if (clusterIds.has(parent)) {
         return parent;
@@ -95,9 +102,14 @@ export function applyPodParentMode(
       const labels = d.labels as Record<string, unknown> | undefined;
       const labelNode = labels !== undefined && typeof labels.node === 'string' ? labels.node : undefined;
       // Re-parent to the K8s node only when it actually exists; else fall back to cluster.
-      nextParent = labelNode !== undefined && nodeKindIds.has(labelNode) ? labelNode : id !== undefined ? clusterAncestor(id) : undefined;
+      nextParent =
+        labelNode !== undefined && nodeKindIds.has(labelNode)
+          ? labelNode
+          : id !== undefined
+            ? clusterAncestor(id)
+            : undefined;
     } else if (nextParent !== undefined && droppedGroupIds.has(nextParent) && id !== undefined) {
-      // pvc / service / storageclass orphaned by a dropped group → re-home under cluster.
+      // pvc / service orphaned by a dropped group → re-home under cluster.
       nextParent = clusterAncestor(id);
     }
 

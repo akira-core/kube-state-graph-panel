@@ -34,18 +34,24 @@ describe('deriveLegendKinds', () => {
     expect(deriveLegendKinds(els, NONE)).toEqual(['node']);
   });
 
-  it('swaps storageclass ⇄ pvc on collapse: expanded shows pvc, collapsed shows storageclass', () => {
+  it('swaps netapp-node ⇄ netapp-aggr on collapse: expanded shows the aggregates, collapsed the controller', () => {
+    // The one tier where a REAL kind-ful node is a compound parent, so it must behave like
+    // any other container here: dropped from the legend while expanded, glyph while folded.
     const els = [
-      node({ id: 'cluster/prod', isCluster: true }),
-      node({ id: 'prod/storageclass/fast-ssd', kind: 'storageclass', isStorageClass: true, parent: 'cluster/prod' }),
-      node({ id: 'pvc/a', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' }),
-      node({ id: 'pvc/b', kind: 'pvc', parent: 'prod/storageclass/fast-ssd' }),
+      node({ id: 'storage-cluster/ontap-prod', isStorageCluster: true }),
+      node({
+        id: 'netapp/ontap-prod/ontap-prod-01',
+        kind: 'netapp-node',
+        parent: 'storage-cluster/ontap-prod',
+      }),
+      node({ id: 'netapp/ontap-prod/aggr/a1', kind: 'netapp-aggr', parent: 'netapp/ontap-prod/ontap-prod-01' }),
+      node({ id: 'netapp/ontap-prod/aggr/a2', kind: 'netapp-aggr', parent: 'netapp/ontap-prod/ontap-prod-01' }),
     ];
-    // Expanded: storageclass is a container (dropped), its PVCs are visible leaves.
-    expect(deriveLegendKinds(els, NONE)).toEqual(['pvc']);
-    // Collapsed: PVCs are aggregated away (collapsed ancestor) → pvc drops; the
-    // collapsed storageclass renders its glyph → storageclass takes pvc's place.
-    expect(deriveLegendKinds(els, new Set(['prod/storageclass/fast-ssd']))).toEqual(['storageclass']);
+    // Expanded: netapp-node is a container (dropped), its aggregates are visible leaves.
+    expect(deriveLegendKinds(els, NONE)).toEqual(['netapp-aggr']);
+    // Collapsed: aggregates are aggregated away (collapsed ancestor) → netapp-aggr drops;
+    // the collapsed controller renders its glyph → netapp-node takes its place.
+    expect(deriveLegendKinds(els, new Set(['netapp/ontap-prod/ontap-prod-01']))).toEqual(['netapp-node']);
   });
 
   it('drops children of a collapsed K8s node and shows the node kind instead', () => {

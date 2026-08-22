@@ -65,20 +65,26 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
   ),
   // CronJob: a clock — "scheduled job".
   cronjob: icon('<circle cx="12" cy="12" r="8"/><polyline points="12,7.5 12,12 15.5,14"/>'),
-  // StorageClass: a database cylinder with two internal layer lines — one clean
-  // shape (continuous side walls, unlike the earlier disjoint-tiers version) that
-  // reads as "a class/tier of storage", distinct from the single-segment pvc
-  // cylinder. Only ever drawn when the group is COLLAPSED (an expanded storageclass
-  // box is a labelled container with no icon, like a K8s node container — see
-  // getStylesheet's node:parent rule).
-  storageclass: icon(
+  // NetApp aggregate: a database cylinder with two internal layer lines — the pooled
+  // disks a FlexVol lands on, distinct from the single-segment pvc cylinder. Always a
+  // leaf glyph (an aggregate has no children). Inherits the retired storageclass shape,
+  // which occupied the same Storage slot.
+  'netapp-aggr': icon(
     '<ellipse cx="12" cy="5.5" rx="7" ry="2.4"/><path d="M5 5.5 v13 a7 2.4 0 0 0 14 0 V5.5"/><path d="M5 9.8 a7 2.4 0 0 0 14 0"/><path d="M5 14.1 a7 2.4 0 0 0 14 0"/>'
+  ),
+  // NetApp controller: a rack chassis (outer case + two drive bays + status LED) —
+  // deliberately rectilinear so it reads apart from the two Storage cylinders (pvc,
+  // netapp-aggr) at legend size. It is a REAL node that is also a compound parent, so
+  // this glyph is drawn only when COLLAPSED (expanded it is a labelled container with
+  // no icon, like a K8s node container — see getStylesheet's node:parent rule).
+  'netapp-node': icon(
+    '<rect x="3" y="6" width="18" height="12" rx="1.6"/><line x1="6.4" y1="9.6" x2="13" y2="9.6"/><line x1="6.4" y1="14.4" x2="13" y2="14.4"/><circle cx="17.6" cy="9.6" r="1.1"/>'
   ),
   // Virtual switch-fabric group, drawn as a wifi mark (three arcs + dot): reads
   // as "the network". Only ever drawn when the group is COLLAPSED (expanded it
   // is a labelled container with no icon). Legend follows deriveLegendKinds:
   // collapsing the group swaps `switch` → `network` in the node-kinds legend,
-  // like storageclass ⇄ pvc.
+  // like netapp-node ⇄ netapp-aggr.
   network: icon(
     '<path d="M3.5 11.5 a12 12 0 0 1 17 0 M6.5 14.5 a7.8 7.8 0 0 1 11 0 M9.4 17.3 a3.7 3.7 0 0 1 5.2 0"/><circle cx="12" cy="19.8" r="1.1"/>'
   ),
@@ -88,7 +94,7 @@ export const ICON_SVG_BY_KIND: Record<NodeKind, string> = {
 // These synthetic groups are NOT `NodeKind`s, so this lives outside ICON_SVG_BY_KIND;
 // getStylesheet paints it (tinted by the group's accent) only on the collapsed-node
 // selectors. A folded decorative group is otherwise an icon-less coloured box —
-// kind-ful compounds (controller / node / storageclass) already revert to their kind
+// kind-ful compounds (controller / node / netapp-node) already revert to their kind
 // icon when folded. Classic folder: a tabbed body.
 export const FOLDER_ICON_SVG = icon(
   '<path d="M3.5 6.8 A1.6 1.6 0 0 1 5.1 5.2 H9 a1.2 1.2 0 0 1 .85 .35 L11.4 7.1 a1.2 1.2 0 0 0 .85 .35 H18.9 A1.6 1.6 0 0 1 20.5 9.05 V17.4 A1.6 1.6 0 0 1 18.9 19 H5.1 A1.6 1.6 0 0 1 3.5 17.4 Z"/>'

@@ -4,6 +4,8 @@
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
+    "fixture:build": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON dev/buildFixtureDashboard.mjs",
+    "fixture:check": "npm run fixture:build -- --check",
     "test": "jest --watch --onlyChanged",
     "test:ci": "jest --passWithNoTests --maxWorkers 4",
     "typecheck": "tsc --noEmit",
@@ -11,7 +13,6 @@
     "lint:fix": "eslint --cache --fix . && prettier --write .",
     "format": "prettier --write .",
     "e2e": "playwright test",
-    "server": "docker compose --profile backend up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest",
     "init-hooks": "git config core.hooksPath .githooks",
     "prepare": "git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks || true"

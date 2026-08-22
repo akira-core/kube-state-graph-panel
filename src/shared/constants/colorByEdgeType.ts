@@ -30,7 +30,7 @@ export const EDGE_ENDPOINTS_BY_TYPE: Record<EdgeType, EdgeEndpoints> = {
   'pod-calls-pod': { from: 'pod', to: 'pod' },
   'pod-calls-service': { from: 'pod', to: 'service' },
   'service-selects-pod': { from: 'service', to: 'pod' },
-  'pvc-to-storageclass': { from: 'pvc', to: 'storageclass' },
+  'pvc-to-netapp-aggr': { from: 'pvc', to: 'netapp-aggr' },
   'switch-to-switch': { from: 'switch', to: 'switch' },
   'node-to-switch': { from: 'node', to: 'switch' },
 };
@@ -52,7 +52,7 @@ export const EDGE_IS_TRAFFIC_BY_TYPE: Record<EdgeType, boolean> = {
   'service-selects-pod': true,
   'pod-to-node': false,
   'pod-mounts-pvc': false,
-  'pvc-to-storageclass': false,
+  'pvc-to-netapp-aggr': false,
   'switch-to-switch': false,
   'node-to-switch': false,
 };
@@ -105,10 +105,11 @@ export const EDGE_STYLE_BY_TYPE: Record<EdgeType, EdgeStyle> = {
   // indigo; unified to the pod-calls-pod colour per the "still pod-to-pod" model.)
   'pod-calls-service': { color: '#f97316', lineStyle: 'solid', routing: 'bezier' },
   'service-selects-pod': { color: '#f97316', lineStyle: 'solid', routing: 'bezier' },
-  // PVC → StorageClass (backend D6). Violet (#8b5cf6), DELIBERATELY distinct from
-  // pod-mounts-pvc's #a855f7 so the two storage edges read apart; not the reserved
-  // status red, and clear of node-edge blue / service orange.
-  'pvc-to-storageclass': { color: '#8b5cf6', lineStyle: 'solid', routing: 'bezier' },
+  // PVC → NetApp aggregate: the claim's physical landing spot. Violet (#8b5cf6),
+  // DELIBERATELY distinct from pod-mounts-pvc's #a855f7 so the two storage edges read
+  // apart; not the reserved status red, and clear of node-edge blue / service orange.
+  // Inherits both the colour and the position of the retired pvc-to-storageclass.
+  'pvc-to-netapp-aggr': { color: '#8b5cf6', lineStyle: 'solid', routing: 'bezier' },
   // Physical network fabric (backend v0.0.18). Both switch↔switch and node→switch
   // share the cyan infra colour + taxi routing — separating them by colour added
   // confusion without benefit now that direction is already conveyed by arrowhead.

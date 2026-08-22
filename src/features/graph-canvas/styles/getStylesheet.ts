@@ -11,6 +11,7 @@ import { STATUS_COLOR } from '../../../shared/constants/colorByStatus';
 import { EDGE_RELATION_TRANSPORT } from '../../../shared/constants/edgeRelation';
 import { FOLDER_ICON_SVG, iconSvgForKind } from '../../../shared/constants/iconSvgByKind';
 import type { EdgeType, NodeKind } from '../../../shared/constants/types';
+import { paintUsageLiquid } from '../../../shared/icon/paintUsageLiquid';
 import { tintSvgToDataUri } from '../../../shared/icon/tintSvgToDataUri';
 import { themeColors } from '../../../shared/theme/themeColors';
 import type { CyStylesheet } from '../hooks/useCytoscape';
@@ -28,8 +29,11 @@ const NODE_SIZE = 40;
 // exclusive by construction, since a single hook decides which lit set applies.
 export const FADED_CLASS = 'ksg-faded';
 
-function resolveIconUri(kind: string | undefined, iconColor: string): string {
-  return tintSvgToDataUri(iconSvgForKind(kind), iconColor);
+function resolveIconUri(kind: string | undefined, iconColor: string, usageRatio?: number): string {
+  const raw = iconSvgForKind(kind);
+  const painted =
+    usageRatio !== undefined && Number.isFinite(usageRatio) ? paintUsageLiquid(raw, usageRatio, kind) : raw;
+  return tintSvgToDataUri(painted, iconColor);
 }
 
 // Title-case each whitespace-separated word ("physical network" → "Physical Network").
@@ -43,6 +47,7 @@ function titleCaseWords(text: string): string {
 // name (tooltip / identity); only the canvas stylesheet paints `${PREFIX}: ${name}`.
 const GROUP_LABEL_PREFIX = {
   cluster: 'Cluster',
+  storageCluster: 'Storage',
   namespace: 'Namespace',
   application: 'Release Unit',
 } as const;
@@ -124,7 +129,7 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
   // fall back to (unlike kind-ful compounds, which revert to their kind glyph when folded),
   // so a folded one would be a blank coloured box. Paint a folder glyph tinted by the
   // group's accent. These 2-condition selectors out-specify the 1-condition
-  // node[?isCluster|isNamespace|isApplication] `background-image: 'none'` rules, so the
+  // node[?isCluster|isStorageCluster|isNamespace|isApplication] `background-image: 'none'` rules, so the
   // folder shows ONLY when collapsed. See compound-parent-collapse-cue.
   const folderIcon = (color: unknown): string =>
     tintSvgToDataUri(FOLDER_ICON_SVG, typeof color === 'string' ? color : iconColor);
@@ -133,6 +138,7 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       ['node[?isCluster].cy-expand-collapse-collapsed-node', 'clusterColor'],
       ['node[?isNamespace].cy-expand-collapse-collapsed-node', 'namespaceColor'],
       ['node[?isApplication].cy-expand-collapse-collapsed-node', 'applicationColor'],
+      ['node[?isStorageCluster].cy-expand-collapse-collapsed-node', 'storageClusterColor'],
     ] as const
   ).map(([selector, colorKey]) => ({
     selector,
@@ -154,8 +160,12 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
       style: {
         shape: 'round-rectangle',
         'background-color': bgColor,
-        'background-image': ((ele: cytoscape.NodeSingular): string =>
-          resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor)) as unknown as string,
+        'background-image': ((ele: cytoscape.NodeSingular): string => {
+          const ratio = ele.data('usageRatio') as unknown;
+          return typeof ratio === 'number'
+            ? resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor, ratio)
+            : resolveIconUri(ele.data('kind') as NodeKind | undefined, iconColor);
+        }) as unknown as string,
         'background-fit': 'contain',
         'background-clip': 'none',
         'background-image-opacity': 1,
@@ -220,6 +230,32 @@ export function getStylesheet({ theme, colorMap = EDGE_STYLE_BY_TYPE }: GetStyle
         // Render-only kind prefix — data.label stays bare for tooltip / identity.
         label: prefixedLabel(GROUP_LABEL_PREFIX.cluster),
         color: 'data(clusterColor)',
+        'font-size': 18,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -4,
+        padding: '18px',
+      },
+    },
+    {
+      // ONTAP cluster box (`storage-cluster`), accent in data(storageClusterColor). A
+      // top-level sibling of the K8s cluster box — same decorative treatment, deliberately
+      // its own accent so the two never read as the same kind of thing. Its children are
+      // REAL nodes (netapp-node > netapp-aggr), unlike the workload groups.
+      selector: 'node[?isStorageCluster]',
+      style: {
+        shape: 'round-rectangle',
+        // No resource icon (base mapper would otherwise paint the fallback glyph).
+        'background-image': 'none',
+        'background-color': 'data(storageClusterColor)',
+        'background-opacity': 0.07,
+        'border-color': 'data(storageClusterColor)',
+        'border-width': 1.5,
+        'border-opacity': 0.5,
+        // Render-only kind prefix — data.label stays bare for tooltip / identity.
+        label: prefixedLabel(GROUP_LABEL_PREFIX.storageCluster),
+        color: 'data(storageClusterColor)',
         'font-size': 18,
         'font-weight': 600,
         'text-valign': 'top',

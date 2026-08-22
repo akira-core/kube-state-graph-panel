@@ -21,10 +21,11 @@ export interface NodeDetailData {
   alerts?: NodeAlert[]; // node's alerts; absent/empty → Alerts section not rendered
   application?: string; // ArgoCD application (pod passthrough / controller aggregate)
   containers?: ContainerSpec[]; // pod containers / controller (name,image)-deduped union
-  // StorageClass leaf structural fields (backend D6). Now surfaced via `attributes`
-  // (provisioner + parameters are promoted attrs); kept here for resolve-time use.
-  provisioner?: string;
-  parameters?: Record<string, string>;
+  // Storage facts on a pvc / netapp-aggr / netapp-node. Surfaced via `attributes` (they
+  // are promoted rows); kept here for resolve-time use.
+  storageclass?: string;
+  health?: string;
+  usage?: { usedBytes?: number; capacityBytes?: number };
   // Controller identity both detail-URL queries use (design D4): a pod resolves
   // it from data.owner, a controller from itself, a standalone pod from its own
   // kind/name. Present only on the DETAIL_URL_KINDS the queries may fire for.

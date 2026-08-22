@@ -582,7 +582,7 @@ describe('normalizeGraph', () => {
   });
 
   // ── New backend edges pass through (D6) ──
-  it('maps the new backend edges pod-to-node and pvc-to-storageclass (not the unknown fallback)', () => {
+  it('maps the new backend edges pod-to-node and pvc-to-netapp-aggr (not the unknown fallback)', () => {
     const raw = {
       elements: {
         nodes: [
@@ -590,11 +590,20 @@ describe('normalizeGraph', () => {
           { data: { id: 'prod/node-a', type: 'node', name: 'node-a', parent: 'cluster/prod' } },
           { data: { id: 'prod/p1', type: 'pod', name: 'p1', parent: 'cluster/prod', labels: { node: 'prod/node-a' } } },
           { data: { id: 'prod/pvc1', type: 'pvc', name: 'pvc1', parent: 'cluster/prod' } },
-          { data: { id: 'prod/storageclass/gp3', type: 'storageclass', name: 'gp3', parent: 'cluster/prod' } },
+          {
+            data: {
+              id: 'netapp/ontap-prod/aggr/aggr1',
+              type: 'netapp-aggr',
+              name: 'aggr1',
+              labels: { ontap_cluster: 'ontap-prod', node: 'ontap-prod-01' },
+            },
+          },
         ],
         edges: [
           { data: { id: 'e1', type: 'pod-to-node', source: 'prod/p1', target: 'prod/node-a' } },
-          { data: { id: 'e2', type: 'pvc-to-storageclass', source: 'prod/pvc1', target: 'prod/storageclass/gp3' } },
+          {
+            data: { id: 'e2', type: 'pvc-to-netapp-aggr', source: 'prod/pvc1', target: 'netapp/ontap-prod/aggr/aggr1' },
+          },
         ],
       },
     };
@@ -603,11 +612,11 @@ describe('normalizeGraph', () => {
     const edges = elements.filter((e) => e.group === 'edges');
     expect(edges.map((e) => (e.data as cytoscape.EdgeDataDefinition).edgeType).sort()).toEqual([
       'pod-to-node',
-      'pvc-to-storageclass',
+      'pvc-to-netapp-aggr',
     ]);
   });
 
-  it('does not invent a pvc-to-storageclass edge for a PVC with no resolved storageclass', () => {
+  it('does not invent a pvc-to-netapp-aggr edge for a PVC that joined no aggregate', () => {
     const raw = {
       elements: {
         nodes: [
@@ -621,95 +630,212 @@ describe('normalizeGraph', () => {
     expect(elements.some((e) => e.group === 'edges')).toBe(false);
   });
 
-  // ── StorageClass is now a LEAF (D3) ──
-  describe('storageclass leaf', () => {
+  // ── The physical NetApp storage chain ──
+  describe('netapp storage nodes', () => {
     const byId = (raw: unknown): Map<string, cytoscape.NodeDataDefinition> =>
       new Map(normalizeGraph(raw).elements.map((e) => [e.data.id as string, e.data as cytoscape.NodeDataDefinition]));
 
-    it('normalizes as a kind:storageclass leaf with provisioner/parameters, no isStorageClass, no status', () => {
+    const netappGraph = (aggrData: Record<string, unknown>, nodeData: Record<string, unknown> = {}): unknown => ({
+      elements: {
+        nodes: [
+          { data: { id: 'storage-cluster/ontap-prod', type: 'storage-cluster', name: 'ontap-prod' } },
+          {
+            data: {
+              id: 'netapp/ontap-prod/ontap-prod-01',
+              type: 'netapp-node',
+              name: 'ontap-prod-01',
+              parent: 'storage-cluster/ontap-prod',
+              labels: { ontap_cluster: 'ontap-prod' },
+              ...nodeData,
+            },
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/aggr/aggr1',
+              type: 'netapp-aggr',
+              name: 'aggr1',
+              parent: 'netapp/ontap-prod/ontap-prod-01',
+              labels: { ontap_cluster: 'ontap-prod', node: 'ontap-prod-01' },
+              ...aggrData,
+            },
+          },
+        ],
+        edges: [],
+      },
+    });
+
+    it('normalizes a netapp-aggr leaf with health, usage and a derived usageRatio', () => {
+      const aggr = byId(netappGraph({ health: 'online', usage: { used_bytes: 7e11, capacity_bytes: 1e12 } })).get(
+        'netapp/ontap-prod/aggr/aggr1'
+      ) as Record<string, unknown> | undefined;
+      expect(aggr?.kind).toBe('netapp-aggr');
+      expect(aggr?.health).toBe('online');
+      expect(aggr?.usage).toEqual({ usedBytes: 7e11, capacityBytes: 1e12 });
+      expect(aggr?.usageRatio).toBeCloseTo(0.7);
+      expect(aggr?.status).toBeUndefined();
+      // Its parent is a REAL node, not a decorative group — nesting comes straight from
+      // the backend's data.parent and the panel assigns no identity of its own.
+      expect(aggr?.parent).toBe('netapp/ontap-prod/ontap-prod-01');
+      expect(aggr?.label).toBe('aggr1');
+    });
+
+    it('keeps netapp-node a kind-ful selectable node even though it is a compound parent', () => {
+      const els = normalizeGraph(netappGraph({}, { health: 'degraded' })).elements;
+      const node = els.find((e) => e.data.id === 'netapp/ontap-prod/ontap-prod-01');
+      expect((node?.data as Record<string, unknown>).kind).toBe('netapp-node');
+      expect((node?.data as Record<string, unknown>).health).toBe('degraded');
+      // selectable is only ever set (to false) on the decorative groups.
+      expect(node?.selectable).toBeUndefined();
+    });
+
+    it('normalizes storage-cluster as a non-selectable decorative group (never a K8s cluster)', () => {
+      const els = normalizeGraph(netappGraph({})).elements;
+      const group = els.find((e) => e.data.id === 'storage-cluster/ontap-prod');
+      const data = group?.data as Record<string, unknown>;
+      expect(data.isStorageCluster).toBe(true);
+      expect(data.storageCluster).toBe('ontap-prod');
+      expect(typeof data.storageClusterColor).toBe('string');
+      expect(data.kind).toBeUndefined();
+      // NOT flagged as a K8s cluster: that flag drives the Clusters legend/palette.
+      expect(data.isCluster).toBeUndefined();
+      expect(group?.selectable).toBe(false);
+    });
+
+    it('passes an unknown health value through rather than dropping or normalizing it', () => {
+      const aggr = byId(netappGraph({ health: 'rebuilding' })).get('netapp/ontap-prod/aggr/aggr1') as
+        | Record<string, unknown>
+        | undefined;
+      expect(aggr?.health).toBe('rebuilding');
+    });
+
+    it('omits health entirely when absent — never defaults it to degraded', () => {
+      const aggr = byId(netappGraph({})).get('netapp/ontap-prod/aggr/aggr1') as Record<string, unknown> | undefined;
+      expect(aggr !== undefined && 'health' in aggr).toBe(false);
+    });
+
+    it.each([
+      ['capacity only', { capacity_bytes: 1000 }, { capacityBytes: 1000 }],
+      ['used only', { used_bytes: 400 }, { usedBytes: 400 }],
+      ['one half invalid', { used_bytes: 'lots', capacity_bytes: 1000 }, { capacityBytes: 1000 }],
+      ['negative used', { used_bytes: -1, capacity_bytes: 1000 }, { capacityBytes: 1000 }],
+    ])('keeps a partial usage reading (%s) and derives no ratio from it', (_label, usage, expected) => {
+      const aggr = byId(netappGraph({ usage })).get('netapp/ontap-prod/aggr/aggr1') as
+        | Record<string, unknown>
+        | undefined;
+      expect(aggr?.usage).toEqual(expected);
+      expect(aggr !== undefined && 'usageRatio' in aggr).toBe(false);
+    });
+
+    it('derives no ratio when capacity is zero (never divides by it)', () => {
+      const aggr = byId(netappGraph({ usage: { used_bytes: 0, capacity_bytes: 0 } })).get(
+        'netapp/ontap-prod/aggr/aggr1'
+      ) as Record<string, unknown> | undefined;
+      expect(aggr?.usage).toEqual({ usedBytes: 0, capacityBytes: 0 });
+      expect(aggr !== undefined && 'usageRatio' in aggr).toBe(false);
+    });
+
+    it('clamps a ratio above 1 (used can legitimately exceed capacity)', () => {
+      const aggr = byId(netappGraph({ usage: { used_bytes: 1200, capacity_bytes: 1000 } })).get(
+        'netapp/ontap-prod/aggr/aggr1'
+      ) as Record<string, unknown> | undefined;
+      expect(aggr?.usageRatio).toBe(1);
+    });
+
+    it.each([
+      ['a string', 'lots'],
+      ['an array', [1, 2]],
+      ['null', null],
+    ])('drops a usage that is %s outright, keeping the rest of the node', (_label, usage) => {
+      const aggr = byId(netappGraph({ usage })).get('netapp/ontap-prod/aggr/aggr1') as
+        | Record<string, unknown>
+        | undefined;
+      expect(aggr?.kind).toBe('netapp-aggr');
+      expect(aggr !== undefined && 'usage' in aggr).toBe(false);
+      expect(aggr !== undefined && 'usageRatio' in aggr).toBe(false);
+    });
+
+    it('gives a PVC the same usage treatment as an aggregate, plus its storageclass name', () => {
       const raw = {
         elements: {
           nodes: [
-            { data: { id: 'cluster/prod', type: 'cluster', name: 'prod' } },
             {
               data: {
-                id: 'prod/storageclass/fast-ssd',
-                type: 'storageclass',
-                name: 'fast-ssd',
-                parent: 'cluster/prod',
-                provisioner: 'rook-ceph.rbd.csi.ceph.com',
-                parameters: { pool: 'kube', fs: 'ext4' },
+                id: 'prod/db/data-0',
+                type: 'pvc',
+                name: 'data-0',
+                storageclass: 'netapp-nas',
+                usage: { used_bytes: 5368709120, capacity_bytes: 10737418240 },
+                labels: { cluster: 'prod', namespace: 'db' },
               },
             },
           ],
           edges: [],
         },
       };
-      const sc = byId(raw).get('prod/storageclass/fast-ssd') as Record<string, unknown> | undefined;
-      expect(sc?.kind).toBe('storageclass');
-      expect(sc?.provisioner).toBe('rook-ceph.rbd.csi.ceph.com');
-      expect(sc?.parameters).toEqual({ pool: 'kube', fs: 'ext4' });
-      expect(sc !== undefined && 'isStorageClass' in sc).toBe(false);
-      expect(sc?.status).toBeUndefined();
-      expect(sc?.isCluster).toBeUndefined();
-      expect(sc?.parent).toBe('cluster/prod');
-      expect(sc?.label).toBe('fast-ssd');
+      const pvc = byId(raw).get('prod/db/data-0') as Record<string, unknown> | undefined;
+      expect(pvc?.storageclass).toBe('netapp-nas');
+      expect(pvc?.usage).toEqual({ usedBytes: 5368709120, capacityBytes: 10737418240 });
+      expect(pvc?.usageRatio).toBeCloseTo(0.5);
+      // The name is a plain attribute — no storageclass node or edge is invented for it.
+      expect(normalizeGraph(raw).elements.some((e) => e.group === 'edges')).toBe(false);
     });
 
-    it('omits provisioner / parameters for a bare (referenced-but-undefined) storageclass', () => {
-      const raw = {
-        elements: {
-          nodes: [{ data: { id: 'prod/storageclass/bare', type: 'storageclass', name: 'bare' } }],
-          edges: [],
-        },
-      };
-      const sc = byId(raw).get('prod/storageclass/bare') as Record<string, unknown> | undefined;
-      expect(sc?.kind).toBe('storageclass');
-      expect(sc !== undefined && 'provisioner' in sc).toBe(false);
-      expect(sc !== undefined && 'parameters' in sc).toBe(false);
+    it('omits storageclass when the backend sent none', () => {
+      const raw = { elements: { nodes: [{ data: { id: 'prod/db/x', type: 'pvc', name: 'x' } }], edges: [] } };
+      const pvc = byId(raw).get('prod/db/x') as Record<string, unknown> | undefined;
+      expect(pvc !== undefined && 'storageclass' in pvc).toBe(false);
+    });
+  });
+
+  // The K8s node's Ready condition — a THIRD status axis, independent of the panel's own
+  // `status` (alert severity) and `worstStatus` (what a collapsed box hides).
+  describe('K8s node ready_status', () => {
+    const withReadyStatus = (readyStatus: unknown): Record<string, unknown> | undefined => {
+      const data: Record<string, unknown> = { id: 'prod/worker-0', type: 'node', name: 'worker-0' };
+      if (readyStatus !== undefined) {
+        data.ready_status = readyStatus;
+      }
+      const { elements } = normalizeGraph({ elements: { nodes: [{ data }], edges: [] } });
+      return elements.find((e) => e.data.id === 'prod/worker-0')?.data;
+    };
+
+    it.each(['Ready', 'NotReady', 'Unknown'])('carries %s through under the panel field name', (value) => {
+      expect(withReadyStatus(value)?.readyStatus).toBe(value);
     });
 
-    it('drops only the non-string parameter entries, keeping the valid ones (and the rest of the node)', () => {
-      const raw = {
-        elements: {
-          nodes: [
-            {
-              data: {
-                id: 'prod/storageclass/sc',
-                type: 'storageclass',
-                name: 'sc',
-                provisioner: 'csi',
-                parameters: { pool: 'kube', bad: 7 }, // non-string value → only 'bad' dropped
-              },
-            },
-          ],
-          edges: [],
-        },
-      };
-      const sc = byId(raw).get('prod/storageclass/sc') as Record<string, unknown> | undefined;
-      expect(sc?.provisioner).toBe('csi');
-      expect(sc?.parameters).toEqual({ pool: 'kube' });
+    it('omits the field entirely when the backend sent none — absence is NOT Unknown', () => {
+      // The backend reserves the literal "Unknown" for the genuine Kubernetes state where
+      // the kubelet stopped reporting. A node whose Ready condition was never scraped must
+      // stay blank, or a monitoring gap would render as a cluster-wide kubelet outage.
+      const node = withReadyStatus(undefined);
+      expect(node !== undefined && 'readyStatus' in node).toBe(false);
     });
 
-    it('drops the whole parameters map only when every entry fails the string-record shape', () => {
-      const raw = {
-        elements: {
-          nodes: [
-            {
-              data: {
-                id: 'prod/storageclass/sc2',
-                type: 'storageclass',
-                name: 'sc2',
-                provisioner: 'csi',
-                parameters: { bad: 7 },
-              },
-            },
-          ],
-          edges: [],
-        },
-      };
-      const sc = byId(raw).get('prod/storageclass/sc2') as Record<string, unknown> | undefined;
-      expect(sc !== undefined && 'parameters' in sc).toBe(false);
+    it('omits an empty string rather than rendering a blank row', () => {
+      const node = withReadyStatus('');
+      expect(node !== undefined && 'readyStatus' in node).toBe(false);
+    });
+
+    it('drops a non-string value without sinking the node', () => {
+      const node = withReadyStatus(false);
+      expect(node?.kind).toBe('node');
+      expect(node !== undefined && 'readyStatus' in node).toBe(false);
+    });
+
+    it('passes an unrecognised value through rather than normalizing it away', () => {
+      // Same tolerance as `health`: an upstream that grows a fourth condition value must
+      // surface it, not vanish.
+      expect(withReadyStatus('SchedulingDisabled')?.readyStatus).toBe('SchedulingDisabled');
+    });
+
+    it('leaves the panel status axes untouched', () => {
+      // Ready is Kubernetes' word about the kubelet; `status` / `worstStatus` are the
+      // panel's words about alert severity. A NotReady node with no alerts must colour
+      // exactly as it did before — comparing against the same node WITHOUT ready_status
+      // pins that rather than restating whatever the status default happens to be.
+      const { readyStatus, ...withReady } = withReadyStatus('NotReady') ?? {};
+      expect(readyStatus).toBe('NotReady');
+      expect(withReady).toEqual(withReadyStatus(undefined));
     });
   });
 
@@ -1269,10 +1395,7 @@ describe('normalizeGraph — controller enrichment', () => {
     // hoists the value to a flat `data.relation` — verbatim, no allow-list.
     const withRelation = (relation: unknown): Record<string, unknown> => ({
       elements: {
-        nodes: [
-          { data: { id: 'a', type: 'pod' } },
-          { data: { id: 'b', type: 'service' } },
-        ],
+        nodes: [{ data: { id: 'a', type: 'pod' } }, { data: { id: 'b', type: 'service' } }],
         edges: [
           {
             data: {
@@ -1316,10 +1439,7 @@ describe('normalizeGraph — controller enrichment', () => {
     it('drops a non-string relation without losing its sibling labels', () => {
       const raw = {
         elements: {
-          nodes: [
-            { data: { id: 'a', type: 'pod' } },
-            { data: { id: 'b', type: 'service' } },
-          ],
+          nodes: [{ data: { id: 'a', type: 'pod' } }, { data: { id: 'b', type: 'service' } }],
           edges: [
             {
               data: {
@@ -1346,10 +1466,7 @@ describe('normalizeGraph — edge RED metrics', () => {
   // convert units, round, or fill defaults — the tooltip formats, this layer only carries.
   const withMetrics = (metrics: unknown): Record<string, unknown> => ({
     elements: {
-      nodes: [
-        { data: { id: 'a', type: 'pod' } },
-        { data: { id: 'b', type: 'service' } },
-      ],
+      nodes: [{ data: { id: 'a', type: 'pod' } }, { data: { id: 'b', type: 'service' } }],
       edges: [
         {
           data: {
@@ -1452,8 +1569,9 @@ describe('normalizeGraph — edge RED metrics', () => {
     // The backend rounds to 6 significant digits, so a wide query window legitimately
     // yields values like these. Collapsing them to 0 would read as "no traffic".
     const data = edgeData(withMetrics({ rate: 3.86e-7, error_rate: 6.7e-8 }));
-    expect(data.metrics?.rate).toBe(3.86e-7);
-    expect(data.metrics?.errorRate).toBe(6.7e-8);
+    const metrics = data.metrics as cytoscape.EdgeRedMetrics | undefined;
+    expect(metrics?.rate).toBe(3.86e-7);
+    expect(metrics?.errorRate).toBe(6.7e-8);
   });
 
   it.each([
@@ -1467,5 +1585,137 @@ describe('normalizeGraph — edge RED metrics', () => {
     // would fire it on every edge at once, drowning the warnings it exists for.
     const { errors } = normalizeGraph(withMetrics(metrics));
     expect(errors).toEqual([]);
+  });
+
+  // ── The I/O half of the metrics union (pvc-to-netapp-aggr storage edges) ──
+  describe('storage I/O family', () => {
+    it('carries a full I/O object through under panel field names, with no rate', () => {
+      const data = edgeData(
+        withMetrics({
+          read_ops: 150,
+          write_ops: 40,
+          read_latency_us: 830,
+          write_latency_us: 1200,
+          read_bytes_per_sec: 5242880,
+          write_bytes_per_sec: 1048576,
+        })
+      );
+      expect(data.metrics).toEqual({
+        readOps: 150,
+        writeOps: 40,
+        readLatencyUs: 830,
+        writeLatencyUs: 1200,
+        readBytesPerSec: 5242880,
+        writeBytesPerSec: 1048576,
+      });
+      expect(data.metrics !== undefined && 'rate' in data.metrics).toBe(false);
+    });
+
+    it('keeps each field independently — one bad field does not sink the family', () => {
+      const data = edgeData(withMetrics({ read_ops: 150, write_ops: 'many' }));
+      expect(data.metrics).toEqual({ readOps: 150 });
+    });
+
+    it('leaves values unconverted (Harvest already resolved the counters)', () => {
+      // 830 µs stays 830: the µs→ms threshold belongs to the display layer.
+      // Throughput stays bytes/s — MB/s is a display-layer suffix, not a normalize conversion.
+      const data = edgeData(withMetrics({ read_latency_us: 830, read_bytes_per_sec: 5242880 }));
+      expect(data.metrics).toEqual({ readLatencyUs: 830, readBytesPerSec: 5242880 });
+    });
+
+    it('keeps the I/O family alive from a throughput field alone', () => {
+      expect(edgeData(withMetrics({ read_bytes_per_sec: 5242880 })).metrics).toEqual({
+        readBytesPerSec: 5242880,
+      });
+      expect(edgeData(withMetrics({ write_bytes_per_sec: 12 })).metrics).toEqual({ writeBytesPerSec: 12 });
+    });
+
+    it.each([
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['non-numeric', 'fast'],
+    ])('drops only an unusable throughput field (%s) without sinking siblings', (_label, bad) => {
+      const data = edgeData(withMetrics({ read_ops: 150, read_bytes_per_sec: bad, write_bytes_per_sec: 12 }));
+      expect(data.metrics).toEqual({ readOps: 150, writeBytesPerSec: 12 });
+    });
+
+    it('drops the object when no I/O field survives', () => {
+      const data = edgeData(withMetrics({ read_ops: 'lots', write_ops: Number.NaN }));
+      expect('metrics' in data).toBe(false);
+    });
+
+    it('lets a present-but-invalid rate still discard everything (RED ordering is unchanged)', () => {
+      // The union only reroutes a WHOLLY ABSENT rate. A malformed rate is a malformed RED
+      // object, and its I/O-looking neighbours must not resurrect it as a storage reading.
+      const data = edgeData(withMetrics({ rate: 'fast', read_ops: 150 }));
+      expect('metrics' in data).toBe(false);
+    });
+
+    it('prefers RED when both families somehow arrive, never emitting a mixed object', () => {
+      const data = edgeData(withMetrics({ rate: 5, read_ops: 150 }));
+      expect(data.metrics).toEqual({ rate: 5 });
+    });
+
+    it('never reports an I/O problem through the errors channel', () => {
+      const { errors } = normalizeGraph(withMetrics({ read_ops: 'lots' }));
+      expect(errors).toEqual([]);
+    });
+
+    // ── The QoS ceilings, which ride the policy-group families rather than the workload ones ──
+    describe('QoS ceilings', () => {
+      it('carries both ceilings through alongside the measurements', () => {
+        const data = edgeData(
+          withMetrics({
+            read_ops: 150,
+            write_ops: 40,
+            read_latency_us: 830,
+            write_latency_us: 1200,
+            read_bytes_per_sec: 5242880,
+            write_bytes_per_sec: 1048576,
+            max_iops: 5000,
+            max_bytes_per_sec: 104857600,
+          })
+        );
+        expect(data.metrics).toEqual({
+          readOps: 150,
+          writeOps: 40,
+          readLatencyUs: 830,
+          writeLatencyUs: 1200,
+          readBytesPerSec: 5242880,
+          writeBytesPerSec: 1048576,
+          maxIops: 5000,
+          maxBytesPerSec: 104857600,
+        });
+      });
+
+      it('leaves a volume in no policy group uncapped rather than defaulting a ceiling', () => {
+        // Absence means "no declared ceiling" — never 0, never an unlimited sentinel.
+        const data = edgeData(withMetrics({ read_ops: 150, read_bytes_per_sec: 5242880 }));
+        expect(data.metrics).toEqual({ readOps: 150, readBytesPerSec: 5242880 });
+      });
+
+      it.each([
+        ['NaN', Number.NaN],
+        ['Infinity', Number.POSITIVE_INFINITY],
+        ['non-numeric', 'unlimited'],
+      ])('drops only the unusable ceiling (%s), keeping its sibling and the measurements', (_label, bad) => {
+        const data = edgeData(withMetrics({ read_ops: 150, max_iops: bad, max_bytes_per_sec: 104857600 }));
+        expect(data.metrics).toEqual({ readOps: 150, maxBytesPerSec: 104857600 });
+      });
+
+      it('keeps the I/O family alive from a ceiling alone', () => {
+        // The backend owns the "a ceiling never appears alone" invariant; normalize must not
+        // re-enforce it, or a contract it does not control could silently sink the object.
+        expect(edgeData(withMetrics({ max_iops: 5000 })).metrics).toEqual({ maxIops: 5000 });
+        expect(edgeData(withMetrics({ max_bytes_per_sec: 104857600 })).metrics).toEqual({
+          maxBytesPerSec: 104857600,
+        });
+      });
+
+      it('passes the throughput ceiling through unconverted (the backend already left Harvest MB/s)', () => {
+        const data = edgeData(withMetrics({ max_bytes_per_sec: 104857600 }));
+        expect(data.metrics).toEqual({ maxBytesPerSec: 104857600 });
+      });
+    });
   });
 });

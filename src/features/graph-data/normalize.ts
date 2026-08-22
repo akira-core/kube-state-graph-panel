@@ -7,6 +7,7 @@ import { isTrafficEdgeType } from '../../shared/constants/colorByEdgeType';
 import { FALLBACK_STATUS } from '../../shared/constants/colorByStatus';
 import { RELATION_LABEL_KEY } from '../../shared/constants/edgeRelation';
 import { NAMESPACE_COLOR } from '../../shared/constants/namespacePalette';
+import { STORAGE_CLUSTER_COLOR } from '../../shared/constants/storageClusterPalette';
 import type { GraphNodeKind, NodeAlert, NodeStatus } from '../../shared/constants/types';
 import { collectIngressNodeIds } from '../../shared/graph/collectIngressNodeIds';
 import { isPlainObject } from '../../shared/guards/isPlainObject';
@@ -66,8 +67,22 @@ function isFiniteNumber(v: unknown): v is number {
 // Failures are deliberately NOT reported through normalizeGraph's `errors` (D3): that
 // channel drives a "topology may be incomplete" banner, and RED is decorative — an
 // upstream regression would fire it on every edge at once and drown the real warnings.
+// `metrics` is a union of two families the backend never mixes: RED on a trace-derived
+// call edge, storage I/O on a `pvc-to-netapp-aggr` edge. `rate` discriminates them — it is
+// required within RED and absent from I/O.
+//
+// The ordering is load-bearing. A PRESENT-but-invalid `rate` still discards the whole
+// object (RED without a usable rate is meaningless), preserving the pre-union behaviour
+// byte-for-byte; only a wholly ABSENT `rate` falls through to the I/O parser. So no
+// existing RED case changes, and a storage edge is no longer silently dropped.
 function parseEdgeMetrics(v: unknown): cytoscape.EdgeMetrics | undefined {
-  if (!isPlainObject(v) || !isFiniteNumber(v.rate)) {
+  if (!isPlainObject(v)) {
+    return undefined;
+  }
+  if (v.rate === undefined) {
+    return parseIoMetrics(v);
+  }
+  if (!isFiniteNumber(v.rate)) {
     return undefined;
   }
   const { error_rate: errorRate, p90_server_ms: p90ServerMs } = v;
@@ -80,6 +95,38 @@ function parseEdgeMetrics(v: unknown): cytoscape.EdgeMetrics | undefined {
   };
 }
 
+// The storage half. Every field rides its own upstream Harvest series family, so each is
+// kept or dropped independently and absence is never padded to 0. Values are verbatim —
+// Harvest has already resolved ONTAP's base counters, so these are not rates to derive.
+// Returns undefined when nothing survives, so the edge simply carries no `metrics`.
+function parseIoMetrics(v: Record<string, unknown>): cytoscape.EdgeIoMetrics | undefined {
+  const {
+    read_ops: readOps,
+    write_ops: writeOps,
+    read_latency_us: readLatencyUs,
+    write_latency_us: writeLatencyUs,
+    read_bytes_per_sec: readBytesPerSec,
+    write_bytes_per_sec: writeBytesPerSec,
+    max_iops: maxIops,
+    max_bytes_per_sec: maxBytesPerSec,
+  } = v;
+  const io: cytoscape.EdgeIoMetrics = {
+    ...(isFiniteNumber(readOps) ? { readOps } : {}),
+    ...(isFiniteNumber(writeOps) ? { writeOps } : {}),
+    ...(isFiniteNumber(readLatencyUs) ? { readLatencyUs } : {}),
+    ...(isFiniteNumber(writeLatencyUs) ? { writeLatencyUs } : {}),
+    ...(isFiniteNumber(readBytesPerSec) ? { readBytesPerSec } : {}),
+    ...(isFiniteNumber(writeBytesPerSec) ? { writeBytesPerSec } : {}),
+    // The ceilings ride the policy-group families, so a volume in no group carries
+    // measurements and no ceiling. Either one alone still keeps the family alive: "a
+    // ceiling never appears alone" is the BACKEND's invariant, and re-enforcing a
+    // contract this layer does not own would let an upstream change silently drop data.
+    ...(isFiniteNumber(maxIops) ? { maxIops } : {}),
+    ...(isFiniteNumber(maxBytesPerSec) ? { maxBytesPerSec } : {}),
+  };
+  return Object.keys(io).length > 0 ? io : undefined;
+}
+
 function isNodeStatus(v: unknown): v is NodeStatus {
   return v === 'normal' || v === 'warning' || v === 'critical';
 }
@@ -88,24 +135,33 @@ function isNodeStatus(v: unknown): v is NodeStatus {
 // carry no own alerts (a controller's alerts come from enrichControllers). `controller` is
 // later ENRICHED with a real `kind` from its child pods so its detail panel keeps working.
 function isGroupType(type: string): boolean {
-  return type === 'cluster' || type === 'namespace' || type === 'application' || type === 'controller';
+  return (
+    type === 'cluster' ||
+    type === 'storage-cluster' ||
+    type === 'namespace' ||
+    type === 'application' ||
+    type === 'controller'
+  );
 }
 
-// The three PURELY-decorative group kinds — excludes `controller`, which is a real
-// workload kind (kind-ful, own detail panel). Their on-canvas kind prefix
-// (`Cluster: ` / `Namespace: ` / `Release Unit: `) is render-only in the stylesheet;
-// `data.label` stays the bare upstream name (also on data.cluster/namespace/application)
-// so tooltip titles and other identity consumers never see the prefix. `cluster` is
-// additionally rendered non-selectable (see parseNodes).
+// The PURELY-decorative group kinds — excludes `controller`, which is a real workload kind
+// (kind-ful, own detail panel). Their on-canvas kind prefix (`Cluster: ` / `Storage: ` /
+// `Namespace: ` / `Release Unit: `) is render-only in the stylesheet; `data.label` stays the
+// bare upstream name (also on data.cluster/storageCluster/namespace/application) so tooltip
+// titles and other identity consumers never see the prefix. `cluster` and `storage-cluster`
+// are additionally rendered non-selectable (see parseNodes).
 
 // Panel-side identity keyed off upstream `type` (backend D6):
-//   `cluster` / `namespace` / `application` → kind-less decorative accent group;
+//   `cluster` / `storage-cluster` / `namespace` / `application` → kind-less decorative group;
 //   `controller` → kind-less group flagged isController (kind added in enrichControllers);
 //   everything else → leaf carrying its kind plus `status` ONLY when the backend sent one
-//   (data-driven — stylesheet borders `node[status]`, not a hardcoded kind list). storageclass
-//   is now an ordinary leaf (D3) and falls through this last branch.
+//   (data-driven — stylesheet borders `node[status]`, not a hardcoded kind list). The NetApp
+//   kinds fall through this last branch: `netapp-aggr` is an ordinary leaf, and `netapp-node`
+//   is a kind-ful node that merely HAPPENS to be someone's `parent` — nesting is the
+//   backend's `data.parent`, not an identity the panel assigns.
 type NodeIdentity =
   | { isCluster: true; cluster: string; clusterColor: string }
+  | { isStorageCluster: true; storageCluster: string; storageClusterColor: string }
   | { isNamespace: true; namespace: string; namespaceColor: string }
   | { isApplication: true; application: string; applicationColor: string }
   | { isController: true }
@@ -114,6 +170,12 @@ type NodeIdentity =
 function resolveNodeIdentity(type: string, label: string, status: NodeStatus | undefined): NodeIdentity {
   if (type === 'cluster') {
     return { isCluster: true, cluster: label, clusterColor: CLUSTER_COLOR };
+  }
+  // An ONTAP cluster, NOT a Kubernetes one — kept a distinct flag (rather than reusing
+  // isCluster) because isCluster drives the K8s Clusters legend and swatch palette, and an
+  // ONTAP name has no business there. Same shape otherwise: kind-less, non-selectable.
+  if (type === 'storage-cluster') {
+    return { isStorageCluster: true, storageCluster: label, storageClusterColor: STORAGE_CLUSTER_COLOR };
   }
   if (type === 'namespace') {
     return { isNamespace: true, namespace: label, namespaceColor: NAMESPACE_COLOR };
@@ -174,6 +236,52 @@ function parseAlerts(v: unknown): NodeAlert[] | undefined {
     });
   }
   return alerts.length > 0 ? alerts : undefined;
+}
+
+// A byte count the backend actually measured: finite and non-negative. `0` is a real
+// reading (an empty volume), so it passes — only nonsense is rejected.
+function parseByteCount(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+}
+
+// Project upstream `usage` onto the panel's camelCase shape. The two halves ride separate
+// upstream series families (kubelet used vs capacity; Harvest aggr space used vs total), so
+// each is kept or dropped on its own and a partial reading survives. The object itself is
+// dropped only when NEITHER half is usable — never emitted empty, and never padded with a
+// placeholder 0, since "unread" and "zero bytes" are different facts.
+function parseUsage(v: unknown): { usedBytes?: number; capacityBytes?: number } | undefined {
+  if (!isPlainObject(v)) {
+    return undefined;
+  }
+  const usedBytes = parseByteCount(v.used_bytes);
+  const capacityBytes = parseByteCount(v.capacity_bytes);
+  if (usedBytes === undefined && capacityBytes === undefined) {
+    return undefined;
+  }
+  return {
+    ...(usedBytes !== undefined ? { usedBytes } : {}),
+    ...(capacityBytes !== undefined ? { capacityBytes } : {}),
+  };
+}
+
+// Flatten usage to a single [0,1] ratio for the icon mapper, which can read neither nested
+// data nor arithmetic. Deliberately KIND-AGNOSTIC: any node with a complete usage reading
+// gets one, so pvc and netapp-aggr share one liquid painter and a future usage-bearing
+// kind joins for free.
+//
+// Returns undefined unless BOTH halves are present and capacity is non-zero — an absent
+// ratio paints no liquid at all, which is how "no data" stays structurally distinct from
+// a 0% fill. Clamped because a volume can legitimately report used > capacity (filesystem
+// overhead, thin provisioning) and a >100% fill would just render as a rendering bug.
+function deriveUsageRatio(usage: { usedBytes?: number; capacityBytes?: number } | undefined): number | undefined {
+  if (usage === undefined) {
+    return undefined;
+  }
+  const { usedBytes, capacityBytes } = usage;
+  if (usedBytes === undefined || capacityBytes === undefined || capacityBytes === 0) {
+    return undefined;
+  }
+  return Math.min(1, Math.max(0, usedBytes / capacityBytes));
 }
 
 // Project upstream pod `containers` onto typed ContainerSpec[]. Anti-corruption:
@@ -342,9 +450,19 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
     const application = carriesApplication && isString(d.application) ? d.application : undefined;
     const containers = isPod ? parseContainers(d.containers) : undefined;
     const owner = isPod ? parseOwner(d, labels) : undefined;
-    // storageclass leaf structural fields (D3); omitempty — passed through when present.
-    const provisioner = isString(d.provisioner) ? d.provisioner : undefined;
-    const parameters = parseStringRecord(d.parameters);
+    // Storage fields, all omitempty and all independently guarded. `storageclass` is the
+    // claim's StorageClass NAME on the PVC itself (the storageclass NODE is gone); `health`
+    // is ONTAP's own word, passed through verbatim so an unknown backend value survives —
+    // its ABSENCE is not 'degraded' and is never defaulted. `usage` is the same shape on a
+    // pvc (kubelet) and a netapp-aggr (Harvest), so one parser serves both.
+    const storageclass = isString(d.storageclass) ? d.storageclass : undefined;
+    const health = isString(d.health) ? d.health : undefined;
+    // Kubernetes' Ready condition on a K8s node. Guarded for non-empty like `health` and
+    // passed through verbatim, so an upstream that grows a fourth condition value surfaces
+    // it instead of vanishing. Absence stays absence — never defaulted to 'Unknown'.
+    const readyStatus = isString(d.ready_status) && d.ready_status.length > 0 ? d.ready_status : undefined;
+    const usage = parseUsage(d.usage);
+    const usageRatio = deriveUsageRatio(usage);
     nodeIds.add(d.id);
     elements.push({
       group: 'nodes',
@@ -355,7 +473,7 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
       // `application` groups stay selectable so their cue still surfaces; selecting them
       // opens NO detail panel EXCEPT `application` (resolveSelectedNode returns null for
       // isNamespace, resolves isApplication). Leaf + controller compounds stay selectable.
-      ...('isCluster' in identity ? { selectable: false } : {}),
+      ...('isCluster' in identity || 'isStorageCluster' in identity ? { selectable: false } : {}),
       data: {
         id: d.id,
         ...identity,
@@ -367,8 +485,11 @@ function parseNodes(rawNodes: unknown[], nodeWorstFromPods: ReadonlyMap<string, 
         ...(application !== undefined ? { application } : {}),
         ...(containers !== undefined ? { containers } : {}),
         ...(owner !== undefined ? { owner } : {}),
-        ...(provisioner !== undefined ? { provisioner } : {}),
-        ...(parameters !== undefined ? { parameters } : {}),
+        ...(storageclass !== undefined ? { storageclass } : {}),
+        ...(health !== undefined ? { health } : {}),
+        ...(readyStatus !== undefined ? { readyStatus } : {}),
+        ...(usage !== undefined ? { usage } : {}),
+        ...(usageRatio !== undefined ? { usageRatio } : {}),
         ...(nodeHasStatusInfo ? { worstStatus: rankToStatus(nodeWorstRank) } : {}),
         ...(labels !== undefined ? { labels } : {}),
       },

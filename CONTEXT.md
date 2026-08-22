@@ -1,24 +1,38 @@
 # KSG Panel
 
-Grafana panel that renders Kubernetes resource topology as an interactive cytoscape graph. This context covers the vocabulary of the graph view and its interactions; the graph data itself is produced by the upstream kube-state-graph backend.
+Grafana panel that renders Kubernetes resource topology as an interactive cytoscape graph. This context covers the vocabulary of the graph view and its interactions; in a deployment the graph data is produced by the upstream kube-state-graph backend.
+
+This repository contains no backend. Its demo data is the **fixture** (below), which is also what every test asserts against.
 
 ## Language
 
 ### Graph model
 
 **Node kind**:
-The classification of a graph node (backend `data.type`): `pod`, `node`, `pvc`, `service`, `external`, `switch`, the workload controllers (`deployment`/`statefulset`/`daemonset`/`job`/`cronjob`), `storageclass`, `network`, plus the synthesized `application`. An open set — unknown kinds stay visible and fall back to defaults.
+The classification of a graph node (backend `data.type`): `pod`, `node`, `pvc`, `service`, `external`, `switch`, the workload controllers (`deployment`/`statefulset`/`daemonset`/`job`/`cronjob`), the physical storage pair `netapp-aggr`/`netapp-node`, `network`, plus the synthesized `application`. An open set — unknown kinds stay visible and fall back to defaults.
 _Avoid_: node type, category
 
 **Edge type**:
-The classification of a graph edge; the 8-type backend wire contract: `pod-to-node`, `pod-mounts-pvc`, `pod-calls-pod`, `pod-calls-service`, `service-selects-pod`, `pvc-to-storageclass`, `switch-to-switch`, `node-to-switch`. Which subset is drawn depends on the pod-parent mode.
+The classification of a graph edge; the 8-type backend wire contract: `pod-to-node`, `pod-mounts-pvc`, `pod-calls-pod`, `pod-calls-service`, `service-selects-pod`, `pvc-to-netapp-aggr`, `switch-to-switch`, `node-to-switch`. Which subset is drawn depends on the pod-parent mode.
 _Avoid_: relation, link type
+
+**Fixture**:
+`SHOWCASE_GRAPH` in `src/shared/fixtures/showcaseGraph.ts` — the typed demo graph, and the single source of the panel's fake data. Typed `WireGraph` (`src/shared/types/wire.ts`, the backend's response shape in its own snake_case), compiled into the provisioned dashboard by `npm run fixture:build` and gated against drift by `npm run fixture:check`. It mixes the real wire contract with **panel-only** fields no backend emits — `status`, `alerts`, `time_records`, and the `switch` / `network` kinds with their fabric edges.
+_Avoid_: mock data, seed, sample payload
+
+**Ingress role**:
+The backend's `labels.role` on an ingress node, with two values that are **not** interchangeable. `ingress-gateway` is the routed chain's entry hop: gateway pods sit behind it, the caller also has a direct edge to the backend service, so the whole shape is hideable by the ingress toggle and drawn dashed. `ingress-lb` is the non-Istio LB fallback destination: nothing is routed behind it and the caller's edge to it is that caller's **only** dependency edge, so it is never in the ingress set, never hidden, and never dashed. `collectIngressNodeIds` matches `ingress-gateway` exactly — not by prefix.
+_Avoid_: gateway label, ingress marker
 
 **Edge metrics** (RED):
 The rate / error / duration measurements the backend attaches to an edge it derived from trace data (`data.metrics`, normalized to `{ rate, errorRate?, p90ServerMs? }`). `rate` is **requests per second**, `errorRate` is a **fraction in [0,1]** (not a percentage), `p90ServerMs` is **milliseconds**. Carried only on edges whose both endpoints resolve to a pod or service — in practice `pod-calls-pod` and `pod-calls-service`; never on `service-selects-pod`, the storage/topology edges, or any edge touching an `external` node.
 
 Three states that must stay distinct: **`metrics` absent** = no measurement exists; **`errorRate` absent** = the failure counter could not be read; **`errorRate: 0`** = read successfully with no failures. Never default an absent field to `0`. Values arrive rounded to 6 significant digits, so a wide query window legitimately yields `3.86e-7` — format defensively, never `toFixed`.
 _Avoid_: golden signals, edge stats, latency (alone — say `p90ServerMs`)
+
+**Edge metrics** (storage I/O):
+The other half of the `data.metrics` union, carried only on `pvc-to-netapp-aggr` edges and never mixed with RED (`rate` discriminates them). Six **measurements** read verbatim from Harvest — `readOps` / `writeOps` (per second), `readLatencyUs` / `writeLatencyUs` (average **microseconds**), `readBytesPerSec` / `writeBytesPerSec` — plus the volume's two declared **QoS ceilings**, `maxIops` and `maxBytesPerSec` (bytes per second, already converted upstream from Harvest's MB/s so a ceiling and a measurement compare directly). Every field is independently optional. A **ceiling** is a configured limit, not a reading: its absence means the volume is in no QoS policy group — never `0`, never an unlimited sentinel — and a measurement exceeding one is neither coloured nor warned about, because ONTAP throttles rather than fails.
+_Avoid_: IOPS limit, quota, throttle (for the ceilings — say `maxIops` / `maxBytesPerSec`)
 
 **Container** (compound):
 A node that holds children via cytoscape nesting (`data.parent`): cluster, namespace, application, K8s node, synthesized controller, or the virtual `network` wrapper. In `node` mode pod→node is expressed as nesting; in `controller` mode it is drawn as a `pod-to-node` edge.
@@ -33,6 +47,10 @@ The view transform choosing which container pods nest under: `controller` (owner
 _Avoid_: layout mode (that word belongs to fcose/dagre choice)
 
 ### Visibility
+
+**Ready status**:
+A K8s node's Kubernetes Ready condition (backend `ready_status` → `data.readyStatus`): `Ready`, `NotReady`, or `Unknown`. A third axis, independent of **status** (alert severity) and **worstStatus** — a `NotReady` node with no alerts is still status-normal, and Ready never tints a border. Absence is NOT `Unknown`: the backend omits the field when the node has no Ready series and reserves that literal for a kubelet that stopped reporting.
+_Avoid_: node health, readiness (alone)
 
 **Filter-hidden**:
 An element hidden by the kind / edge-type / ingress visibility filter (`computeVisibility`), including the orphan cascade. A deliberate user choice — features must announce it, never silently override it.

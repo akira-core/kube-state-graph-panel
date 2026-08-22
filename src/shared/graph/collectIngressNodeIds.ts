@@ -13,6 +13,11 @@ import { buildChildrenByParent, collectDescendantIds } from './childrenByParent'
 // Three derivations, in order:
 //   1. LABELLED — any node (any kind) whose `data.labels` carries the backend-guaranteed
 //      marker. Authoritative: an operator that labels a node has declared it a gateway.
+//      The match is on the ONE `ingress-gateway` value, exactly — not a prefix and not a
+//      "looks ingress-ish" test. The backend marks a second shape with the same key,
+//      `ingress-lb` (the nginx fallback destination), which MUST stay out of this set:
+//      nothing is routed behind it, so the caller's edge to it is that caller's only
+//      dependency edge. See INGRESS_LB_LABEL_VALUE for the full rationale.
 //   2. NESTED — every transitive descendant of a labelled node. The label is not
 //      kind-restricted, so it can land on a compound (controller / application group);
 //      everything inside such a group is part of the gateway it names.

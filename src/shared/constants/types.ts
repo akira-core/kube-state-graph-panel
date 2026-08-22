@@ -20,10 +20,16 @@ export type NodeKind =
   | 'daemonset'
   | 'job'
   | 'cronjob'
-  // A StorageClass leaf node under the cluster (backend D6: cluster > storageclass,
-  // no children). Carries `provisioner` + `parameters` (see cytoscape.d.ts); its disk
-  // glyph is ALWAYS drawn as a leaf (no expanded-vs-collapsed compound behaviour).
-  | 'storageclass'
+  // The physical NetApp ONTAP storage a PVC actually lands on. `netapp-aggr` is the
+  // aggregate holding the claim's FlexVol (a leaf, carrying `health` + `usage`);
+  // `netapp-node` is the controller that currently owns it — a REAL node that is also
+  // a compound parent (`storage-cluster > netapp-node > netapp-aggr`), the one tier
+  // where a kind-ful selectable node boxes another real node. Neither carries a
+  // `cluster` label: they belong to no Kubernetes cluster and never enter `clusters[]`.
+  // Replaces the retired `storageclass` kind — the claim's StorageClass NAME now rides
+  // on the PVC's own `data.storageclass`.
+  | 'netapp-aggr'
+  | 'netapp-node'
   // A virtual compound GROUP wrapping the physical switch fabric (network > switch).
   // Pure grouping box, collapsible like other containers; collapsing swaps
   // `switch` → `network` in the node-kinds legend (deriveLegendKinds). Never
@@ -31,10 +37,11 @@ export type NodeKind =
   | 'network';
 
 // Full wire contract: every edge type the backend's core graph can carry (D6 — all
-// backend-emitted, no panel synthetics). `pod-to-node` (pod→node) and
-// `pvc-to-storageclass` (pvc→storageclass) replace the retired panel synthetics
-// `pod-runs-on-node` / `controller-owns-pod`. `switch-to-switch` / `node-to-switch`
-// are the physical network-fabric edges added in backend v0.0.18 (pkg/graph/edge.go);
+// backend-emitted, no panel synthetics). `pod-to-node` (pod→node) replaced the retired
+// panel synthetics `pod-runs-on-node` / `controller-owns-pod`; `pvc-to-netapp-aggr`
+// (pvc→netapp-aggr) replaced `pvc-to-storageclass` when the backend re-anchored storage
+// on the physical ONTAP aggregate. `switch-to-switch` / `node-to-switch` are the
+// physical network-fabric edges added in backend v0.0.18 (pkg/graph/edge.go);
 // they involve neither pods nor controllers, so they are drawn in both pod-parent modes.
 export type EdgeType =
   | 'pod-to-node'
@@ -42,7 +49,7 @@ export type EdgeType =
   | 'pod-calls-pod'
   | 'pod-calls-service'
   | 'service-selects-pod'
-  | 'pvc-to-storageclass'
+  | 'pvc-to-netapp-aggr'
   | 'switch-to-switch'
   | 'node-to-switch';
 

@@ -1,11 +1,12 @@
 apiVersion: 1
 
+# The Infinity datasource the showcase panel binds to. It carries NO url: the dashboard's
+# only target is `source: inline`, which parses a JSON string embedded in the dashboard
+# itself and never issues a request. The datasource still has to exist — an inline target
+# is still routed through a datasource — so this provisions the uid the panel references.
 datasources:
   - name: kube-state-graph
     type: yesoreyeram-infinity-datasource
     uid: ksg-default
-    url: http://kube-state-graph:8080
     access: proxy
     isDefault: false
-    jsonData:
-      timeout: 30

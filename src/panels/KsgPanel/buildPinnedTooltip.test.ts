@@ -45,24 +45,25 @@ describe('buildPinnedTooltip', () => {
     expect(buildPinnedTooltip(node)).toEqual({ label: 'bare', attributes: [] });
   });
 
-  it('builds a pinned card for a storageclass leaf (provisioner/parameters promoted)', () => {
+  it('builds a pinned card for a netapp-aggr (health + usage promoted)', () => {
     const node: NodeDetailData = {
-      id: 'prod/storageclass/fast-ssd',
-      label: 'fast-ssd',
-      kind: 'storageclass',
-      provisioner: 'rook-ceph.rbd.csi.ceph.com',
+      id: 'netapp/ontap-prod/aggr/aggr1',
+      label: 'aggr1',
+      kind: 'netapp-aggr',
+      health: 'online',
+      usage: { usedBytes: 7e11, capacityBytes: 1e12 },
       attributes: [
-        { key: 'kind', value: 'storageclass' },
-        { key: 'provisioner', value: 'rook-ceph.rbd.csi.ceph.com' },
-        { key: 'pool', value: 'kube', wrap: true },
+        { key: 'kind', value: 'netapp-aggr' },
+        { key: 'health', value: 'online' },
+        { key: 'usage', value: '700 GB / 1 TB (70%)' },
       ],
     };
     expect(buildPinnedTooltip(node)).toEqual({
-      label: 'fast-ssd',
+      label: 'aggr1',
       attributes: [
-        { key: 'kind', value: 'storageclass' },
-        { key: 'provisioner', value: 'rook-ceph.rbd.csi.ceph.com' },
-        { key: 'pool', value: 'kube', wrap: true },
+        { key: 'kind', value: 'netapp-aggr' },
+        { key: 'health', value: 'online' },
+        { key: 'usage', value: '700 GB / 1 TB (70%)' },
       ],
     });
   });
