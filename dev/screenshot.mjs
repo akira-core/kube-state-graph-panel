@@ -1,8 +1,8 @@
-// One-off: screenshot the provisioned KSG Demo panel to verify it renders.
+// One-off: screenshot the provisioned KSG Showcase panel to verify it renders.
 // Usage: node dev/screenshot.mjs
 import { chromium } from '@playwright/test';
 
-const URL = process.env.KSG_DASH_URL ?? 'http://localhost:3000/d/ksg-demo/ksg-demo?from=now-1h&to=now&kiosk';
+const URL = process.env.KSG_DASH_URL ?? 'http://localhost:3000/d/ksg-switch-demo/ksg-showcase?from=now-1h&to=now&kiosk';
 const OUT = process.env.KSG_SHOT ?? '/tmp/ksg-panel.png';
 
 const browser = await chromium.launch();

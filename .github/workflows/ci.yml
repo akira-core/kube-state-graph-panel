@@ -35,6 +35,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The demo dashboard's inline graph is GENERATED from the typed fixture. Regenerating
+      # here catches a fixture edit that was never compiled in — otherwise the demo would
+      # quietly keep rendering the previous wire contract.
+      - name: Fixture dashboard is in sync
+        run: npm run fixture:check
+
       - name: Unit tests
         run: npm run test:ci
 

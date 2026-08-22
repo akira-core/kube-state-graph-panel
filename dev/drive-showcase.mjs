@@ -1,6 +1,6 @@
 // Drive the no-backend KSG demo: open the inline-JSON dashboard, capture node
 // mode, toggle the legend's Layout control to Controller, capture controller mode.
-//   node dev/nobackend/drive.mjs
+//   node dev/drive-showcase.mjs
 import { chromium } from '@playwright/test';
 
 const BASE = process.env.KSG_BASE ?? 'http://localhost:3000';

@@ -1,84 +1,30 @@
-# Local demo — ONE Grafana, both dashboards, two run modes (Compose profiles).
+# Local demo — ONE Grafana, ONE dashboard, no backend anywhere.
 #
-# Both dashboards are provisioned together from provisioning/dashboards/ and are
-# independent: `KSG Showcase` (/d/ksg-switch-demo) uses an Infinity INLINE target
-# (zero backend); `KSG Demo` (/d/ksg-demo) drives the real kube-state-graph backend
-# via the provisioned Infinity datasource. The backend stack (VictoriaMetrics +
-# seeder + kube-state-graph) sits behind the `backend` profile so the showcase can
-# run on its own.
+# `KSG Showcase` (/d/ksg-switch-demo) carries its whole graph in an Infinity INLINE
+# target, generated from src/shared/fixtures/showcaseGraph.ts by `npm run fixture:build`.
+# Nothing here talks to a kube-state-graph server, a Prometheus-compatible store, or a
+# Kubernetes cluster: this repository is panel-only, and its demo data is a typed fixture.
 #
-#   docker compose up -d                    # grafana only → Showcase works;
-#                                           #   KSG Demo shows an (expected) datasource error
-#   docker compose --profile backend up -d  # + VM + seeder + backend → BOTH dashboards live
-#                                           #   (== `npm run server`, which also builds)
+#   npm run build          # or `npm run dev` to keep webpack watching
+#   docker compose up -d   # → http://localhost:3000/d/ksg-switch-demo
 #
-# Grafana → http://localhost:3000 (anonymous auth enabled in dev). Needs a built
-# dist/ (`npm run build`, or `npm run dev` to keep webpack watching).
+# Grafana runs with anonymous auth in dev and loads the plugin from the dist/ bind mount,
+# so a rebuild is picked up on browser reload with no container restart.
 services:
   grafana:
     extends:
       file: .config/docker-compose-base.yaml
       service: grafana
-    # No hard depends_on: the backend is an opt-in profile, and Grafana resolves the
-    # provisioned `kube-state-graph:8080` datasource lazily once that service is up.
     environment:
-      # Auto-install Infinity datasource plugin so the provisioned ksg-default datasource
-      # has a backing plugin. Without this, Grafana shows "Datasource ksg-default was not found".
+      # Auto-install the Infinity datasource plugin so the provisioned ksg-default
+      # datasource has a backing plugin. Without this, Grafana shows
+      # "Datasource ksg-default was not found" and the inline target never parses.
       GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
     volumes:
-      # Persist installed plugins so GF_INSTALL_PLUGINS doesn't re-download them
-      # on every `docker compose up`. The dist/ bind mount from the base config
-      # targets a subdirectory of this path and is layered on top, so the local
-      # plugin still wins.
+      # Persist installed plugins so GF_INSTALL_PLUGINS doesn't re-download them on every
+      # `docker compose up`. The dist/ bind mount from the base config targets a
+      # subdirectory of this path and is layered on top, so the local plugin still wins.
       - ksg-grafana-plugins:/var/lib/grafana/plugins
-
-  # VictoriaMetrics is the topology data source for the kube-state-graph backend: the
-  # backend derives the whole graph from PromQL over a [start,end] window, it
-  # does NOT read the Kubernetes API. ksg-seeder fills it with synthetic data.
-  victoriametrics:
-    profiles: ['backend']
-    image: victoriametrics/victoria-metrics:${VM_TAG:-v1.115.0}
-    container_name: ksg-victoriametrics
-    command:
-      - '--retentionPeriod=1d'
-    ports:
-      # Exposed for debugging (e.g. curl http://localhost:8428/api/v1/query).
-      - '8428:8428'
-
-  # Pushes a synthetic, fully-covering metrics fixture into VictoriaMetrics on a
-  # loop (see dev/victoriametrics/seed.sh + topology.prom). Replaces the need for
-  # a real cluster + kube-state-metrics + Tempo service-graph pipeline.
-  ksg-seeder:
-    profiles: ['backend']
-    image: curlimages/curl:${CURL_TAG:-8.11.1}
-    container_name: ksg-seeder
-    depends_on:
-      - victoriametrics
-    environment:
-      VM_URL: http://victoriametrics:8428
-      SEED_INTERVAL: '10'
-    entrypoint: ['/bin/sh', '/seed/seed.sh']
-    volumes:
-      - ./dev/victoriametrics:/seed:ro
-
-  kube-state-graph:
-    profiles: ['backend']
-    # Defaults to :latest (locally built via `make docker-build` in the backend repo, or
-    # pulled from Docker Hub) so `docker compose --profile backend up` runs out-of-the-box.
-    # REQUIRED: a backend carrying `replace-storageclass-with-netapp-nodes`. The panel is a
-    # HARD CUT onto that wire contract — it no longer understands `storageclass` nodes or
-    # `pvc-to-storageclass` edges — so an older image renders the workload half normally and
-    # the storage half not at all (no netapp nodes, no storage edges, no usage fills). Point
-    # KSG_BACKEND_TAG at a suitable image; :latest is only correct once that change ships.
-    image: marz32one/kube-state-graph:${KSG_BACKEND_TAG:-latest}
-    container_name: ksg-backend
-    depends_on:
-      - victoriametrics
-    ports:
-      - '8080:8080'
-    environment:
-      # The backend reads topology from a Prometheus-compatible store, not kubeconfig.
-      KSG_PROM_URL: http://victoriametrics:8428
 
 volumes:
   ksg-grafana-plugins:
